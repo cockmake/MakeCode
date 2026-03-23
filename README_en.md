@@ -1,6 +1,6 @@
 # 🚀 MakeCode · Project Documentation
 
-🌐 Language: [简体中文](README.md) | **English**
+🌐 Language: [简体中文](README.md) | **English** | [📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
 > ✅ Currently supports the **OpenAI Response API**.
 
@@ -181,6 +181,7 @@ pip install -r requirements.txt
 OPENAI_BASE_URL=your_endpoint
 OPENAI_API_KEY=your_api_key
 MODEL_ID=your_model_id
+# Note: the model behind MODEL_ID must support the Responses API
 ```
 
 ### Start

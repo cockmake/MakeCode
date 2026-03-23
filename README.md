@@ -1,6 +1,6 @@
 # 🚀 MakeCode · 项目说明文档
 
-🌐 语言切换：**简体中文** | [English](README_en.md)
+🌐 语言切换：**简体中文** | [English](README_en.md) | [📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
 > ✅ 当前支持 **OpenAI Response API**。
 
@@ -180,6 +180,7 @@ pip install -r requirements.txt
 OPENAI_BASE_URL=your_endpoint
 OPENAI_API_KEY=your_api_key
 MODEL_ID=your_model_id
+# 注意：MODEL_ID 对应模型需要支持 Responses API
 ```
 
 ### 启动
@@ -268,4 +269,3 @@ python main.py
 
 当前仓库未显式提供 License。  
 如需开源发布，建议补充 `LICENSE` 与 `CONTRIBUTING`。
-
