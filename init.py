@@ -1,7 +1,20 @@
+import os
+import sys
+
 from dotenv import load_dotenv
 
-load_dotenv(".env")
-import os
+
+def get_absolute_env_path():
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, '.env')
+
+
+env_path = get_absolute_env_path()
+load_dotenv(dotenv_path=env_path, override=True)
+
 from pathlib import Path
 
 from openai import OpenAI
@@ -125,12 +138,15 @@ def _init_workdir() -> Path:
         return cwd
 
 
-# 动态加载 WORKDIR
 WORKDIR = _init_workdir()
 
-# 初始化 OpenAI Client
+try:
+    API_KEY = os.environ["OPENAI_API_KEY"]
+    BASE_ULR = os.environ["OPENAI_BASE_URL"]
+    MODEL = os.environ["MODEL_ID"]
+except KeyError:
+    exit("❌ 错误: 请确保 .env 文件中包含 OPENAI_API_KEY, OPENAI_BASE_URL 和 MODEL_ID 这三个环境变量。")
 client = OpenAI(
-    base_url=os.getenv("OPENAI_BASE_URL"),
-    api_key=os.getenv("OPENAI_API_KEY")
+    base_url=BASE_ULR,
+    api_key=API_KEY,
 )
-MODEL = os.environ["MODEL_ID"]

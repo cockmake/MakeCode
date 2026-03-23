@@ -290,9 +290,10 @@ def agent_loop(messages: list):
             else:
                 print(f"\033[31m⚠️ {error_msg}\033[0m")
             break
-
-        new_msgs = [item.model_dump(exclude_none=True) if hasattr(item, 'model_dump') else dict(item) for item in
-                    response.output]
+        new_msgs = [
+            item.model_dump(exclude_none=True)
+            if hasattr(item, 'model_dump') else dict(item) for item in response.output
+        ]
         messages.extend(new_msgs)
 
         has_tool_call = False
