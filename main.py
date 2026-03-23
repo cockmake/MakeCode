@@ -285,7 +285,15 @@ def _read_user_query() -> str:
 def agent_loop(messages: list):
     while True:
         micro_compact(messages)
-        response = _request_with_progress(messages)
+        try:
+            response = _request_with_progress(messages)
+        except Exception as e:
+            error_msg = f"Error during agent execution: {e}"
+            if RICH_AVAILABLE:
+                console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
+            else:
+                print(f"\033[31m⚠️ {error_msg}\033[0m")
+            break
 
         new_msgs = [item.model_dump(exclude_none=True) if hasattr(item, 'model_dump') else dict(item) for item in
                     response.output]
