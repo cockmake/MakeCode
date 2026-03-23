@@ -3,9 +3,10 @@
 🌐 语言切换：**简体中文** | [English](README_en.md) | [📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
 > ✅ 当前支持 **OpenAI Response API**。
+>
+> ✨ 只需 1400+ 行代码，实现一个 Agent Code CLI。
 
 **MakeCode 是一个多代理协同命令行助手：** 支持任务拓扑管理、并发子代理委派、技能动态加载、文件/终端工具调用，以及会话上下文压缩，适合复杂工程任务的拆解与执行。
-
 ---
 
 ## 📌 1. 项目定位

@@ -3,6 +3,8 @@
 🌐 Language: [简体中文](README.md) | **English** | [📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
 > ✅ Currently supports the **OpenAI Response API**.
+>
+> ✨ Only 1400+ lines of code to build an Agent Code CLI.
 
 A **MakeCode-powered multi-agent command-line assistant** built on the **OpenAI Responses API**.  
 This project supports task topology management, concurrent sub-agent delegation, dynamic skill loading, file/terminal tools, and conversation compaction for complex engineering workflows.
