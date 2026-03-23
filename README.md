@@ -1,5 +1,7 @@
 # 🤖 Agent 项目说明文档
 
+🌐 语言切换：**简体中文** | [English](README_en.md)
+
 > ✅ 当前支持 **OpenAI Response API**。
 
 **多代理协同命令行助手：** 项目支持任务拓扑管理、并发子代理委派、技能动态加载、文件/终端工具调用，以及会话上下文压缩，适合复杂工程任务的拆解与执行。
@@ -109,6 +111,23 @@ flowchart TD
 - `utils/tasks.py` 维护任务依赖与可执行前沿，控制并发边界。
 - `utils/teams.py` 将可并行任务下发给子代理并收集报告。
 - `utils/common.py` / `utils/skills.py` / `utils/memory.py` 分别提供基础执行能力、技能扩展、上下文治理。
+
+### 📸 实际演示（过程与结果）
+
+以下示例图展示了从执行过程到最终成果的完整链路：
+
+**过程 1（先行展示）**
+
+<p align="center">
+  <img src="images/1.png" alt="过程1" />
+</p>
+
+**其余过程与结果（2x2）**
+
+| 过程 2 | 过程 3 |
+| --- | --- |
+| ![过程2](images/2.png) | ![过程3](images/3.png) |
+| ![过程4](images/4.png) | ![最终成果展示](images/成果展示.png) |
 
 ---
 

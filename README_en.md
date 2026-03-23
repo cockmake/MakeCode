@@ -1,5 +1,9 @@
 # 🤖 Agent Project Documentation
 
+🌐 Language: [简体中文](README.md) | **English**
+
+> ✅ Currently supports the **OpenAI Response API**.
+
 A **multi-agent command-line assistant** built on the **OpenAI Responses API**.  
 This project supports task topology management, concurrent sub-agent delegation, dynamic skill loading, file/terminal tools, and conversation compaction for complex engineering workflows.
 
@@ -108,6 +112,23 @@ flowchart TD
 - `utils/tasks.py` controls dependency-aware scheduling.
 - `utils/teams.py` handles concurrent execution and reporting.
 - `utils/common.py`, `utils/skills.py`, and `utils/memory.py` provide execution, knowledge extension, and context governance.
+
+### 📸 Real Demo (Process & Result)
+
+The following images show the full path from execution steps to final output:
+
+**Step 1 (highlighted first)**
+
+<p align="center">
+  <img src="images/1.png" alt="Step 1" />
+</p>
+
+**Remaining steps and result (2x2)**
+
+| Step 2 | Step 3 |
+| --- | --- |
+| ![Step2](images/2.png) | ![Step3](images/3.png) |
+| ![Step4](images/4.png) | ![Final Result](images/成果展示.png) |
 
 ---
 
