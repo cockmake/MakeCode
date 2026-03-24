@@ -10,7 +10,7 @@ env/
 
 # Environment variables
 .env
-
+*.exe
 # Test/cache artifacts
 .pytest_cache/
 .mypy_cache/
