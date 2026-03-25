@@ -21,6 +21,8 @@ try:
             if line.strip() and not line.strip().startswith("#"):
                 key, value = line.strip().split("=", 1)
                 if key not in os.environ:
+                    # 注意字符串类型的环境变量值可能包含引号，去除它们
+                    value = value.strip('\'"')
                     os.environ[key] = value
 except FileNotFoundError:
     pass  # .env 文件不存在，继续执行，依赖环境变量的代码会处理缺失的情况
@@ -151,6 +153,9 @@ try:
     BASE_ULR = os.environ["OPENAI_BASE_URL"]
     MODEL = os.environ["MODEL_ID"]
 except KeyError:
+    print(
+        "\033[31mError: Missing required environment variables. Please ensure OPENAI_API_KEY, OPENAI_BASE_URL, and MODEL_ID are set.\033[0m"
+    )
     exit(0)
 client = OpenAI(
     base_url=BASE_ULR,
