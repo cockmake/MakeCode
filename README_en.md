@@ -2,50 +2,73 @@
 
 🌐 Language: [简体中文](README.md) | **English** | [📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
-> ✅ Currently supports the **OpenAI Response API**.
+> A multi-agent command-line orchestrator built on the OpenAI Responses API.
 >
-> ✨ Only 1400+ lines of code to build an Agent Code CLI.
-
-A **MakeCode-powered multi-agent command-line assistant** built on the **OpenAI Responses API**.  
-This project supports task topology management, concurrent sub-agent delegation, dynamic skill loading, file/terminal tools, and conversation compaction for complex engineering workflows.
+> It supports task topology planning, concurrent sub-agent delegation, skill loading, file/terminal tools, and long-session compaction.
 
 ---
 
-## 📌 1. Project Positioning
+## 1. Overview
 
-MakeCode follows an **Orchestrator + Teammates** model:
+MakeCode is an Agent CLI designed for engineering workflows. It follows an **Orchestrator + Teammates** model:
 
-- 🧠 The orchestrator understands requests, plans execution, calls tools, and coordinates flow.
-- 👥 Sub-agents execute independent tasks in parallel and submit structured reports.
-- 🕸️ Task dependencies are enforced by TaskManager to guarantee safe ordering.
+- The orchestrator understands requests, plans work, calls tools, and merges results.
+- TaskManager maintains dependency relationships and the runnable frontier.
+- The Team module wakes sub-agents concurrently for parallel-safe tasks.
+- The Skills module loads domain-specific guidance on demand.
+- The Memory module compacts long conversations and stores transcripts.
 
-Goal: make the agent not only “answer questions” but also **execute tasks reliably, trace progress, and scale**.
+The goal is not just to answer questions, but to provide an agent workflow that is **plannable, executable, traceable, and extensible**.
 
 ---
 
-## ✨ 2. Core Capabilities
+## 2. Current Capabilities
 
-### 🧠 2.1 Orchestrator Loop (`main.py`)
+### 2.1 Orchestrator Loop (`main.py`)
 
-- Maintains multi-turn chat history.
-- Executes model-issued `function_call` actions.
-- Renders output with Rich / tqdm / plain terminal fallback.
-- Applies lightweight context compaction (`micro_compact`) on long sessions.
+- Uses OpenAI `responses.create(...)` for multi-turn interaction.
+- Automatically executes model-issued tool calls.
+- Aggregates these tool groups:
+  - File / Terminal tools
+  - Skills tools
+  - Memory tools
+  - TaskManager tools
+  - Team tools
+- Supports Rich / tqdm / plain terminal fallback rendering.
+- Shows terminal environment at startup and compacts context when needed.
 
-### 🧰 2.2 Tooling Layer (`utils/common.py`)
+### 2.2 Workspace and Environment Init (`init.py`)
 
-Core tools:
+- Automatically reads `.env` from the project root at startup.
+- Supports interactive workspace selection:
+  - current directory
+  - custom directory
+- Initializes the OpenAI client from:
+  - `OPENAI_API_KEY`
+  - `OPENAI_BASE_URL`
+  - `MODEL_ID`
 
-- `RunRead`: read files (line-range support)
-- `RunWrite`: write files (auto-create parent dirs)
-- `RunEdit`: replace specific line ranges
-- `RunTerminalCommand`: run non-interactive shell commands
+### 2.3 File and Terminal Tools (`utils/common.py`)
 
-The runtime terminal is auto-detected (Windows priority: `pwsh` / `powershell` / `cmd`).
+Provides the following execution primitives:
 
-### 🗂️ 2.3 Task Topology (`utils/tasks.py`)
+- `RunRead`: read file contents, optionally by line range
+- `RunWrite`: overwrite a file and auto-create parent directories
+- `RunEdit`: replace a specific line range
+- `RunGrep`: search text files in a target directory with a regex pattern
+- `RunTerminalCommand`: run a non-interactive terminal command
 
-TaskManager APIs:
+Implementation details:
+
+- File access is protected by workspace boundary checks.
+- Terminal type is detected once at startup and then fixed.
+- Windows priority: `pwsh` / `powershell` / `cmd`
+- POSIX priority: `bash` / `zsh` / `sh`
+- Terminal command timeout defaults to 120 seconds.
+
+### 2.4 Task Management (`utils/tasks.py`)
+
+TaskManager provides:
 
 - `CreateTask`
 - `UpdateTaskStatus`
@@ -54,210 +77,111 @@ TaskManager APIs:
 - `GetRunnableTasks`
 - `GetTaskTable`
 
-Highlights:
+Key characteristics:
 
-- Built-in DAG validation (cycle detection).
-- Runnable task definition: `pending` + all dependencies `completed`.
-- Plans are persisted under `.tasks/`.
+- Task states: `pending` / `in_progress` / `completed`
+- DAG validation for active tasks to prevent dependency cycles
+- A task is runnable when it is `pending` and all dependencies are completed
+- Each run writes a task-plan file under `.tasks/`
 
-### 👥 2.4 Team Delegation (`utils/teams.py`)
+### 2.5 Concurrent Sub-Agents (`utils/teams.py`)
 
-- `DelegateTasks` only accepts tasks from the latest runnable frontier.
-- Runs sub-agents concurrently via thread pool.
-- Writes per-agent JSONL traces.
-- Syncs task states back into TaskManager and aggregates final reports.
+The Team module supports:
 
-### 🧩 2.5 Skill Loading (`utils/skills.py` + `skills/*`)
+- accepting only tasks from the latest `GetRunnableTasks` frontier
+- running multiple sub-agents concurrently with a thread pool
+- marking plan tasks as `in_progress` before execution
+- syncing final task status back after execution
+- writing a dedicated JSONL trace per sub-agent
+- aggregating reports from one delegation batch into a combined report
 
-- `ListSkills`: discover available skills
-- `LoadSkill`: load full skill content
+Runtime artifacts include:
 
-Built-in sample skills:
+- `.team/task_history.json`
+- `.team/runs/<run_id>/..._trace.jsonl`
+
+### 2.6 Skill System (`utils/skills.py`)
+
+Supports:
+
+- `ListSkills`: list available skills with descriptions
+- `LoadSkill`: load the full content of a skill
+
+Current built-in skills in the repository:
 
 - `pdf`
 - `code-review`
 
-### 🧠 2.6 Memory Compaction (`utils/memory.py`)
+Skill location: `skills/<name>/SKILL.md`
 
-- Stores raw conversation transcripts in `.transcripts/`
-- Summarizes history through model calls
-- Preserves essential system/current-turn context
+### 2.7 Conversation Compaction (`utils/memory.py`)
 
----
+- Provides the `Compact` tool for history compaction.
+- Saves pre-compaction transcripts into `.transcripts/`.
+- Performs lightweight cleanup of older tool outputs via `micro_compact`.
+- Uses the model to summarize past history and rebuild context.
 
-## 🏗️ 3. Architecture Diagram
+### 2.8 Sub-Agent Todo Tool (`tools/todo.py`)
 
-### High-Level Flow (Mermaid)
-
-```mermaid
-flowchart TD
-    U[User] --> O[Orchestrator main.py]
-    O --> M[OpenAI Responses API]
-    O --> C[Common Tools utils/common.py]
-    O --> T[TaskManager utils/tasks.py]
-    O --> S[Skills utils/skills.py]
-    O --> MM[Memory utils/memory.py]
-    T --> D[DelegateTasks Team utils/teams.py]
-    D --> A1[Sub-Agent #1]
-    D --> A2[Sub-Agent #2]
-    D --> A3[Sub-Agent #N]
-    A1 --> R[SubmitTaskReport]
-    A2 --> R
-    A3 --> R
-    R --> O
-    O --> OUT[Final Response]
-```
-
-### Interaction Notes
-
-- `main.py` is the control center for model + tool execution loops.
-- `utils/tasks.py` controls dependency-aware scheduling.
-- `utils/teams.py` handles concurrent execution and reporting.
-- `utils/common.py`, `utils/skills.py`, and `utils/memory.py` provide execution, knowledge extension, and context governance.
-
-### 📸 Real Demo (Process & Result)
-
-The following images show the full path from execution steps to final output:
-
-**Step 1 (highlighted first)**
-
-<p align="center">
-  <img src="images/1.png" alt="Step 1" />
-</p>
-
-**Remaining steps and result (2x2)**
-
-| Step 2 | Step 3 |
-| --- | --- |
-| ![Step2](images/2.png) | ![Step3](images/3.png) |
-| ![Step4](images/4.png) | ![Final Result](images/成果展示.png) |
+Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for multi-step task tracking.
 
 ---
 
-## 📁 4. Directory Structure
+## 3. Project Structure
 
 ```text
 Agent/
-├─ main.py
-├─ init.py
-├─ requirements.txt
+├─ main.py                  # orchestrator loop and CLI entry
+├─ init.py                  # .env loading, workspace selection, OpenAI client init
+├─ requirements.txt         # project dependencies
+├─ README.md
+├─ README_en.md
 ├─ tools/
-│  └─ todo.py
+│  └─ todo.py               # internal todo manager for sub-agents
 ├─ utils/
-│  ├─ common.py
-│  ├─ tasks.py
-│  ├─ teams.py
-│  ├─ skills.py
-│  └─ memory.py
-└─ skills/
-   ├─ pdf/SKILL.md
-   └─ code-review/SKILL.md
+│  ├─ common.py             # file / terminal / grep primitives
+│  ├─ tasks.py              # TaskManager topology and status logic
+│  ├─ teams.py              # concurrent delegation and execution logs
+│  ├─ skills.py             # skill discovery and loading
+│  └─ memory.py             # transcript saving and history compaction
+├─ skills/
+│  ├─ pdf/
+│  │  └─ SKILL.md
+│  └─ code-review/
+│     └─ SKILL.md
+└─ build/                   # build artifacts / packaging files if present
 ```
 
 Runtime-generated directories:
 
-- `.tasks/` task-plan JSON files
-- `.team/` sub-agent history and run logs
-- `.transcripts/` raw transcripts before compaction
+- `.tasks/`: task-plan JSON files
+- `.team/`: sub-agent history and run logs
+- `.transcripts/`: transcripts saved before compaction
 
 ---
 
-## ⚙️ 5. Requirements
+## 4. Execution Flow
 
-- Python 3.10+ (recommended 3.11/3.12)
+A typical flow looks like this:
+
+1. The user submits a task.
+2. The orchestrator decides whether to create or update a TaskManager plan first.
+3. The model returns tool calls.
+4. The orchestrator executes those tools and feeds results back.
+5. If parallel work exists, it calls `GetRunnableTasks` first.
+6. It delegates the latest runnable frontier through `DelegateTasks`.
+7. Sub-agents finish and return reports.
+8. The orchestrator continues until it can produce the final answer.
+
+---
+
+## 5. Requirements
+
+- Python 3.10+
 - Access to an OpenAI-compatible endpoint
+- A model that supports the Responses API
 
----
-
-## 🚀 6. Setup and Run
-
-### Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Configure `.env`
-
-```env
-OPENAI_BASE_URL=your_endpoint
-OPENAI_API_KEY=your_api_key
-MODEL_ID=your_model_id
-# Note: the model behind MODEL_ID must support the Responses API
-```
-
-### Start
-
-```bash
-python main.py
-```
-
-At startup, the app lets you select a workspace directory, then enters interactive multi-turn CLI mode.
-
----
-
-## 🔄 7. End-to-End Workflow
-
-1. User submits a request
-2. Orchestrator asks model for the next action
-3. Tool calls are executed and fed back to model context
-4. TaskManager builds/updates dependency graph if needed
-5. Runnable tasks are delegated concurrently to sub-agents
-6. Sub-agents return `SubmitTaskReport`
-7. Orchestrator merges results and returns final output
-
----
-
-## 🧱 8. Important Constraints
-
-- Prefer File tools over shell for regular file operations.
-- Always call `GetRunnableTasks` before delegation.
-- DAG validation is enforced for active tasks.
-- Terminal commands are non-interactive and timeout by default (120s).
-
----
-
-## 🩺 9. Troubleshooting
-
-### Missing env vars
-
-Ensure these are set:
-
-- `OPENAI_BASE_URL`
-- `OPENAI_API_KEY`
-- `MODEL_ID`
-
-### Path boundary errors
-
-`RunRead`/`RunWrite`/`RunEdit` enforce workspace-safe paths.
-
-### Encoding issues in terminal output
-
-The command runner tries UTF-8 first, then falls back to system encoding.
-
-### Delegation rejected
-
-Verify task IDs are included in the **latest** `GetRunnableTasks` output.
-
----
-
-## 🛠️ 10. Extending the Project
-
-### Add a new skill
-
-1. Create `skills/<name>/SKILL.md`
-2. Add frontmatter: `name`, `description` (optional `tags`)
-3. Restart and load via `ListSkills` / `LoadSkill`
-
-### Add a new tool
-
-1. Define a Pydantic model + handler
-2. Register with `make_response_tool(pydantic_function_tool(...))`
-3. Merge into `SUPER_TOOLS` and `SUPER_TOOLS_HANDLERS`
-
----
-
-## 📦 11. Dependencies
+Dependencies currently declared in `requirements.txt`:
 
 - `openai`
 - `pydantic`
@@ -268,8 +192,102 @@ Verify task IDs are included in the **latest** `GetRunnableTasks` output.
 
 ---
 
-## 📄 12. License
+## 6. Installation and Run
 
-No explicit license file is currently included.  
-For open-source release, consider adding `LICENSE` and `CONTRIBUTING`.
+### 6.1 Install dependencies
 
+```bash
+pip install -r requirements.txt
+```
+
+### 6.2 Configure `.env`
+
+Create a `.env` file in the project root:
+
+```env
+OPENAI_BASE_URL=your_endpoint
+OPENAI_API_KEY=your_api_key
+MODEL_ID=your_model_id
+```
+
+- The model behind `MODEL_ID` must support the Responses API.
+- Existing environment variables are preserved; values from `.env` only fill missing keys.
+
+### 6.3 Start
+
+```bash
+python main.py
+```
+
+At startup, the program asks for a workspace directory and then enters the interactive CLI.
+
+---
+
+## 7. Operational Constraints
+
+Important built-in rules include:
+
+- Prefer File tools for file reads, writes, edits, and text search.
+- Regular file manipulation should not rely on shell commands.
+- Always call `GetRunnableTasks` before delegation.
+- `DelegateTasks` only accepts tasks from the latest runnable frontier.
+- Only parallel-safe and independent tasks should be delegated concurrently.
+- Terminal commands must be non-interactive and safe.
+
+---
+
+## 8. How to Extend
+
+### 8.1 Add a Skill
+
+1. Create `skills/<name>/`
+2. Add `SKILL.md`
+3. Optionally include frontmatter fields:
+   - `name`
+   - `description`
+   - `tags`
+4. Restart the app, then discover it via `ListSkills` / `LoadSkill`
+
+### 8.2 Add a Tool
+
+The current tool registration flow is based on `openai.pydantic_function_tool(...)` plus `make_response_tool(...)`.
+
+Typical steps:
+
+1. Define a Pydantic model
+2. Implement the handler function
+3. Register the tool in the proper tool collection
+4. Add the handler into the related `*_HANDLERS`
+5. Include it in the main orchestrator tool aggregation
+
+---
+
+## 9. Troubleshooting
+
+### 9.1 Missing environment variables
+
+If startup fails, check:
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `MODEL_ID`
+
+### 9.2 Path escapes workspace
+
+`RunRead`, `RunWrite`, `RunEdit`, and `RunGrep` all enforce workspace boundaries. Paths outside the workspace are rejected.
+
+### 9.3 Terminal command failures
+
+Make sure:
+
+- the detected startup terminal actually exists
+- the command does not require interactive input
+- the command does not exceed the 120-second timeout
+
+### 9.4 Why delegation fails
+
+Common causes:
+
+- the task is not in the latest `GetRunnableTasks` result
+- some dependencies are not completed yet
+- duplicated or unknown task IDs were passed in

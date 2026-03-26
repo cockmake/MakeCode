@@ -1,49 +1,73 @@
-# 🚀 MakeCode · 项目说明文档
+# 🚀 MakeCode · 项目说明
 
 🌐 语言切换：**简体中文** | [English](README_en.md) | [📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
-> ✅ 当前支持 **OpenAI Response API**。
->
-> ✨ 只需 1400+ 行代码，实现一个 Agent Code CLI。
-
-**MakeCode 是一个多代理协同命令行助手：** 支持任务拓扑管理、并发子代理委派、技能动态加载、文件/终端工具调用，以及会话上下文压缩，适合复杂工程任务的拆解与执行。
----
-
-## 📌 1. 项目定位
-
-MakeCode 采用“编排器（Orchestrator）+ 子代理（Teammates）”协作模型：
-
-- 🧠 主代理负责理解用户需求、规划任务、调用工具、统筹执行。
-- 👥 子代理按角色并发处理可并行任务，并回传结构化报告。
-- 🕸️ 系统通过 TaskManager 维护依赖关系，保障执行顺序与一致性。
-
-目标是让代理不仅“能回答”，还能“能落地执行、可追踪、可扩展”。
+> 一个基于 OpenAI Responses API 的多代理命令行编排器。
+> 
+> 支持任务拓扑规划、并发子代理委派、技能加载、文件/终端工具调用，以及长会话压缩。
 
 ---
 
-## ✨ 2. 核心能力
+## 1. 项目简介
 
-### 🧠 2.1 编排器主循环（`main.py`）
+MakeCode 是一个面向工程任务的 Agent CLI。它采用“编排器（Orchestrator）+ 子代理（Teammates）”模式：
 
-- 维护多轮对话历史并持续调用模型。
-- 自动处理模型发起的 `function_call`。
-- 支持 Rich / tqdm / 原生终端输出渲染。
-- 超长上下文触发轻量压缩（`micro_compact`）。
+- 主代理负责理解需求、规划任务、调度工具、汇总结果。
+- TaskManager 负责维护任务依赖关系与可执行前沿。
+- Team 系统负责并发唤醒子代理执行可并行任务。
+- Skills 系统负责按需加载领域技能说明。
+- Memory 模块负责在长会话下压缩上下文并保存转录。
 
-### 🧰 2.2 工具系统（`utils/common.py`）
+这个项目的目标不是只回答问题，而是让代理具备**可规划、可执行、可追踪、可扩展**的工程工作流能力。
 
-统一注册与处理工具，核心能力包括：
+---
 
-- `RunRead`：读取文件（支持行号范围）
-- `RunWrite`：写入文件（自动创建目录）
-- `RunEdit`：按行替换文件内容
-- `RunTerminalCommand`：执行非交互终端命令
+## 2. 当前能力
 
-并自动检测可用终端（Windows 优先 `pwsh` / `powershell` / `cmd`）。
+### 2.1 编排器主循环（`main.py`）
 
-### 🗂️ 2.3 任务拓扑管理（`utils/tasks.py`）
+- 使用 OpenAI `responses.create(...)` 发起多轮对话。
+- 自动处理模型输出的工具调用。
+- 聚合以下工具集：
+  - File / Terminal 工具
+  - Skills 工具
+  - Memory 工具
+  - TaskManager 工具
+  - Team 工具
+- 支持 Rich / tqdm / 纯终端三种输出降级显示。
+- 启动时展示终端环境，并在上下文过长时触发压缩。
 
-TaskManager 生命周期接口：
+### 2.2 工作目录与环境初始化（`init.py`）
+
+- 启动时自动读取项目根目录 `.env`。
+- 支持交互式选择工作区目录：
+  - 当前目录
+  - 自定义目录
+- 初始化 OpenAI 客户端，读取：
+  - `OPENAI_API_KEY`
+  - `OPENAI_BASE_URL`
+  - `MODEL_ID`
+
+### 2.3 文件与终端工具（`utils/common.py`）
+
+提供以下基础执行能力：
+
+- `RunRead`：读取文件，可指定行号范围。
+- `RunWrite`：覆盖写入文件，自动创建父目录。
+- `RunEdit`：按指定行范围替换内容。
+- `RunGrep`：按正则在目标目录内搜索文本文件。
+- `RunTerminalCommand`：执行非交互式终端命令。
+
+实现细节：
+
+- 文件访问受工作区边界保护，防止路径逃逸。
+- 终端类型在启动时自动检测并固定。
+- Windows 优先 `pwsh` / `powershell` / `cmd`，POSIX 优先 `bash` / `zsh` / `sh`。
+- 终端命令默认超时为 120 秒。
+
+### 2.4 任务管理（`utils/tasks.py`）
+
+TaskManager 提供：
 
 - `CreateTask`
 - `UpdateTaskStatus`
@@ -54,208 +78,109 @@ TaskManager 生命周期接口：
 
 关键特性：
 
-- 内置 DAG 校验，防循环依赖。
-- 可执行任务定义：`pending` 且所有依赖均 `completed`。
-- 任务计划持久化到 `.tasks/`。
+- 任务状态支持：`pending` / `in_progress` / `completed`
+- 活跃任务执行 DAG 校验，避免循环依赖。
+- 可执行任务定义为：状态为 `pending` 且所有依赖均已完成。
+- 每次运行的任务计划会写入工作区 `.tasks/`。
 
-### 👥 2.4 团队并发委派（`utils/teams.py`）
+### 2.5 并发子代理（`utils/teams.py`）
 
-- `DelegateTasks` 仅允许委派最新可执行前沿任务。
-- 线程池并发执行多个子代理。
-- 每个子代理拥有独立 JSONL trace 日志。
-- 完成后回写 TaskManager 状态并自动汇总报告。
+Team 模块支持：
 
-### 🧩 2.5 技能加载系统（`utils/skills.py` + `skills/*`）
+- 仅接受来自最新 `GetRunnableTasks` 的任务进行委派。
+- 用线程池并发运行多个子代理。
+- 子代理执行前自动将计划任务置为 `in_progress`。
+- 执行完成后回写任务状态。
+- 为每个子代理保存独立 JSONL trace。
+- 汇总本轮所有子代理报告，返回统一报告文本。
 
-- `ListSkills`：列出可用技能
-- `LoadSkill`：加载技能正文
+运行过程会生成：
 
-内置示例技能：
+- `.team/task_history.json`
+- `.team/runs/<run_id>/..._trace.jsonl`
+
+### 2.6 技能系统（`utils/skills.py`）
+
+支持：
+
+- `ListSkills`：列出可用技能及简述
+- `LoadSkill`：加载某个技能全文
+
+当前仓库内置技能：
 
 - `pdf`
 - `code-review`
 
-### 🧠 2.6 会话记忆压缩（`utils/memory.py`）
+技能存放位置：`skills/<name>/SKILL.md`
 
-- 转录原始历史到 `.transcripts/`
-- 调用模型总结并压缩历史上下文
-- 保留系统消息与当前轮关键信息
+### 2.7 会话压缩（`utils/memory.py`）
 
----
+- 提供 `Compact` 工具用于压缩历史对话。
+- 自动保存压缩前转录到 `.transcripts/`。
+- 对工具结果进行轻量清理（`micro_compact`），保留最近结果。
+- 调用模型对历史进行摘要后再重建上下文。
 
-## 🏗️ 3. 架构图说明
+### 2.8 子代理 Todo 工具（`tools/todo.py`）
 
-### 架构总览（Mermaid）
-
-```mermaid
-flowchart TD
-    U[User] --> O[Orchestrator main.py]
-    O --> M[OpenAI Responses API]
-    O --> C[Common Tools utils/common.py]
-    O --> T[TaskManager utils/tasks.py]
-    O --> S[Skills utils/skills.py]
-    O --> MM[Memory utils/memory.py]
-    T --> D[DelegateTasks Team utils/teams.py]
-    D --> A1[Sub-Agent #1]
-    D --> A2[Sub-Agent #2]
-    D --> A3[Sub-Agent #N]
-    A1 --> R[SubmitTaskReport]
-    A2 --> R
-    A3 --> R
-    R --> O
-    O --> OUT[Final Response]
-```
-
-### 模块交互解读
-
-- `main.py` 是入口与总调度中心，负责模型调用与工具回路执行。
-- `utils/tasks.py` 维护任务依赖与可执行前沿，控制并发边界。
-- `utils/teams.py` 将可并行任务下发给子代理并收集报告。
-- `utils/common.py` / `utils/skills.py` / `utils/memory.py` 分别提供基础执行能力、技能扩展、上下文治理。
-
-### 📸 实际演示（过程与结果）
-
-以下示例图展示了从执行过程到最终成果的完整链路：
-
-**过程 1（先行展示）**
-
-<p align="center">
-  <img src="images/1.png" alt="过程1" />
-</p>
-
-**其余过程与结果（2x2）**
-
-| 过程 2 | 过程 3 |
-| --- | --- |
-| ![过程2](images/2.png) | ![过程3](images/3.png) |
-| ![过程4](images/4.png) | ![最终成果展示](images/成果展示.png) |
+子代理内部可使用 `TodoUpdate` 工具维护一个简易待办列表，用于多步骤任务跟踪。
 
 ---
 
-## 📁 4. 目录结构
+## 3. 项目结构
 
 ```text
 Agent/
-├─ main.py                  # 程序入口：编排器主循环与交互界面
-├─ init.py                  # 工作目录初始化、环境变量加载、OpenAI 客户端初始化
-├─ requirements.txt         # Python 依赖
+├─ main.py                  # 编排器主循环与 CLI 交互入口
+├─ init.py                  # .env 加载、工作区选择、OpenAI 客户端初始化
+├─ requirements.txt         # 项目依赖
+├─ README.md
+├─ README_en.md
 ├─ tools/
-│  └─ todo.py               # 子代理内部 Todo 跟踪工具
+│  └─ todo.py               # 子代理内部 Todo 管理工具
 ├─ utils/
-│  ├─ common.py             # 通用工具定义与终端命令执行
-│  ├─ tasks.py              # TaskManager（任务拓扑与状态）
-│  ├─ teams.py              # 并发子代理委派与日志管理
+│  ├─ common.py             # 文件/终端/搜索等基础工具
+│  ├─ tasks.py              # TaskManager 任务拓扑与状态管理
+│  ├─ teams.py              # 子代理并发委派与执行日志
 │  ├─ skills.py             # 技能发现与加载
-│  └─ memory.py             # 上下文压缩与转录保存
-└─ skills/
-   ├─ pdf/SKILL.md
-   └─ code-review/SKILL.md
+│  └─ memory.py             # 会话压缩与转录保存
+├─ skills/
+│  ├─ pdf/
+│  │  └─ SKILL.md
+│  └─ code-review/
+│     └─ SKILL.md
+└─ build/                   # 打包产物/构建相关文件（若存在）
 ```
 
-运行过程自动生成：
+运行中还会生成：
 
 - `.tasks/`：任务计划 JSON
-- `.team/`：子代理历史与并发日志
+- `.team/`：子代理历史与运行日志
 - `.transcripts/`：压缩前会话转录
 
 ---
 
-## ⚙️ 5. 环境要求
+## 4. 执行流程
 
-- Python 3.10+（建议 3.11/3.12）
-- 可访问的 OpenAI 兼容接口
+典型流程如下：
 
----
-
-## 🚀 6. 安装与启动
-
-### 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 配置环境变量（`.env`）
-
-```env
-OPENAI_BASE_URL=your_endpoint
-OPENAI_API_KEY=your_api_key
-MODEL_ID=your_model_id
-# 注意：MODEL_ID 对应模型需要支持 Responses API
-```
-
-### 启动
-
-```bash
-python main.py
-```
-
-启动后支持交互式工作目录选择，并进入多轮 CLI 交互。
+1. 用户输入任务。
+2. 编排器基于系统策略决定是否先创建或更新 TaskManager 计划。
+3. 模型返回工具调用。
+4. 编排器执行工具并回填结果。
+5. 若存在可并行任务，则先调用 `GetRunnableTasks`。
+6. 对最新可执行前沿任务使用 `DelegateTasks` 并发委派。
+7. 子代理完成后回传报告。
+8. 编排器继续推进后续任务，直到形成最终答案。
 
 ---
 
-## 🔄 7. 端到端执行流程
+## 5. 环境要求
 
-1. 用户输入需求
-2. 编排器请求模型生成下一步动作
-3. 执行工具调用并回填结果
-4. 必要时通过 TaskManager 管理依赖
-5. 对可并行任务使用 Team 委派子代理
-6. 子代理回传 `SubmitTaskReport`
-7. 编排器汇总并输出最终答案
+- Python 3.10+
+- 可用的 OpenAI 兼容接口
+- 模型需支持 Responses API
 
----
-
-## 🧱 8. 关键约束
-
-- 文件读写优先 File 工具，不鼓励 shell 做常规文件操作。
-- 并发委派前必须先 `GetRunnableTasks`。
-- TaskManager 对活跃任务执行 DAG 校验。
-- 终端命令为非交互模式，默认超时 120 秒。
-
----
-
-## 🩺 9. 常见问题
-
-### 9.1 缺少环境变量
-
-请确认：
-
-- `OPENAI_BASE_URL`
-- `OPENAI_API_KEY`
-- `MODEL_ID`
-
-### 9.2 文件路径越界
-
-`RunRead/RunWrite/RunEdit` 有工作区边界保护，请使用工作区内相对路径。
-
-### 9.3 终端输出乱码
-
-命令输出优先 UTF-8 解码，失败后回退系统编码（Windows 常见 GBK）。
-
-### 9.4 任务不可委派
-
-请检查任务是否在最新 `GetRunnableTasks` 返回列表中。
-
----
-
-## 🛠️ 10. 扩展指南
-
-### 新增技能
-
-1. 创建 `skills/<name>/SKILL.md`
-2. 在 frontmatter 声明 `name`、`description`（可选 `tags`）
-3. 重启后可被 `ListSkills` / `LoadSkill` 发现
-
-### 新增工具
-
-1. 定义 Pydantic 工具模型与处理函数
-2. 使用 `make_response_tool(pydantic_function_tool(...))` 注册
-3. 合并到 `SUPER_TOOLS` 与 `SUPER_TOOLS_HANDLERS`
-
----
-
-## 📦 11. 依赖清单
+当前 `requirements.txt` 中声明的依赖：
 
 - `openai`
 - `pydantic`
@@ -266,7 +191,102 @@ python main.py
 
 ---
 
-## 📄 12. 许可
+## 6. 安装与运行
 
-当前仓库未显式提供 License。  
-如需开源发布，建议补充 `LICENSE` 与 `CONTRIBUTING`。
+### 6.1 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 6.2 配置 `.env`
+
+在项目根目录创建 `.env`：
+
+```env
+OPENAI_BASE_URL=your_endpoint
+OPENAI_API_KEY=your_api_key
+MODEL_ID=your_model_id
+```
+
+- `MODEL_ID` 对应的模型必须支持 Responses API。
+- 程序会优先使用环境变量中已有值；`.env` 中缺失的项不会覆盖现有环境变量。
+
+### 6.3 启动
+
+```bash
+python main.py
+```
+
+启动后会先选择工作区目录，然后进入交互式 CLI。
+
+---
+
+## 7. 使用约束
+
+项目当前内置的重要规则包括：
+
+- 优先使用 File 工具进行文件读写与文本搜索。
+- 常规文件操作不应依赖终端命令完成。
+- 委派前必须先调用 `GetRunnableTasks`。
+- `DelegateTasks` 只允许处理最新可执行前沿中的任务。
+- 仅适合并行且彼此独立的任务才能并发委派。
+- 终端命令必须是非交互式、安全的命令。
+
+---
+
+## 8. 扩展方式
+
+### 8.1 新增技能
+
+1. 新建目录 `skills/<name>/`
+2. 添加 `SKILL.md`
+3. 可在 frontmatter 中声明：
+   - `name`
+   - `description`
+   - `tags`
+4. 重启后即可通过 `ListSkills` / `LoadSkill` 发现
+
+### 8.2 新增工具
+
+当前工具注册方式基于 `openai.pydantic_function_tool(...)` 与 `make_response_tool(...)`。
+
+新增工具的一般步骤：
+
+1. 定义 Pydantic 模型
+2. 实现处理函数
+3. 注册到对应工具集合
+4. 将 handler 合并到对应 `*_HANDLERS`
+5. 在主循环的工具聚合中接入
+
+---
+
+## 9. 常见问题
+
+### 9.1 缺少环境变量
+
+如果启动时报错，请检查：
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `MODEL_ID`
+
+### 9.2 路径越界
+
+`RunRead` / `RunWrite` / `RunEdit` / `RunGrep` 都以工作区为边界，超出工作区的路径会被拒绝。
+
+### 9.3 终端命令失败
+
+请确认：
+
+- 本机存在启动时检测到的终端环境
+- 命令不需要交互输入
+- 命令未超过 120 秒超时限制
+
+### 9.4 为什么委派任务失败
+
+常见原因：
+
+- 任务不在最新 `GetRunnableTasks` 返回结果中
+- 任务存在依赖未完成
+- 传入了重复或不存在的任务 ID

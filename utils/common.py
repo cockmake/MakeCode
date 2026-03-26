@@ -380,4 +380,5 @@ COMMON_TOOLS_HANDLERS = {
     "RunRead": run_read,
     "RunWrite": run_write,
     "RunGrep": run_grep,
+    "RunEdit": run_edit,
 }

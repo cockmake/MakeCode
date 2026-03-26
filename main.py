@@ -3,6 +3,8 @@ import json
 import time
 from typing import Any
 
+from rich.progress import Progress, TextColumn, BarColumn
+
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.key_binding import KeyBindings
@@ -175,13 +177,20 @@ def _request_with_progress(messages: list):
 
         # 颜值升级 1: 使用 rich 的优雅 status 动画
         if RICH_AVAILABLE:
-            with console.status("[bold cyan]✨ Orchestrator is thinking...", spinner="bouncingBar"):
+            with Progress(
+                    BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
+                    TextColumn("[bold cyan]✨ Orchestrator is thinking..."),
+                    transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
+                    console=console
+            ) as progress:
+                # total=None 表示进度未知，会触发左右来回弹跳的动画
+                progress.add_task("", total=None)
                 return future.result()
         elif TQDM_AVAILABLE:
             with tqdm(total=None, bar_format="{desc}", leave=False, dynamic_ncols=True) as progress:
                 phase = 0
                 while not future.done():
-                    progress.set_description_str(f"Orchestrator thinking" + "." * ((phase % 6) + 1))
+                    progress.set_description_str(f"Orchestrator thinking" + "." * ((phase % 10) + 1))
                     progress.refresh()
                     time.sleep(0.12)
                     phase += 1
@@ -341,6 +350,8 @@ def agent_loop(messages: list):
                 console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             else:
                 print(f"\033[31m⚠️ {error_msg}\033[0m")
+
+
 if __name__ == '__main__':
     _render_startup_banner()
     history = [{"role": "system", "content": SYSTEM}]

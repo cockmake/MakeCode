@@ -160,6 +160,5 @@ except KeyError:
 client = OpenAI(
     base_url=BASE_ULR,
     api_key=API_KEY,
-    timeout=45,
-    max_retries=3
+    max_retries=2
 )
