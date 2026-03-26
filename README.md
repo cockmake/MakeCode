@@ -126,7 +126,9 @@ Team 模块支持：
 
 ---
 
-## 3. 项目结构
+## 3. 项目结构与架构
+
+### 3.1 目录结构
 
 ```text
 Agent/
@@ -156,6 +158,60 @@ Agent/
 - `.tasks/`：任务计划 JSON
 - `.team/`：子代理历史与运行日志
 - `.transcripts/`：压缩前会话转录
+
+### 3.2 架构图（Mermaid）
+
+```mermaid
+flowchart TD
+    U[用户 / CLI Input] --> O[Orchestrator<br/>main.py]
+    O --> M[OpenAI Responses API]
+    O --> I[初始化与环境<br/>init.py]
+
+    O --> C[File / Terminal Tools<br/>utils/common.py]
+    O --> TM[TaskManager<br/>utils/tasks.py]
+    O --> S[Skills<br/>utils/skills.py]
+    O --> MM[Memory<br/>utils/memory.py]
+    O --> T[Team Delegation<br/>utils/teams.py]
+
+    C --> W[工作区文件]
+    C --> X[终端命令执行]
+
+    S --> SK[skills/*/SKILL.md]
+    MM --> TR[.transcripts/]
+    TM --> TP[.tasks/]
+    T --> TH[.team/]
+
+    TM --> RQ[GetRunnableTasks<br/>Runnable Frontier]
+    RQ --> T
+
+    T --> A1[Sub-Agent 1]
+    T --> A2[Sub-Agent 2]
+    T --> AN[Sub-Agent N]
+
+    A1 --> TD[TodoUpdate<br/>tools/todo.py]
+    A2 --> TD
+    AN --> TD
+
+    A1 --> RP[任务报告]
+    A2 --> RP
+    AN --> RP
+
+    RP --> T
+    T --> TM
+    T --> O
+    O --> F[最终响应]
+```
+
+### 3.3 架构说明
+
+- `main.py` 是总编排器，负责与模型对话、处理工具调用、推进主循环。
+- `init.py` 提供工作区选择、环境变量加载与 OpenAI 客户端初始化。
+- `utils/common.py` 提供文件读写、按行编辑、文本搜索和终端命令执行能力。
+- `utils/tasks.py` 维护任务 DAG、状态流转与 runnable frontier。
+- `utils/teams.py` 负责把最新可执行任务并发委派给子代理，并回收结果。
+- `utils/skills.py` 提供技能发现和技能内容加载。
+- `utils/memory.py` 负责长会话压缩与转录保存。
+- `tools/todo.py` 供子代理在多步骤任务中维护内部待办。
 
 ---
 
