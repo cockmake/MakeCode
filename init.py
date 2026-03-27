@@ -222,6 +222,17 @@ def _init_api_standard() -> str:
 
 
 WORKDIR = _init_workdir()
+MAKECODE_DIR = WORKDIR / ".makecode"
+MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
+ERROR_LOG_PATH = MAKECODE_DIR / "error.log"
+
+def log_error_traceback(context: str, exc: Exception):
+    import traceback
+    from datetime import datetime
+    with open(ERROR_LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(f"\n[{datetime.now().isoformat()}] [{context}] {type(exc).__name__}: {str(exc)}\n")
+        traceback.print_exc(file=f)
+
 API_STANDARD = _init_api_standard()
 
 try:

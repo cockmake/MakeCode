@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from init import WORKDIR
 
-TASKS_DIR = WORKDIR / ".tasks"
+MAKECODE_DIR = WORKDIR / ".makecode"
+TASKS_DIR = MAKECODE_DIR / "tasks"
 
 VALID_STATUS = {
     "pending",

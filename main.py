@@ -295,7 +295,9 @@ def agent_loop(messages: list):
         try:
             response = _request_with_progress(messages)
         except Exception as e:
-            error_msg = f"Error during agent execution: {e}"
+            from init import log_error_traceback
+            log_error_traceback("Orchestrator generation error", e)
+            error_msg = f"Error during agent execution: {e}. Check .makecode/error.log for details."
             if RICH_AVAILABLE:
                 console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             else:
@@ -325,7 +327,9 @@ def agent_loop(messages: list):
                 else:
                     output = f"Unknown tool: {tool_name}"
             except Exception as e:
-                output = f"Error executing {tool_name}: {e}"
+                from init import log_error_traceback
+                log_error_traceback(f"Orchestrator tool execution error: {tool_name}", e)
+                output = f"Error executing {tool_name}: {e}. Check .makecode/error.log for details."
 
             _render_tool_output(tool_name, output)
 
@@ -343,7 +347,9 @@ def agent_loop(messages: list):
             output = SUPER_TOOLS_HANDLERS["Compact"](messages, reason=compact_reason)
             _render_tool_output("Compact", output)
         except Exception as e:
-            error_msg = f"Error executing Compact: {e}"
+            from init import log_error_traceback
+            log_error_traceback("Orchestrator auto-compact error", e)
+            error_msg = f"Error executing Compact: {e}. Check .makecode/error.log for details."
             if RICH_AVAILABLE:
                 console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             else:

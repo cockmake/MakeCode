@@ -83,7 +83,7 @@ Key characteristics:
 - Task states: `pending` / `in_progress` / `completed`
 - DAG validation for active tasks to prevent dependency cycles
 - A task is runnable when it is `pending` and all dependencies are completed
-- Each run writes a task-plan file under `.tasks/`
+- Each run writes a task-plan file under `.makecode/tasks/`
 
 ### 2.5 Concurrent Sub-Agents (`utils/teams.py`)
 
@@ -98,8 +98,8 @@ The Team module supports:
 
 Runtime artifacts include:
 
-- `.team/task_history.json`
-- `.team/runs/<run_id>/..._trace.jsonl`
+- `.makecode/team/task_history.json`
+- `.makecode/team/runs/<run_id>/..._trace.jsonl`
 
 ### 2.6 Skill System (`utils/skills.py`)
 
@@ -118,7 +118,7 @@ Skill location: `skills/<name>/SKILL.md`
 ### 2.7 Conversation Compaction (`utils/memory.py`)
 
 - Provides the `Compact` tool for history compaction.
-- Saves pre-compaction transcripts into `.transcripts/`.
+- Saves pre-compaction transcripts into `.makecode/transcripts/`.
 - Performs lightweight cleanup of older tool outputs via `micro_compact`.
 - Uses the model to summarize past history and rebuild context.
 
@@ -156,9 +156,9 @@ Agent/
 
 Runtime-generated directories:
 
-- `.tasks/`: task-plan JSON files
-- `.team/`: sub-agent history and run logs
-- `.transcripts/`: transcripts saved before compaction
+- `.makecode/tasks/`: task-plan JSON files
+- `.makecode/team/`: sub-agent history and run logs
+- `.makecode/transcripts/`: transcripts saved before compaction
 
 ---
 

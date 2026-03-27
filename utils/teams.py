@@ -19,7 +19,8 @@ from utils.common import (
 from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER
 
-TEAM_DIR = WORKDIR / ".team"
+MAKECODE_DIR = WORKDIR / ".makecode"
+TEAM_DIR = MAKECODE_DIR / "team"
 RUNS_DIR = TEAM_DIR / "runs"  # 新增：存放每次并发调用的文件夹
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
@@ -194,7 +195,9 @@ class TeammateManager:
                 self._set_plan_task_status(plan_task_id, final_plan_status)
                 history_status = "completed" if succeeded else "failed"
             except Exception as exc:
-                report = f"Error: Sub-agent crashed - {exc}"
+                from init import log_error_traceback
+                log_error_traceback(f"Sub-agent crash: {role} (Task #{plan_task_id})", exc)
+                report = f"Error: Sub-agent crashed - {exc}. Check .makecode/error.log for details."
                 succeeded = False
                 history_status = "failed"
                 self._set_plan_task_status(plan_task_id, "pending")
@@ -222,11 +225,13 @@ class TeammateManager:
                 try:
                     results.append(future.result())
                 except Exception as exc:
+                    from init import log_error_traceback
+                    log_error_traceback(f"Thread pool execution error for Task #{plan_task_id}", exc)
                     results.append(
                         {
                             "task_id": plan_task_id,
                             "role": "unknown",
-                            "report": f"Error: Sub-agent crashed - {exc}",
+                            "report": f"Error: Sub-agent crashed - {exc}. Check .makecode/error.log for details.",
                             "status": "failed",
                         }
                     )
@@ -298,8 +303,10 @@ class TeammateManager:
                     tools=sub_agent_tools,
                 )
             except Exception as e:
+                from init import log_error_traceback
+                log_error_traceback(f"Sub-agent API generation error (Role: {role})", e)
                 append_trace("api_error", str(e))
-                return {"status": "failed", "report": f"API Error in sub-agent: {e}"}
+                return {"status": "failed", "report": f"API Error in sub-agent: {e}. Check .makecode/error.log for details."}
 
             text_content, tool_calls, raw_message = llm_client.parse_response(response)
             
@@ -342,7 +349,9 @@ class TeammateManager:
                     else:
                         output = f"Unknown tool: {tool_name}"
                 except Exception as e:
-                    output = f"Error: {e}"
+                    from init import log_error_traceback
+                    log_error_traceback(f"Sub-agent tool execution error (Role: {role}, Tool: {tool_name})", e)
+                    output = f"Error: {e}. Check .makecode/error.log for details."
 
                 # 记录工具调用的详细结果
                 append_trace(f"step_{step}_tool_execution", {

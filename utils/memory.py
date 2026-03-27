@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from init import WORKDIR, llm_client
 
 THRESHOLD = 10240 * 16
-TRANSCRIPT_DIR = WORKDIR / ".transcripts"
+MAKECODE_DIR = WORKDIR / ".makecode"
+TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 KEEP_RECENT = 24
 
 

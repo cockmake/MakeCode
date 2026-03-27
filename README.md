@@ -82,7 +82,7 @@ TaskManager 提供：
 - 任务状态支持：`pending` / `in_progress` / `completed`
 - 活跃任务执行 DAG 校验，避免循环依赖。
 - 可执行任务定义为：状态为 `pending` 且所有依赖均已完成。
-- 每次运行的任务计划会写入工作区 `.tasks/`。
+- 每次运行的任务计划会写入工作区 `.makecode/tasks/`。
 
 ### 2.5 并发子代理（`utils/teams.py`）
 
@@ -97,8 +97,8 @@ Team 模块支持：
 
 运行过程会生成：
 
-- `.team/task_history.json`
-- `.team/runs/<run_id>/..._trace.jsonl`
+- `.makecode/team/task_history.json`
+- `.makecode/team/runs/<run_id>/..._trace.jsonl`
 
 ### 2.6 技能系统（`utils/skills.py`）
 
@@ -117,7 +117,7 @@ Team 模块支持：
 ### 2.7 会话压缩（`utils/memory.py`）
 
 - 提供 `Compact` 工具用于压缩历史对话。
-- 自动保存压缩前转录到 `.transcripts/`。
+- 自动保存压缩前转录到 `.makecode/transcripts/`。
 - 对工具结果进行轻量清理（`micro_compact`），保留最近结果。
 - 调用模型对历史进行摘要后再重建上下文。
 
@@ -157,9 +157,9 @@ Agent/
 
 运行中还会生成：
 
-- `.tasks/`：任务计划 JSON
-- `.team/`：子代理历史与运行日志
-- `.transcripts/`：压缩前会话转录
+- `.makecode/tasks/`：任务计划 JSON
+- `.makecode/team/`：子代理历史与运行日志
+- `.makecode/transcripts/`：压缩前会话转录
 
 ### 3.2 架构图（Mermaid）
 
@@ -180,9 +180,9 @@ flowchart TD
     C --> X[终端命令执行]
 
     S --> SK[skills/*/SKILL.md]
-    MM --> TR[.transcripts/]
-    TM --> TP[.tasks/]
-    T --> TH[.team/]
+    MM --> TR[.makecode/transcripts/]
+    TM --> TP[.makecode/tasks/]
+    T --> TH[.makecode/team/]
 
     TM --> RQ[GetRunnableTasks<br/>Runnable Frontier]
     RQ --> T
