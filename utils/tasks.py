@@ -206,8 +206,7 @@ class TaskManager:
             raise ValueError("subject is required")
         self._validate_status(status)
 
-        dep_ids = [self._id_str(x) for x in (depend_on or [])]
-        self._ensure_tasks_exist(dep_ids)
+        dep_ids = self._ensure_tasks_exist(depend_on or [])
 
         task_id = str(self._data["next_id"])
         if task_id in dep_ids:
@@ -241,8 +240,7 @@ class TaskManager:
 
     def update_task_dependencies(self, task_id: str | int, depend_on: list[str | int], **kwargs) -> dict[str, Any]:
         tid = self._ensure_task_exists(task_id)
-        dep_ids = [self._id_str(x) for x in depend_on]
-        self._ensure_tasks_exist(dep_ids)
+        dep_ids = self._ensure_tasks_exist(depend_on)
         if tid in dep_ids:
             raise ValueError("Task cannot depend on itself")
         task = self._data["tasks"][tid]
