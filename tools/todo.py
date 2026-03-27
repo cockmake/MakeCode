@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class TaskItem(BaseModel):
     """A single task item with text and status."""
     id: str = Field(..., description="Unique identifier for the task.")
-    text: str = Field(..., description="Description of the task.")
+    text: str = Field(default="", description="Description of the task.")
     status: Literal["pending", "in_progress", "completed"] = Field(
         ...,
         description="Status of the task."
@@ -34,10 +34,14 @@ class TodoManager:
         validated = []
         in_progress_count = 0
         for item in items:
-            item = TaskItem(**item)
-            text = item.text
-            status = item.status
-            item_id = item.id
+            # handle cases where LLM hallucinated 'content' instead of 'text'
+            if "content" in item and "text" not in item:
+                item["text"] = item.pop("content")
+            
+            task_obj = TaskItem(**item)
+            text = task_obj.text
+            status = task_obj.status
+            item_id = task_obj.id
             if not text:
                 raise ValueError(f"Item {item_id}: text required")
             if status not in ("pending", "in_progress", "completed"):
@@ -46,7 +50,7 @@ class TodoManager:
                 in_progress_count += 1
                 if in_progress_count > 1:
                     raise ValueError("Only one item can be in_progress")
-            validated.append(item)
+            validated.append(task_obj)
         self.items = validated
         return self.render()
 

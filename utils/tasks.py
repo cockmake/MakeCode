@@ -142,7 +142,8 @@ class TaskManager:
         return tid
 
     def _ensure_tasks_exist(self, task_ids: list[str | int]) -> list[str]:
-        ids = [self._id_str(x) for x in task_ids]
+        # Filter out empty strings that LLM might mistakenly pass
+        ids = [self._id_str(x).strip() for x in task_ids if self._id_str(x).strip()]
         missing = [x for x in ids if x not in self._data["tasks"]]
         if missing:
             raise ValueError(f"Tasks not found: {missing}")
