@@ -1,6 +1,8 @@
 import os
 import sys
 from pathlib import Path
+import traceback
+from datetime import datetime
 
 from openai import OpenAI
 
@@ -11,6 +13,33 @@ def get_absolute_env_path():
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_dir, '.env')
+
+
+def _get_error_log_path() -> Path:
+    workdir = globals().get("WORKDIR")
+    base_dir = workdir if isinstance(workdir, Path) else Path.cwd()
+    log_path = base_dir / ".makecode" / "error.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    return log_path
+
+
+def log_error_traceback(context: str, exc: Exception):
+    try:
+        log_path = _get_error_log_path()
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n[{datetime.now().isoformat()}] [{context}] {type(exc).__name__}: {str(exc)}\n")
+            traceback.print_exc(file=f)
+    except Exception as logging_exc:
+        # Avoid recursive logging if logger itself fails.
+        try:
+            with open("makecode_init_fallback_error.log", "a", encoding="utf-8") as f:
+                f.write(
+                    f"\n[{datetime.now().isoformat()}] [log_error_traceback failure] "
+                    f"{type(logging_exc).__name__}: {logging_exc}\n"
+                )
+        except Exception:
+            # Last-resort fallback should remain silent to avoid recursive failures.
+            pass
 
 
 env_path = get_absolute_env_path()
@@ -24,7 +53,8 @@ try:
                     # 注意字符串类型的环境变量值可能包含引号，去除它们
                     value = value.strip('\'"')
                     os.environ[key] = value
-except FileNotFoundError:
+except FileNotFoundError as exc:
+    log_error_traceback("init .env load", exc)
     pass  # .env 文件不存在，继续执行，依赖环境变量的代码会处理缺失的情况
 
 # 尝试导入 prompt_toolkit 用于构建高级交互菜单
@@ -38,7 +68,8 @@ try:
     from prompt_toolkit import prompt
 
     PROMPT_TOOLKIT_AVAILABLE = True
-except ImportError:
+except ImportError as exc:
+    log_error_traceback("init prompt_toolkit import", exc)
     PROMPT_TOOLKIT_AVAILABLE = False
 
 
@@ -106,13 +137,15 @@ def _init_workdir() -> Path:
                 return cwd
             target = Path(user_input).expanduser().resolve()
             return target if target.exists() and target.is_dir() else cwd
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt) as exc:
+            log_error_traceback("init workdir input interrupted", exc)
             return cwd
 
     # 2. 高级方案：使用交互式菜单
     try:
         choice = _interactive_choose_mode(cwd)
-    except Exception:
+    except Exception as exc:
+        log_error_traceback("init interactive choose mode", exc)
         choice = "abort"
 
     if choice == "abort":
@@ -127,7 +160,8 @@ def _init_workdir() -> Path:
     try:
         custom_style = Style.from_dict({'prompt': 'fg:ansigreen bold'})
         user_input = prompt("\n✏️  Enter custom workspace path:\n❯ ", style=custom_style).strip()
-    except (EOFError, KeyboardInterrupt):
+    except (EOFError, KeyboardInterrupt) as exc:
+        log_error_traceback("init custom workdir input interrupted", exc)
         print(f"\n\033[33m⚠️  Input cancelled. Defaulting to: {cwd}\033[0m\n")
         return cwd
 
@@ -205,12 +239,14 @@ def _init_api_standard() -> str:
                 return "response"
             print(f"\033[32m✅ API Standard set to: Chat Completions API\033[0m\n")
             return "chat"
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt) as exc:
+            log_error_traceback("init api standard input interrupted", exc)
             return "chat"
 
     try:
         choice = _interactive_choose_api_standard()
-    except Exception:
+    except Exception as exc:
+        log_error_traceback("init interactive api standard", exc)
         choice = "abort"
 
     if choice in ("abort", "chat"):
@@ -224,14 +260,6 @@ def _init_api_standard() -> str:
 WORKDIR = _init_workdir()
 MAKECODE_DIR = WORKDIR / ".makecode"
 MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
-ERROR_LOG_PATH = MAKECODE_DIR / "error.log"
-
-def log_error_traceback(context: str, exc: Exception):
-    import traceback
-    from datetime import datetime
-    with open(ERROR_LOG_PATH, "a", encoding="utf-8") as f:
-        f.write(f"\n[{datetime.now().isoformat()}] [{context}] {type(exc).__name__}: {str(exc)}\n")
-        traceback.print_exc(file=f)
 
 API_STANDARD = _init_api_standard()
 
@@ -239,7 +267,8 @@ try:
     API_KEY = os.environ["OPENAI_API_KEY"]
     BASE_ULR = os.environ["OPENAI_BASE_URL"]
     MODEL = os.environ["MODEL_ID"]
-except KeyError:
+except KeyError as exc:
+    log_error_traceback("init missing required env", exc)
     print(
         "\033[31mError: Missing required environment variables. Please ensure OPENAI_API_KEY, OPENAI_BASE_URL, and MODEL_ID are set.\033[0m"
     )

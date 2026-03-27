@@ -3,6 +3,7 @@ import json
 import time
 from typing import Any
 
+from init import MODEL, WORKDIR, llm_client, log_error_traceback
 from rich.progress import Progress, TextColumn, BarColumn
 
 try:
@@ -14,7 +15,8 @@ try:
     from prompt_toolkit.output.win32 import NoConsoleScreenBufferError
 
     PROMPT_TOOLKIT_AVAILABLE = True
-except Exception:
+except Exception as exc:
+    log_error_traceback("main prompt_toolkit import", exc)
     PromptSession = None
     KeyBindings = None
     Keys = None
@@ -27,7 +29,8 @@ try:
     from tqdm import tqdm
 
     TQDM_AVAILABLE = True
-except Exception:
+except Exception as exc:
+    log_error_traceback("main tqdm import", exc)
     tqdm = None
     TQDM_AVAILABLE = False
 
@@ -40,7 +43,8 @@ try:
     from rich import box
 
     RICH_AVAILABLE = True
-except Exception:
+except Exception as exc:
+    log_error_traceback("main rich import", exc)
     Console = None
     Markdown = None
     Panel = None
@@ -54,8 +58,6 @@ from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS_HANDLERS, TEAM_TOOLS
 from utils.memory import micro_compact, MEMORY_TOOLS, MEMORY_TOOLS_HANDLERS, THRESHOLD, estimate_tokens
-
-from init import MODEL, WORKDIR, llm_client
 
 console = Console() if RICH_AVAILABLE else None
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -121,7 +123,8 @@ def _parse_arguments(arguments: Any) -> dict:
             return {}
         try:
             parsed = json.loads(payload)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            log_error_traceback("main parse arguments json decode", exc)
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}
@@ -165,7 +168,8 @@ def _render_tool_output(name: str, output: Any):
             try:
                 parsed = json.loads(text)
                 body = Syntax(json.dumps(parsed, ensure_ascii=False, indent=2), "json", word_wrap=True, theme="monokai")
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                log_error_traceback("main render tool output json decode", exc)
                 body = Text(text)
         else:
             body = Text(text, style="dim")
@@ -269,6 +273,7 @@ def _init_user_session():
             style=custom_style
         )
     except Exception as exc:
+        log_error_traceback("main init user session", exc)
         _disable_prompt_toolkit(str(exc))
 
 
@@ -287,9 +292,11 @@ def _read_user_query() -> str:
                 ('class:prompt', '🤖 User '),
                 ('class:arrow', '❯❯ '),
             ])
-        except NoConsoleScreenBufferError:
+        except NoConsoleScreenBufferError as exc:
+            log_error_traceback("main user input no console buffer", exc)
             _disable_prompt_toolkit("No Windows console screen buffer")
         except Exception as exc:
+            log_error_traceback("main user input prompt failure", exc)
             _disable_prompt_toolkit(str(exc))
 
     return input("\n\033[1;32m🤖 User ❯❯ \033[0m")
@@ -301,7 +308,6 @@ def agent_loop(messages: list):
         try:
             response = _request_with_progress(messages)
         except Exception as e:
-            from init import log_error_traceback
             log_error_traceback("Orchestrator generation error", e)
             error_msg = f"Error during agent execution: {e}. Check .makecode/error.log for details."
             if RICH_AVAILABLE:
@@ -333,7 +339,6 @@ def agent_loop(messages: list):
                 else:
                     output = f"Unknown tool: {tool_name}"
             except Exception as e:
-                from init import log_error_traceback
                 log_error_traceback(f"Orchestrator tool execution error: {tool_name}", e)
                 output = f"Error executing {tool_name}: {e}. Check .makecode/error.log for details."
 
@@ -353,7 +358,6 @@ def agent_loop(messages: list):
             output = SUPER_TOOLS_HANDLERS["Compact"](messages, reason=compact_reason)
             _render_tool_output("Compact", output)
         except Exception as e:
-            from init import log_error_traceback
             log_error_traceback("Orchestrator auto-compact error", e)
             error_msg = f"Error executing Compact: {e}. Check .makecode/error.log for details."
             if RICH_AVAILABLE:
@@ -368,7 +372,8 @@ if __name__ == '__main__':
     while True:
         try:
             query = _read_user_query()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt) as exc:
+            log_error_traceback("main user input interrupted", exc)
             if RICH_AVAILABLE:
                 console.print("\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]")
             else:

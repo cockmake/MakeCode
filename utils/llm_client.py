@@ -2,6 +2,7 @@ import json
 from abc import ABC, abstractmethod
 
 from openai import OpenAI
+from init import log_error_traceback
 
 
 def _make_response_tool(tool_dict):
@@ -102,7 +103,8 @@ class ResponseAPIClient(BaseLLMClient):
                 if isinstance(args, str):
                     try:
                         json.loads(args)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as exc:
+                        log_error_traceback("ResponseAPI malformed function arguments", exc)
                         msg_dict["arguments"] = "{}"
                         
             messages.append(msg_dict)
@@ -197,7 +199,8 @@ class ChatAPIClient(BaseLLMClient):
                     if isinstance(args, str):
                         try:
                             json.loads(args)
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as exc:
+                            log_error_traceback("ChatAPI malformed function arguments", exc)
                             # Replace malformed arguments with empty JSON to prevent backend crash on next turn
                             tc["function"]["arguments"] = "{}"
 

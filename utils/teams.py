@@ -9,7 +9,7 @@ from pathlib import Path
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field, ValidationError
 
-from init import WORKDIR, llm_client
+from init import WORKDIR, llm_client, log_error_traceback
 from tools.todo import TodoManager, TODO_TOOLS
 from utils.common import (
     COMMON_TOOLS,
@@ -124,6 +124,7 @@ class TeammateManager:
             try:
                 spec = TaskSpec(**item)
             except ValidationError as exc:
+                log_error_traceback("DelegateTasks payload validation", exc)
                 raise ValueError(
                     f"DelegateTasks.tasks[{idx}] format invalid: {exc.errors()}"
                 ) from exc
@@ -134,7 +135,8 @@ class TeammateManager:
 
             try:
                 TASK_MANAGER.get_task(task_id=tid)
-            except Exception:
+            except Exception as exc:
+                log_error_traceback(f"DelegateTasks unknown task_id check #{tid}", exc)
                 unknown_ids.append(tid)
 
             normalized.append(
@@ -168,6 +170,7 @@ class TeammateManager:
         try:
             tasks = self._validate_delegation_tasks(tasks)
         except Exception as e:
+            log_error_traceback("DelegateTasks preflight validation", e)
             return f"Error: {e}"
 
         # 1. 创建本次调用的专属文件夹
@@ -220,7 +223,6 @@ class TeammateManager:
                 self._set_plan_task_status(plan_task_id, final_plan_status)
                 history_status = "completed" if succeeded else "failed"
             except Exception as exc:
-                from init import log_error_traceback
                 log_error_traceback(f"Sub-agent crash: {role} (Task #{plan_task_id})", exc)
                 report = f"Error: Sub-agent crashed - {exc}. Check .makecode/error.log for details."
                 succeeded = False
@@ -250,7 +252,6 @@ class TeammateManager:
                 try:
                     results.append(future.result())
                 except Exception as exc:
-                    from init import log_error_traceback
                     log_error_traceback(f"Thread pool execution error for Task #{plan_task_id}", exc)
                     results.append(
                         {
@@ -328,7 +329,6 @@ class TeammateManager:
                     tools=sub_agent_tools,
                 )
             except Exception as e:
-                from init import log_error_traceback
                 log_error_traceback(f"Sub-agent API generation error (Role: {role})", e)
                 append_trace("api_error", str(e))
                 return {"status": "failed", "report": f"API Error in sub-agent: {e}. Check .makecode/error.log for details."}
@@ -374,7 +374,6 @@ class TeammateManager:
                     else:
                         output = f"Unknown tool: {tool_name}"
                 except Exception as e:
-                    from init import log_error_traceback
                     log_error_traceback(f"Sub-agent tool execution error (Role: {role}, Tool: {tool_name})", e)
                     output = f"Error: {e}. Check .makecode/error.log for details."
 

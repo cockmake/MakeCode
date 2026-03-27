@@ -9,7 +9,7 @@ from shutil import which
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
 
-from init import WORKDIR
+from init import WORKDIR, log_error_traceback
 
 
 def safe_path(p: str) -> Path:
@@ -109,21 +109,25 @@ def run_terminal_command(command: str) -> str:
         # 动态解码策略：优先 UTF-8，失败则回退到系统默认编码 (Windows 下通常是 GBK)
         try:
             out = raw_output.decode('utf-8').strip()
-        except UnicodeDecodeError:
+        except UnicodeDecodeError as exc:
+            log_error_traceback("RunTerminalCommand utf8 decode fallback", exc)
             sys_encoding = locale.getpreferredencoding()
             out = raw_output.decode(sys_encoding, errors='replace').strip()
         terminal_meta = f"{resolved_terminal}, source={STARTUP_TERMINAL_SOURCE}"
         return out if out else f"Command executed successfully with no output. (terminal: {terminal_meta})"
 
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        log_error_traceback("RunTerminalCommand timeout", exc)
         return "Error: Command timed out after 120 seconds. Did you run an interactive prompt?"
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        log_error_traceback("RunTerminalCommand terminal missing", exc)
         return (
             "Error: No supported terminal executable found. "
             f"startup_terminal={STARTUP_TERMINAL_TYPE or 'unavailable'} "
             f"(source={STARTUP_TERMINAL_SOURCE})."
         )
     except Exception as e:
+        log_error_traceback("RunTerminalCommand execution", e)
         return f"Error executing command: {e}"
 
 
@@ -143,12 +147,14 @@ def run_read(path: str, start: int | None = None, end: int | None = None) -> str
 
         try:
             s = int(start) if (start is not None and str(start).strip() != "") else 1
-        except ValueError:
+        except ValueError as exc:
+            log_error_traceback("RunRead invalid start line", exc)
             s = 1
 
         try:
             e = int(end) if (end is not None and str(end).strip() != "") else total_lines
-        except ValueError:
+        except ValueError as exc:
+            log_error_traceback("RunRead invalid end line", exc)
             e = total_lines
 
         s = max(1, s)
@@ -162,6 +168,7 @@ def run_read(path: str, start: int | None = None, end: int | None = None) -> str
 
         return f"Total lines: {total_lines}\n" + "\n".join(formatted_lines)
     except Exception as e:
+        log_error_traceback("RunRead execution", e)
         return f"Error: {e}"
 
 
@@ -179,6 +186,7 @@ def run_write(path: str, content: str) -> str:
         fp.write_text(content, encoding='utf-8')
         return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
+        log_error_traceback("RunWrite execution", e)
         return f"Error: {e}"
 
 
@@ -209,7 +217,8 @@ def run_edit(path: str, start: int, end: int, new_content: str) -> str:
         try:
             start = int(start)
             end = int(end)
-        except ValueError:
+        except ValueError as exc:
+            log_error_traceback("RunEdit invalid line range type", exc)
             return "Error: start and end must be integers."
 
         if start < 1 or end > total_lines or start > end:
@@ -231,6 +240,7 @@ def run_edit(path: str, start: int, end: int, new_content: str) -> str:
 
         return f"Edited {path}: Replaced lines {start} to {end}."
     except Exception as e:
+        log_error_traceback("RunEdit execution", e)
         return f"Error: {e}"
 
 
@@ -261,7 +271,8 @@ def _is_binary_file(filepath: Path) -> bool:
             if b'\0' in chunk:
                 return True
         return False
-    except Exception:
+    except Exception as exc:
+        log_error_traceback("RunGrep binary file check", exc)
         return True
 
 
@@ -273,6 +284,7 @@ def run_grep(
     try:
         regex = re.compile(keyword_pattern)
     except re.error as e:
+        log_error_traceback("RunGrep regex compile", e)
         return f"Error: Invalid regex pattern '{keyword_pattern}': {e}"
 
     if isinstance(filename_pattern, str):
@@ -291,6 +303,7 @@ def run_grep(
         if not base_dir.is_dir():
             return f"Error: Target directory '{target_dir}' not found or is not a directory."
     except Exception as e:
+        log_error_traceback("RunGrep resolve target dir", e)
         return f"Error resolving target directory: {e}"
 
     try:
@@ -305,7 +318,8 @@ def run_grep(
 
                 try:
                     rel_path_str = filepath.relative_to(WORKDIR).as_posix()
-                except ValueError:
+                except ValueError as exc:
+                    log_error_traceback(f"RunGrep path outside workspace: {filepath}", exc)
                     continue
 
                 if _is_binary_file(filepath):
@@ -320,7 +334,8 @@ def run_grep(
                                 total_matches += 1
                                 if total_matches >= MAX_MATCHES:
                                     break
-                except Exception:
+                except Exception as exc:
+                    log_error_traceback(f"RunGrep file read: {filepath}", exc)
                     continue
 
                 if matched_lines:
@@ -333,6 +348,7 @@ def run_grep(
                 break
 
     except Exception as e:
+        log_error_traceback("RunGrep walk execution", e)
         return f"Error during grep search: {e}"
 
     if not results:
