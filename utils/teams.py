@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from openai import pydantic_function_tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from init import WORKDIR, llm_client
 from tools.todo import TodoManager, TODO_TOOLS
@@ -98,12 +98,35 @@ class TeammateManager:
             TASK_MANAGER.update_task_status(task_id=task_id, status=status)
 
     def _validate_delegation_tasks(self, tasks: list[dict]) -> list[dict]:
+        required_fields = ("task_id", "role_name", "context_prompt")
         normalized: list[dict] = []
         seen_ids: set[str] = set()
         unknown_ids: list[str] = []
 
-        for raw in tasks:
-            spec = TaskSpec(**raw)
+        for idx, raw in enumerate(tasks):
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f"DelegateTasks.tasks[{idx}] must be an object (dict). "
+                    f"Missing required parameters: {list(required_fields)}."
+                )
+
+            item = dict(raw)
+            missing = [
+                field for field in required_fields
+                if field not in item or str(item.get(field, "")).strip() == ""
+            ]
+            if missing:
+                raise ValueError(
+                    f"DelegateTasks.tasks[{idx}] missing required parameters: {missing}. "
+                    f"Required: {list(required_fields)}."
+                )
+
+            try:
+                spec = TaskSpec(**item)
+            except ValidationError as exc:
+                raise ValueError(
+                    f"DelegateTasks.tasks[{idx}] format invalid: {exc.errors()}"
+                ) from exc
             tid = str(spec.task_id).strip()
             if tid in seen_ids:
                 raise ValueError(f"Duplicate task_id in DelegateTasks payload: {tid}")

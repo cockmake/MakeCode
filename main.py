@@ -110,15 +110,21 @@ def _extract_message_text(msg: dict) -> str:
     return "\n\n".join(chunks).strip()
 
 
-def _parse_arguments(arguments: Any) -> Any:
-    if not isinstance(arguments, str): 
-        return arguments or {}
-    if not arguments.strip():
-        return {}
-    try:
-        return json.loads(arguments)
-    except json.JSONDecodeError:
+def _parse_arguments(arguments: Any) -> dict:
+    if isinstance(arguments, dict):
         return arguments
+    if arguments is None:
+        return {}
+    if isinstance(arguments, str):
+        payload = arguments.strip()
+        if not payload:
+            return {}
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _stringify_output(output: Any) -> str:
