@@ -1,5 +1,7 @@
 import concurrent.futures
 import json
+import locale
+import sys
 import time
 from typing import Any
 
@@ -274,6 +276,58 @@ def _disable_prompt_toolkit(reason: str):
     if RICH_AVAILABLE: console.print(f"[yellow]⚠️ Input fallback: prompt_toolkit disabled ({reason}).[/yellow]")
 
 
+def _pop_last_utf8_char_bytes(buf: bytearray):
+    if not buf:
+        return
+    i = len(buf) - 1
+    while i > 0 and (buf[i] & 0b11000000) == 0b10000000:
+        i -= 1
+    del buf[i:]
+
+
+def _apply_backspace_bytes(raw: bytes) -> bytes:
+    out = bytearray()
+    for b in raw:
+        if b in (8, 127):  # BS / DEL
+            _pop_last_utf8_char_bytes(out)
+        else:
+            out.append(b)
+    return bytes(out)
+
+
+def _decode_user_line(raw: bytes) -> str:
+    raw = raw.rstrip(b"\r\n")
+    if b"\x08" in raw or b"\x7f" in raw:
+        raw = _apply_backspace_bytes(raw)
+
+    encodings = []
+    if sys.stdin and getattr(sys.stdin, "encoding", None):
+        encodings.append(sys.stdin.encoding)
+    encodings.extend(["utf-8", locale.getpreferredencoding(False)])
+
+    seen = set()
+    for enc in encodings:
+        key = (enc or "").lower()
+        if not enc or key in seen:
+            continue
+        seen.add(key)
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def _safe_input(prompt_text: str) -> str:
+    try:
+        return input(prompt_text)
+    except UnicodeDecodeError as exc:
+        log_error_traceback("main input unicode decode", exc)
+        fallback_prompt = "\nUser >> "
+        print(fallback_prompt, end="", flush=True)
+        return _decode_user_line(sys.stdin.buffer.readline())
+
+
 def _init_user_session():
     global USER_SESSION
     if USER_SESSION is not None or PROMPT_TOOLKIT_DISABLED or not PROMPT_TOOLKIT_AVAILABLE: return
@@ -331,7 +385,10 @@ def _read_user_query() -> str:
             log_error_traceback("main user input prompt failure", exc)
             _disable_prompt_toolkit(str(exc))
 
-    return input("\n\033[1;32m🤖 User ❯❯ \033[0m")
+    stdin_encoding = (getattr(sys.stdin, "encoding", "") or "").lower()
+    unicode_safe = "utf" in stdin_encoding
+    prompt_text = "\n\033[1;32m🤖 User ❯❯ \033[0m" if unicode_safe else "\n\033[1;32mUser >> \033[0m"
+    return _safe_input(prompt_text)
 
 
 def agent_loop(messages: list):
