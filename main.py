@@ -1,31 +1,25 @@
 import concurrent.futures
 import json
-import locale
 import sys
 import time
 from typing import Any
 
-from init import MODEL, WORKDIR, llm_client, log_error_traceback
 from rich.progress import Progress, TextColumn, BarColumn
+
+from init import WORKDIR, llm_client, log_error_traceback
 
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.styles import Style
-    from prompt_toolkit.formatted_text import HTML
-    from prompt_toolkit.output.win32 import NoConsoleScreenBufferError
 
     PROMPT_TOOLKIT_AVAILABLE = True
-except Exception as exc:
+except ImportError as exc:
     log_error_traceback("main prompt_toolkit import", exc)
-    PromptSession = None
-    KeyBindings = None
-    Keys = None
-    Style = None
-    HTML = None
-    NoConsoleScreenBufferError = RuntimeError
-    PROMPT_TOOLKIT_AVAILABLE = False
+    print(
+        "\n\033[31mError: prompt_toolkit is required but not installed. Please install it using `pip install prompt_toolkit`.\033[0m")
+    sys.exit(1)
 
 try:
     from tqdm import tqdm
@@ -74,7 +68,6 @@ MAKECODE_ASCII = r"""
 """
 
 USER_SESSION = None
-PROMPT_TOOLKIT_DISABLED = False
 
 SYSTEM = f"""You are the Orchestrator (Super-Agent) at {WORKDIR}.
 
@@ -138,12 +131,14 @@ def _parse_arguments(arguments: Any) -> dict:
 
 
 def _stringify_output(output: Any) -> str:
-    if isinstance(output, str): return output
+    if isinstance(output, str):
+        return output
     return json.dumps(output, ensure_ascii=False, indent=2)
 
 
 def _render_orchestrator_message(text: str):
-    if not text: return
+    if not text:
+        return
     if RICH_AVAILABLE:
         console.print(
             Panel(
@@ -209,7 +204,7 @@ def _request_with_progress(messages: list):
             with tqdm(total=None, bar_format="{desc}", leave=False, dynamic_ncols=True) as progress:
                 phase = 0
                 while not future.done():
-                    progress.set_description_str(f"Orchestrator thinking" + "." * ((phase % 10) + 1))
+                    progress.set_description_str("Orchestrator thinking" + "." * ((phase % 10) + 1))
                     progress.refresh()
                     time.sleep(0.12)
                     phase += 1
@@ -269,68 +264,10 @@ def _render_env_customization_hint():
         print("\n" + "\n".join(lines) + "\n")
 
 
-def _disable_prompt_toolkit(reason: str):
-    global USER_SESSION, PROMPT_TOOLKIT_DISABLED
-    USER_SESSION = None
-    PROMPT_TOOLKIT_DISABLED = True
-    if RICH_AVAILABLE: console.print(f"[yellow]⚠️ Input fallback: prompt_toolkit disabled ({reason}).[/yellow]")
-
-
-def _pop_last_utf8_char_bytes(buf: bytearray):
-    if not buf:
-        return
-    i = len(buf) - 1
-    while i > 0 and (buf[i] & 0b11000000) == 0b10000000:
-        i -= 1
-    del buf[i:]
-
-
-def _apply_backspace_bytes(raw: bytes) -> bytes:
-    out = bytearray()
-    for b in raw:
-        if b in (8, 127):  # BS / DEL
-            _pop_last_utf8_char_bytes(out)
-        else:
-            out.append(b)
-    return bytes(out)
-
-
-def _decode_user_line(raw: bytes) -> str:
-    raw = raw.rstrip(b"\r\n")
-    if b"\x08" in raw or b"\x7f" in raw:
-        raw = _apply_backspace_bytes(raw)
-
-    encodings = []
-    if sys.stdin and getattr(sys.stdin, "encoding", None):
-        encodings.append(sys.stdin.encoding)
-    encodings.extend(["utf-8", locale.getpreferredencoding(False)])
-
-    seen = set()
-    for enc in encodings:
-        key = (enc or "").lower()
-        if not enc or key in seen:
-            continue
-        seen.add(key)
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace")
-
-
-def _safe_input(prompt_text: str) -> str:
-    try:
-        return input(prompt_text)
-    except UnicodeDecodeError as exc:
-        log_error_traceback("main input unicode decode", exc)
-        fallback_prompt = "\nUser >> "
-        print(fallback_prompt, end="", flush=True)
-        return _decode_user_line(sys.stdin.buffer.readline())
-
-
 def _init_user_session():
     global USER_SESSION
-    if USER_SESSION is not None or PROMPT_TOOLKIT_DISABLED or not PROMPT_TOOLKIT_AVAILABLE: return
+    if USER_SESSION is not None:
+        return
     try:
         user_kb = KeyBindings()
 
@@ -342,14 +279,12 @@ def _init_user_session():
         def _insert_newline(event):
             event.current_buffer.insert_text("\n")
 
-        # 颜值升级 2: 优雅的多行延续提示符（灰色点阵）
         def prompt_continuation(width, line_number, is_soft_wrap):
             return " " * (width - 4) + " ┊  "
 
-        # 颜值升级 3: 提示符颜色配置
         custom_style = Style.from_dict({
-            'prompt': 'bold #00ff00',  # 鲜艳的绿色
-            'arrow': '#00ffff bold',  # 青色箭头
+            'prompt': 'bold #00ff00',
+            'arrow': '#00ffff bold',
         })
 
         USER_SESSION = PromptSession(
@@ -360,7 +295,8 @@ def _init_user_session():
         )
     except Exception as exc:
         log_error_traceback("main init user session", exc)
-        _disable_prompt_toolkit(str(exc))
+        print(f"\n\033[31mError initializing prompt session: {exc}\033[0m")
+        sys.exit(1)
 
 
 def _read_user_query() -> str:
@@ -371,24 +307,14 @@ def _read_user_query() -> str:
             "\n[dim]💡 Tip: Press [bold]Enter[/bold] to send, [bold]Ctrl+N[/bold] for newline.[/dim]"
         )
 
-    if USER_SESSION is not None:
-        try:
-            # 使用带有自定义样式的提示符
-            return USER_SESSION.prompt([
-                ('class:prompt', '🤖 User '),
-                ('class:arrow', '❯❯ '),
-            ])
-        except NoConsoleScreenBufferError as exc:
-            log_error_traceback("main user input no console buffer", exc)
-            _disable_prompt_toolkit("No Windows console screen buffer")
-        except Exception as exc:
-            log_error_traceback("main user input prompt failure", exc)
-            _disable_prompt_toolkit(str(exc))
-
-    stdin_encoding = (getattr(sys.stdin, "encoding", "") or "").lower()
-    unicode_safe = "utf" in stdin_encoding
-    prompt_text = "\n\033[1;32m🤖 User ❯❯ \033[0m" if unicode_safe else "\n\033[1;32mUser >> \033[0m"
-    return _safe_input(prompt_text)
+    try:
+        return USER_SESSION.prompt([
+            ('class:prompt', '🤖 User '),
+            ('class:arrow', '❯❯ '),
+        ])
+    except Exception as exc:
+        log_error_traceback("main user input prompt failure", exc)
+        raise
 
 
 def agent_loop(messages: list):
@@ -409,17 +335,17 @@ def agent_loop(messages: list):
         llm_client.append_assistant_message(messages, raw_message)
 
         has_tool_call = len(tool_calls) > 0
-        
+
         if text_content:
             _render_orchestrator_message(text_content)
-            
+
         for tc in tool_calls:
             tool_name = tc["name"]
             tool_id = tc["id"]
             tool_args = tc["arguments"]
-            
+
             _render_tool_call(tool_name, _parse_arguments(tool_args))
-            
+
             try:
                 arguments = _parse_arguments(tool_args)
                 handler = SUPER_TOOLS_HANDLERS.get(tool_name)

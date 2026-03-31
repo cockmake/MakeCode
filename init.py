@@ -4,6 +4,12 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+# 确保在 Windows 控制台下可以正确打印 Emoji
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from openai import OpenAI
 
 BASEDIR = ""
@@ -61,7 +67,6 @@ except FileNotFoundError as exc:
     log_error_traceback("init .env load", exc)
     pass  # .env 文件不存在，继续执行，依赖环境变量的代码会处理缺失的情况
 
-# 尝试导入 prompt_toolkit 用于构建高级交互菜单
 try:
     from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding import KeyBindings
@@ -70,11 +75,11 @@ try:
     from prompt_toolkit.layout.layout import Layout
     from prompt_toolkit.styles import Style
     from prompt_toolkit import prompt
-
-    PROMPT_TOOLKIT_AVAILABLE = True
 except ImportError as exc:
     log_error_traceback("init prompt_toolkit import", exc)
-    PROMPT_TOOLKIT_AVAILABLE = False
+    print(
+        "\n\033[31mError: prompt_toolkit is required but not installed. Please install it using `pip install prompt_toolkit`.\033[0m")
+    sys.exit(1)
 
 
 def _interactive_choose_mode(cwd: Path) -> str:
@@ -131,21 +136,6 @@ def _interactive_choose_mode(cwd: Path) -> str:
 def _init_workdir() -> Path:
     cwd = Path.cwd()
 
-    # 1. 降级方案：如果没有安装 prompt_toolkit，使用传统 input
-    if not PROMPT_TOOLKIT_AVAILABLE:
-        try:
-            print(f"\n\033[36m📂 Workspace Directory Setup\033[0m")
-            user_input = input(
-                f"\033[90mEnter path or press Enter for current ({cwd}):\033[0m\n\033[1;32m❯ \033[0m").strip()
-            if not user_input:
-                return cwd
-            target = Path(user_input).expanduser().resolve()
-            return target if target.exists() and target.is_dir() else cwd
-        except (EOFError, KeyboardInterrupt) as exc:
-            log_error_traceback("init workdir input interrupted", exc)
-            return cwd
-
-    # 2. 高级方案：使用交互式菜单
     try:
         choice = _interactive_choose_mode(cwd)
     except Exception as exc:
@@ -162,18 +152,19 @@ def _init_workdir() -> Path:
 
     # 3. 用户选择了自定义输入路径
     try:
-        custom_style = Style.from_dict({'prompt': 'fg:ansigreen bold'})
-        user_input = prompt("\n✏️  Enter custom workspace path:\n❯ ", style=custom_style).strip()
+        print("\n✏️  Enter custom workspace path:")
+        user_input = prompt([('class:prompt', '📂 Target Directory ❯❯ ')],
+                            style=Style.from_dict({'prompt': 'bold #00ffff'}))
     except (EOFError, KeyboardInterrupt) as exc:
         log_error_traceback("init custom workdir input interrupted", exc)
         print(f"\n\033[33m⚠️  Input cancelled. Defaulting to: {cwd}\033[0m\n")
         return cwd
 
-    if not user_input:
+    if not user_input.strip():
         print(f"\033[32m✅ Using default directory: {cwd}\033[0m\n")
         return cwd
 
-    target_path = Path(user_input).expanduser().resolve()
+    target_path = Path(user_input.strip()).expanduser().resolve()
 
     if target_path.exists() and target_path.is_dir():
         print(f"\033[32m✅ Workspace set to: {target_path}\033[0m\n")
@@ -232,21 +223,6 @@ def _interactive_choose_api_standard() -> str:
 
 
 def _init_api_standard() -> str:
-    if not PROMPT_TOOLKIT_AVAILABLE:
-        try:
-            print(f"\n\033[36m⚙️  LLM API Standard Setup\033[0m")
-            print("1. Chat Completions API")
-            print("2. Responses API")
-            user_input = input("\033[90mSelect standard (1 or 2) [Default: 1]:\033[0m\n\033[1;32m❯ \033[0m").strip()
-            if user_input == "2":
-                print(f"\033[32m✅ API Standard set to: Responses API\033[0m\n")
-                return "response"
-            print(f"\033[32m✅ API Standard set to: Chat Completions API\033[0m\n")
-            return "chat"
-        except (EOFError, KeyboardInterrupt) as exc:
-            log_error_traceback("init api standard input interrupted", exc)
-            return "chat"
-
     try:
         choice = _interactive_choose_api_standard()
     except Exception as exc:
@@ -254,10 +230,10 @@ def _init_api_standard() -> str:
         choice = "abort"
 
     if choice in ("abort", "chat"):
-        print(f"\033[32m✅ API Standard set to: Chat Completions API\033[0m\n")
+        print("\033[32m✅ API Standard set to: Chat Completions API\033[0m\n")
         return "chat"
     else:
-        print(f"\033[32m✅ API Standard set to: Responses API\033[0m\n")
+        print("\033[32m✅ API Standard set to: Responses API\033[0m\n")
         return "response"
 
 
@@ -276,7 +252,7 @@ except KeyError as exc:
     print(
         "\033[31mError: Missing required environment variables. Please ensure OPENAI_API_KEY, OPENAI_BASE_URL, and MODEL_ID are set.\033[0m"
     )
-    exit(0)
+    sys.exit(1)
 client = OpenAI(
     base_url=BASE_ULR,
     api_key=API_KEY,
