@@ -22,6 +22,25 @@ MakeCode 是一个面向工程任务的 Agent CLI。它采用“编排器（Orch
 
 ---
 
+## 🖼️ 效果展示
+
+<table>
+<tr>
+<td align="center"><img src="images/1.png" width="300"/></td>
+<td align="center"><img src="images/2.png" width="300"/></td>
+</tr>
+<tr>
+<td align="center"><img src="images/3.png" width="300"/></td>
+<td align="center"><img src="images/4.png" width="300"/></td>
+</tr>
+<tr>
+<td align="center"><img src="images/5.png" width="300"/></td>
+<td align="center"><img src="images/6.png" width="300"/></td>
+</tr>
+</table>
+
+---
+
 ## 2. 当前能力
 
 ### 2.1 编排器主循环（`main.py`）

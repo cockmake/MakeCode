@@ -22,6 +22,25 @@ The goal is not just to answer questions, but to provide an agent workflow that 
 
 ---
 
+## 🖼️ Gallery
+
+<table>
+<tr>
+<td align="center"><img src="images/1.png" width="300"/></td>
+<td align="center"><img src="images/2.png" width="300"/></td>
+</tr>
+<tr>
+<td align="center"><img src="images/3.png" width="300"/></td>
+<td align="center"><img src="images/4.png" width="300"/></td>
+</tr>
+<tr>
+<td align="center"><img src="images/5.png" width="300"/></td>
+<td align="center"><img src="images/6.png" width="300"/></td>
+</tr>
+</table>
+
+---
+
 ## 2. Current Capabilities
 
 ### 2.1 Orchestrator Loop (`main.py`)
