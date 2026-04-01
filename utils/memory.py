@@ -1,5 +1,8 @@
 import json
 import time
+import uuid
+from datetime import datetime
+from pathlib import Path
 
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
@@ -9,7 +12,32 @@ from init import WORKDIR, llm_client
 THRESHOLD = 10240 * 12
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
+CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
 KEEP_RECENT = 24
+
+
+def save_checkpoint(messages: list) -> Path:
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    uid = uuid.uuid4().hex[:8]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"ckpt_{timestamp}_{uid}.json"
+    filepath = CHECKPOINT_DIR / filename
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(messages, f, ensure_ascii=False, indent=2)
+    return filepath
+
+
+def list_checkpoints() -> list:
+    if not CHECKPOINT_DIR.exists():
+        return []
+    files = list(CHECKPOINT_DIR.glob("ckpt_*.json"))
+    files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return files
+
+
+def load_checkpoint(filepath: Path) -> list:
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def estimate_tokens(messages: list):

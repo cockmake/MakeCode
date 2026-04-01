@@ -3,6 +3,7 @@ import json
 import sys
 import time
 from typing import Any
+from pathlib import Path
 
 from rich.progress import Progress, TextColumn, BarColumn
 
@@ -14,6 +15,10 @@ try:
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.styles import Style
     from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.layout.layout import Layout
 
     PROMPT_TOOLKIT_AVAILABLE = True
 except ImportError as exc:
@@ -54,7 +59,7 @@ from utils.common import COMMON_TOOLS, COMMON_TOOLS_HANDLERS, STARTUP_TERMINAL_T
 from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS_HANDLERS, TEAM_TOOLS
-from utils.memory import micro_compact, MEMORY_TOOLS, MEMORY_TOOLS_HANDLERS, THRESHOLD, estimate_tokens
+from utils.memory import micro_compact, MEMORY_TOOLS, MEMORY_TOOLS_HANDLERS, THRESHOLD, estimate_tokens, save_checkpoint, list_checkpoints, load_checkpoint
 
 console = Console() if RICH_AVAILABLE else None
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -266,6 +271,8 @@ def _render_env_customization_hint():
 
 
 COMMAND_DESCRIPTIONS = {
+    "/save": "手动保存当前所有对话到checkpoint",
+    "/load": "列出历史checkpoint并选择加载",
     "/skills": "列出当前可用的skills",
     "/compact": "压缩当前对话上下文",
     "/tools": "列出当前可用工具详细信息",
@@ -433,6 +440,65 @@ def agent_loop(messages: list):
                 print(f"\033[31m⚠️ {error_msg}\033[0m")
 
 
+def _interactive_choose_checkpoint(checkpoints: list) -> str:
+    if not checkpoints:
+        return "abort"
+    
+    options = []
+    for cp in checkpoints:
+        # cp is a Path object, format is ckpt_YYYYMMDD_HHMMSS_uid.json
+        parts = cp.stem.split("_")
+        if len(parts) >= 4:
+            date_str = f"{parts[1]} {parts[2][:2]}:{parts[2][2:4]}:{parts[2][4:]}"
+            uid = parts[-1]
+            desc = f"Checkpoint {uid} ({date_str})"
+        else:
+            desc = cp.name
+        options.append((str(cp), desc))
+        
+    options.append(("abort", "取消 (Cancel)"))
+
+    selected_index = [0]
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(event):
+        selected_index[0] = max(0, selected_index[0] - 1)
+
+    @kb.add("down")
+    def _(event):
+        selected_index[0] = min(len(options) - 1, selected_index[0] + 1)
+
+    @kb.add("enter")
+    def _(event):
+        event.app.exit(result=options[selected_index[0]][0])
+
+    @kb.add("c-c")
+    def _(event):
+        event.app.exit(result="abort")
+
+    def get_formatted_text():
+        result = [("class:title", "\n📌 Select a Checkpoint to Load (Use ⬆/⬇ arrows, Enter to confirm):\n")]
+        for i, (key, text) in enumerate(options):
+            if i == selected_index[0]:
+                result.append(("class:selected", f"  👉 {text}\n"))
+            else:
+                result.append(("class:unselected", f"     {text}\n"))
+        return result
+
+    control = FormattedTextControl(get_formatted_text)
+    window = Window(content=control, height=len(options) + 2)
+    layout = Layout(window)
+
+    style = Style([
+        ("title", "fg:ansicyan bold"),
+        ("selected", "fg:ansigreen bold"),
+        ("unselected", "fg:ansigray"),
+    ])
+
+    app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
+    return app.run()
+
 if __name__ == '__main__':
     _render_startup_banner()
     _render_env_customization_hint()
@@ -465,6 +531,58 @@ if __name__ == '__main__':
                 console.print("\n[bold green]✨ 对话历史已清空，开启全新会话！[/bold green]")
             else:
                 print("\n\033[32m✨ 对话历史已清空，开启全新会话！\033[0m")
+            continue
+
+        if query == "/save":
+            filepath = save_checkpoint(history)
+            if RICH_AVAILABLE:
+                console.print(f"\n[bold green]💾 对话已保存至: {filepath.name}[/bold green]")
+            else:
+                print(f"\n\033[32m💾 对话已保存至: {filepath.name}\033[0m")
+            continue
+
+        if query == "/load":
+            checkpoints = list_checkpoints()
+            if not checkpoints:
+                if RICH_AVAILABLE:
+                    console.print("\n[bold yellow]📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]")
+                else:
+                    print("\n\033[33m📂 没有找到任何历史对话记录 (No checkpoints found).\033[0m")
+                continue
+
+            # 如果已经在对话中(除去system prompt之外有其他内容)，自动保存一次
+            if len(history) > 1:
+                auto_save_path = save_checkpoint(history)
+                if RICH_AVAILABLE:
+                    console.print(f"\n[bold dim]⏳ 已自动保存当前对话至: {auto_save_path.name}[/bold dim]")
+                else:
+                    print(f"\n\033[90m⏳ 已自动保存当前对话至: {auto_save_path.name}\033[0m")
+
+            try:
+                selected_path = _interactive_choose_checkpoint(checkpoints)
+            except Exception as exc:
+                log_error_traceback("main interactive load checkpoint", exc)
+                selected_path = "abort"
+
+            if selected_path == "abort":
+                if RICH_AVAILABLE:
+                    console.print("[dim]已取消加载。[/dim]")
+                else:
+                    print("\033[90m已取消加载。\033[0m")
+                continue
+
+            try:
+                history = load_checkpoint(Path(selected_path))
+                if RICH_AVAILABLE:
+                    console.print(f"\n[bold green]🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。[/bold green]")
+                else:
+                    print(f"\n\033[32m🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。\033[0m")
+            except Exception as exc:
+                log_error_traceback("main load checkpoint error", exc)
+                if RICH_AVAILABLE:
+                    console.print(f"\n[bold red]❌ 加载失败: {exc}[/bold red]")
+                else:
+                    print(f"\n\033[31m❌ 加载失败: {exc}\033[0m")
             continue
 
         # 核心逻辑：如果大模型需要处理软命令，把它和描述拼接在一起作为上下文
