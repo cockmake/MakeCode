@@ -12,12 +12,14 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 
 from openai import OpenAI
 
+
 def _get_error_log_path() -> Path:
     workdir = globals().get("WORKDIR")
     base_dir = workdir if isinstance(workdir, Path) else Path.cwd()
     log_path = base_dir / ".makecode" / "error.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     return log_path
+
 
 def log_error_traceback(context: str, exc: Exception):
     try:
@@ -34,6 +36,7 @@ def log_error_traceback(context: str, exc: Exception):
                 )
         except Exception:
             pass
+
 
 try:
     from prompt_toolkit.application import Application
@@ -204,6 +207,7 @@ def _init_api_standard() -> str:
         print("\033[32m✅ API Standard set to: Responses API\033[0m\n")
         return "response"
 
+
 def _load_env_files():
     """只从当前项目工作区目录加载 .env"""
     workdir_env = str(WORKDIR / ".env")
@@ -212,11 +216,32 @@ def _load_env_files():
             for line in f.readlines():
                 if line.strip() and not line.strip().startswith("#") and "=" in line:
                     key, value = line.strip().split("=", 1)
-                    if key not in os.environ:
-                        os.environ[key] = value.strip('\'"')
+                    key = key.strip()
+                    value = value.strip('\'"')
+                    
+                    if key in os.environ:
+                        if os.environ[key] != value:
+                            print(f"\n\033[33m⚠️  Conflict detected for environment variable: {key}\033[0m")
+                            print(f"  Current value : {os.environ[key]}")
+                            print(f"  Value in .env : {value}")
+                            try:
+                                choice = prompt([('class:prompt', '❓ Override current value with .env? [y/N] ❯❯ ')], 
+                                                style=Style.from_dict({'prompt': 'bold #00ffff'}))
+                            except (EOFError, KeyboardInterrupt):
+                                choice = 'n'
+                                print()
+                                
+                            if choice.strip().lower() == 'y':
+                                os.environ[key] = value
+                                print(f"\033[32m✅ Overridden {key}\033[0m")
+                            else:
+                                print(f"\033[90m⏭️  Skipped {key}\033[0m")
+                    else:
+                        os.environ[key] = value
         print(f"\033[34mℹ️  Loaded environment variables from Workspace: {workdir_env}\033[0m")
     except FileNotFoundError:
         pass
+
 
 WORKDIR = _init_workdir()
 MAKECODE_DIR = WORKDIR / ".makecode"
