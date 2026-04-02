@@ -368,7 +368,7 @@ def _read_user_query() -> str:
 
     try:
         return USER_SESSION.prompt([
-            ('class:prompt', ' 🤖  User '),
+            ('class:prompt', ' 🤖 User '),
             ('class:arrow', '❯❯ '),
         ])
     except Exception as exc:

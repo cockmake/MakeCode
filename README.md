@@ -58,7 +58,10 @@ MakeCode 是一个面向工程任务的 Agent CLI。它采用“编排器（Orch
 
 ### 2.2 工作目录与环境初始化（`init.py`）
 
-- 启动时自动读取项目根目录 `.env`。
+MakeCode 采用严格的工作区（Workspace）隔离机制。所有相对路径、环境变量和技能库加载均以用户当前选择的 **工作目录（WORKDIR）** 为基准，而非 Agent 源码所在目录。
+
+- **环境变量 (`.env`) 加载**：启动时，系统会自动在当前选定的 `WORKDIR` 下寻找 `.env` 文件。如果读取到的环境变量与系统现有的环境变量冲突，CLI 会弹出交互式提示，让用户决定是否覆盖。
+- **技能库 (`skills/`) 加载**：系统会严格从 `WORKDIR/skills` 目录中扫描并加载所有的自定义技能（`SKILL.md`）。这样可以确保不同的工程项目可以使用其专属的技能配置，互不干扰。
 - 支持交互式选择工作区目录（支持当前目录/自定义目录）。
 - **新增** 支持交互式选择底层的接口规范标准：
   - `Chat Completions API`（标准格式，适用于接入大多数开源模型如 DeepSeek、Ollama 等）。
@@ -277,26 +280,54 @@ flowchart TD
 pip install -r requirements.txt
 ```
 
-### 6.2 配置 `.env`
+### 6.2 准备工作区（重要）
 
-在项目根目录创建 `.env`：
+MakeCode 采用严格的工作区（Workspace）隔离机制，因此**不建议**在 MakeCode 源码目录直接运行任务。请在你实际要处理的项目目录（即你希望 Agent 工作的目录）中，准备以下内容：
 
-```env
-OPENAI_BASE_URL=your_endpoint
-OPENAI_API_KEY=your_api_key
-MODEL_ID=your_model_id
-```
+1. **环境配置文件 `.env`**：
+   在你的目标工作区根目录下创建 `.env` 文件，填入模型配置：
+   ```env
+   OPENAI_BASE_URL=your_endpoint
+   OPENAI_API_KEY=your_api_key
+   MODEL_ID=your_model_id
+   ```
+   > 注：`MODEL_ID` 对应的模型必须支持 Chat Completions API 或 Responses API。当该文件中的变量与系统环境变量冲突时，启动 MakeCode 时会弹出交互式提示让你选择是否覆盖。
 
-- `MODEL_ID` 对应的模型必须支持 Chat Completions API 或 Responses API。
-- 程序会优先使用环境变量中已有值；`.env` 中缺失的项不会覆盖现有环境变量。
+2. **自定义技能库 `skills/`（可选）**：
+   如果你的项目需要特定的专家技能，请在你的目标工作区根目录下创建一个 `skills` 文件夹。
+   目录结构如：`skills/<skill-name>/SKILL.md`。MakeCode 会严格仅从该目录下加载技能。
 
 ### 6.3 启动
+
+在 MakeCode 的源码目录下运行以下命令启动 CLI：
 
 ```bash
 python main.py
 ```
 
-启动后会提供菜单，**首先交互式选择工作区目录**，**其次交互式选择底层的接口规范标准**（Chat/Response），最后进入交互式 CLI。
+启动后会进入向导流程：
+1. **交互式选择工作区目录（WORKDIR）**：输入你刚才准备好 `.env` 和 `skills` 的绝对路径，或者按回车使用当前目录。
+2. **处理环境变量冲突**：如果 `.env` 文件变量与系统变量有冲突，按提示进行覆盖确认。
+3. **选择 API 标准**：选择你使用的底层 API 协议（Chat Completions API 或 Responses API）。
+4. **进入交互式终端**：开始与主代理对话。
+
+### 6.4 内置快捷命令（Slash Commands）
+
+在交互式 CLI 中，支持输入斜杠 `/` 来触发快捷命令（带有输入补全提示）：
+
+| 命令 | 描述 |
+| --- | --- |
+| `/cmds` | 列出所有的可用命令和功能描述 |
+| `/load` | 列出历史 checkpoint 并选择加载 |
+| `/skills` | 列出当前工作区可用的 skills |
+| `/compact` | 压缩当前对话上下文 |
+| `/tools` | 列出当前可用工具详细信息 |
+| `/tasks` / `/plan` | 查看任务看板和当前执行进度 |
+| `/status` | 汇报系统状态、已完成任务和下一步计划 |
+| `/help` | 显示使用帮助和自我介绍 |
+| `/workspace` / `/ls` | 查看当前工作区目录结构 |
+| `/clear` / `/reset` | 清空当前对话历史 |
+| `/quit` / `/exit` | 退出程序 |
 
 ---
 

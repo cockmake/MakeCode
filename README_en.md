@@ -58,7 +58,10 @@ The goal is not just to answer questions, but to provide an agent workflow that 
 
 ### 2.2 Workspace and Environment Init (`init.py`)
 
-- Automatically reads `.env` from the project root at startup.
+MakeCode employs a strict Workspace isolation mechanism. All relative paths, environment variables, and skill loading are resolved relative to the user's chosen **Workspace Directory (`WORKDIR`)**, not the location of the MakeCode source code.
+
+- **Environment Variable (`.env`) Loading**: At startup, the system automatically searches for a `.env` file within the currently selected `WORKDIR`. If loaded variables conflict with existing system environment variables, the CLI will present an interactive prompt allowing the user to decide whether to override them.
+- **Skill Library (`skills/`) Loading**: The system strictly scans and loads custom skills (`SKILL.md`) from the `WORKDIR/skills` directory. This ensures that different projects can maintain their own dedicated skill configurations without interference.
 - Supports interactive workspace selection (current directory or custom directory).
 - **New** Supports interactive API Standard selection:
   - `Chat Completions API` (Standard format, suitable for DeepSeek, Ollama, vLLM, and standard OpenAI endpoints)
@@ -221,26 +224,54 @@ Dependencies currently declared in `requirements.txt`:
 pip install -r requirements.txt
 ```
 
-### 6.2 Configure `.env`
+### 6.2 Prepare Workspace (Important)
 
-Create a `.env` file in the project root:
+MakeCode employs a strict Workspace isolation mechanism. It is **not recommended** to run tasks directly in the MakeCode source directory. Instead, prepare the following in your actual project directory (the directory where you want the Agent to work):
 
-```env
-OPENAI_BASE_URL=your_endpoint
-OPENAI_API_KEY=your_api_key
-MODEL_ID=your_model_id
-```
+1. **Environment Configuration `.env`**:
+   Create a `.env` file in the root of your target workspace directory and fill in the model configuration:
+   ```env
+   OPENAI_BASE_URL=your_endpoint
+   OPENAI_API_KEY=your_api_key
+   MODEL_ID=your_model_id
+   ```
+   > Note: The model behind `MODEL_ID` must support the Chat Completions API or Responses API. If any variables in this file conflict with existing system environment variables, MakeCode will prompt you interactively at startup to choose whether to override them.
 
-- The model behind `MODEL_ID` must support the Chat Completions API or Responses API.
-- Existing environment variables are preserved; values from `.env` only fill missing keys.
+2. **Custom Skills Library `skills/` (Optional)**:
+   If your project requires specific expert skills, create a `skills` folder in the root of your target workspace directory.
+   The structure should look like this: `skills/<skill-name>/SKILL.md`. MakeCode will strictly load skills only from this directory.
 
 ### 6.3 Start
+
+Run the following command in the MakeCode source directory to start the CLI:
 
 ```bash
 python main.py
 ```
 
-At startup, the program asks for a workspace directory and then enters the interactive CLI.
+After startup, you will enter a wizard flow:
+1. **Interactive Workspace Selection (WORKDIR)**: Enter the absolute path of the directory where you just prepared your `.env` and `skills`, or press Enter to use the current directory.
+2. **Resolve Environment Variable Conflicts**: If there are conflicts between your `.env` file and system variables, follow the prompt to confirm overrides.
+3. **Select API Standard**: Choose your underlying API protocol (Chat Completions API or Responses API).
+4. **Enter Interactive Terminal**: Begin your conversation with the main agent.
+
+### 6.4 Built-in Slash Commands
+
+In the interactive CLI, you can type `/` to trigger quick commands (with auto-completion support):
+
+| Command | Description |
+| --- | --- |
+| `/cmds` | List all available commands and their descriptions |
+| `/load` | List historical checkpoints and select one to load |
+| `/skills` | List available skills in the current workspace |
+| `/compact` | Compact the current conversation context |
+| `/tools` | List detailed information of available tools |
+| `/tasks` / `/plan` | View the task board and current execution progress |
+| `/status` | Report system status, completed tasks, and next steps |
+| `/help` | Show usage help and self-introduction |
+| `/workspace` / `/ls` | View the current workspace directory structure |
+| `/clear` / `/reset` | Clear current conversation history |
+| `/quit` / `/exit` | Exit the program |
 
 ---
 
