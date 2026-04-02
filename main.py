@@ -245,7 +245,7 @@ def _render_startup_banner():
 
 def _render_env_customization_hint():
     hint_text = (
-        "💡下次启动前可通过环境变量自定义模型：\n"
+        " 💡 下次启动前可通过环境变量自定义模型：\n"
         "MODEL_ID=xxx\nOPENAI_BASE_URL=xxx\nOPENAI_API_KEY=xxx"
     )
     if RICH_AVAILABLE:
@@ -261,7 +261,7 @@ def _render_env_customization_hint():
     else:
         lines = [
             "┌─────────────────────────────────────────────────────────────┐",
-            "│💡下次启动前可通过环境变量自定义模型：                           │",
+            "│ 💡 下次启动前可通过环境变量自定义模型：                         │",
             "│  MODEL_ID=xxx                                               │",
             "│  OPENAI_BASE_URL=xxx                                        │",
             "│  OPENAI_API_KEY=xxx                                         │",
@@ -363,12 +363,12 @@ def _read_user_query() -> str:
 
     if RICH_AVAILABLE:
         console.print(
-            "\n[dim]💡 Tip: Press [bold]Enter[/bold] to send, [bold]Ctrl+N[/bold] for newline.[/dim]"
+            "\n[dim] 💡 Tip: Press [bold]Enter[/bold] to send, [bold]Ctrl+N[/bold] for newline.[/dim]"
         )
 
     try:
         return USER_SESSION.prompt([
-            ('class:prompt', '🤖 User '),
+            ('class:prompt', ' 🤖  User '),
             ('class:arrow', '❯❯ '),
         ])
     except Exception as exc:

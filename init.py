@@ -118,7 +118,7 @@ def _init_workdir() -> Path:
         return cwd
 
     if choice == "default":
-        print(f"\033[32m✅ Workspace set to: {cwd}\033[0m\n")
+        print(f"\033[32m ✅ Workspace set to: {cwd}\033[0m\n")
         return cwd
 
     # 3. 用户选择了自定义输入路径
@@ -132,13 +132,13 @@ def _init_workdir() -> Path:
         return cwd
 
     if not user_input.strip():
-        print(f"\033[32m✅ Using default directory: {cwd}\033[0m\n")
+        print(f"\033[32m ✅ Using default directory: {cwd}\033[0m\n")
         return cwd
 
     target_path = Path(user_input.strip()).expanduser().resolve()
 
     if target_path.exists() and target_path.is_dir():
-        print(f"\033[32m✅ Workspace set to: {target_path}\033[0m\n")
+        print(f"\033[32m ✅ Workspace set to: {target_path}\033[0m\n")
         return target_path
     else:
         print(f"\033[33m⚠️  Warning: Path '{target_path}' does not exist or is not a directory.\n"
@@ -201,10 +201,10 @@ def _init_api_standard() -> str:
         choice = "abort"
 
     if choice in ("abort", "chat"):
-        print("\033[32m✅ API Standard set to: Chat Completions API\033[0m\n")
+        print("\033[32m ✅ API Standard set to: Chat Completions API\033[0m\n")
         return "chat"
     else:
-        print("\033[32m✅ API Standard set to: Responses API\033[0m\n")
+        print("\033[32m ✅ API Standard set to: Responses API\033[0m\n")
         return "response"
 
 
@@ -221,11 +221,11 @@ def _load_env_files():
                     
                     if key in os.environ:
                         if os.environ[key] != value:
-                            print(f"\n\033[33m⚠️  Conflict detected for environment variable: {key}\033[0m")
+                            print(f"\n\033[33m ⚠️ Conflict detected for environment variable: {key}\033[0m")
                             print(f"  Current value : {os.environ[key]}")
                             print(f"  Value in .env : {value}")
                             try:
-                                choice = prompt([('class:prompt', '❓ Override current value with .env? [y/N] ❯❯ ')], 
+                                choice = prompt([('class:prompt', ' ❓ Override current value with .env? [y/N] ❯❯ ')],
                                                 style=Style.from_dict({'prompt': 'bold #00ffff'}))
                             except (EOFError, KeyboardInterrupt):
                                 choice = 'n'
@@ -233,12 +233,12 @@ def _load_env_files():
                                 
                             if choice.strip().lower() == 'y':
                                 os.environ[key] = value
-                                print(f"\033[32m✅ Overridden {key}\033[0m")
+                                print(f"\033[32m ✅ Overridden {key}\033[0m")
                             else:
-                                print(f"\033[90m⏭️  Skipped {key}\033[0m")
+                                print(f"\033[90m ⏭️  Skipped {key}\033[0m")
                     else:
                         os.environ[key] = value
-        print(f"\033[34mℹ️  Loaded environment variables from Workspace: {workdir_env}\033[0m")
+        print(f"\033[34m ℹ️  Loaded environment variables from Workspace: {workdir_env}\033[0m")
     except FileNotFoundError:
         pass
 

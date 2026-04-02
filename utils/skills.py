@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import frontmatter
@@ -53,6 +54,7 @@ class SkillLoader:
         lines = []
         for name, skill in self.skills.items():
             desc = skill["meta"].get("description", "No description")
+            desc = str(desc).strip().replace('\n', ' ').replace('\r', '')
             tags = skill["meta"].get("tags", "")
             line = f"  **{name}**: {desc}"
             if tags:
@@ -62,14 +64,31 @@ class SkillLoader:
 
     def list_skills(self) -> str:
         """List all available skill names."""
-        return f"Skills available: \n{self.get_descriptions()}"
+        skills_path = self.skills_dir.absolute().as_posix()
+        return f"Skills available (stored in `{skills_path}`):\n{self.get_descriptions()}"
 
     def get_content(self, name: str) -> str:
         """Layer 2: full skill body returned in tool_result."""
         skill = self.skills.get(name)
         if not skill:
             return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
-        return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
+
+        # Optimization 2: Use .as_posix() to ensure forward slashes
+        skill_dir = Path(skill["path"]).parent.absolute().as_posix()
+
+        # Optimization 3: Include metadata JSON
+
+        meta_json = json.dumps(skill["meta"], ensure_ascii=False, indent=2)
+
+        system_note = (
+            f"> **[SYSTEM NOTE]**\n"
+            f"> The absolute workspace path for this skill is: `{skill_dir}`\n"
+            f"> Whenever you need to execute commands, read files, or access any directories (e.g., `scripts/`, `example/`, `output/`) mentioned in this skill document, "
+            f"> you MUST resolve them relative to this absolute path (e.g., `{skill_dir}/<relative_path>`).\n\n"
+            f"**Skill Metadata:**\n```json\n{meta_json}\n```\n\n"
+        )
+
+        return f"<skill name=\"{name}\">\n{system_note}{skill['body']}\n</skill>"
 
 
 SKILL_LOADER = SkillLoader(SKILLS_DIR)
