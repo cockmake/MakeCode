@@ -12,15 +12,6 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 
 from openai import OpenAI
 
-def get_absolute_env_path():
-    if getattr(sys, 'frozen', False):
-        base_dir = os.path.dirname(sys.executable)
-    else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-    global BASEDIR
-    BASEDIR = base_dir
-    return os.path.join(base_dir, '.env')
-
 def _get_error_log_path() -> Path:
     workdir = globals().get("WORKDIR")
     base_dir = workdir if isinstance(workdir, Path) else Path.cwd()
@@ -214,38 +205,24 @@ def _init_api_standard() -> str:
         return "response"
 
 def _load_env_files():
-    """双重路径加载 .env 策略：先尝试 WORKDIR，再兜底 BASEDIR"""
-    def _parse_and_set_env(env_file_path: str):
-        try:
-            with open(env_file_path, encoding="utf-8", mode="r") as f:
-                lines = f.readlines()
-                for line in lines:
-                    if line.strip() and not line.strip().startswith("#"):
-                        if "=" in line:
-                            key, value = line.strip().split("=", 1)
-                            if key not in os.environ:
-                                value = value.strip('\'"')
-                                os.environ[key] = value
-            return True
-        except FileNotFoundError:
-            return False
-
-    # 1. 优先尝试从当前选择的 WORKDIR 工作目录加载 .env
+    """只从当前项目工作区目录加载 .env"""
     workdir_env = str(WORKDIR / ".env")
-    if _parse_and_set_env(workdir_env):
+    try:
+        with open(workdir_env, encoding="utf-8", mode="r") as f:
+            for line in f.readlines():
+                if line.strip() and not line.strip().startswith("#") and "=" in line:
+                    key, value = line.strip().split("=", 1)
+                    if key not in os.environ:
+                        os.environ[key] = value.strip('\'"')
         print(f"\033[34mℹ️  Loaded environment variables from Workspace: {workdir_env}\033[0m")
-
-    # 2. 兜底尝试从 BASEDIR 软件安装目录加载 .env (不会覆盖已存在的)
-    basedir_env = get_absolute_env_path()
-    if basedir_env != workdir_env:
-        if _parse_and_set_env(basedir_env):
-            print(f"\033[34mℹ️  Loaded fallback environment variables from Agent Base: {basedir_env}\033[0m")
+    except FileNotFoundError:
+        pass
 
 WORKDIR = _init_workdir()
 MAKECODE_DIR = WORKDIR / ".makecode"
 MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
 
-# 确保在 WORKDIR 初始化后调用双重 .env 加载
+# 确保在 WORKDIR 初始化后加载项目专属 .env
 _load_env_files()
 
 API_STANDARD = _init_api_standard()
