@@ -615,42 +615,50 @@ if __name__ == "__main__":
 
                 if selected_task_path != "abort":
                     try:
-                        load_task_plan(Path(selected_task_path))
+                        plan_data = load_task_plan(Path(selected_task_path))
                         console.print("[bold green] 🚀 成功加载任务看板！[/bold green]")
 
-                        # Load team histories ONLY if task plan was successfully loaded
-                        from utils.teams import list_team_histories, load_team_history
+                        has_incomplete = any(
+                            task.get("status") != "completed"
+                            for task in plan_data.get("tasks", {}).values()
+                        )
 
-                        team_histories = list_team_histories()
-                        if team_histories:
-                            console.print(
-                                "\n[bold cyan] 💡 发现子代理执行历史 (Team Histories)，是否要加载？[/bold cyan]"
+                        if has_incomplete:
+                            from utils.teams import (
+                                list_team_histories,
+                                load_team_history,
                             )
 
-                            try:
-                                selected_team_path = _interactive_choose_checkpoint(
-                                    team_histories,
-                                    title="\n 📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                            team_histories = list_team_histories()
+                            if team_histories:
+                                console.print(
+                                    "\n[bold cyan] 💡 发现子代理执行历史 (Team Histories)，是否要加载？[/bold cyan]"
                                 )
-                            except Exception as exc:
-                                log_error_traceback(
-                                    "main interactive load team history", exc
-                                )
-                                selected_team_path = "abort"
 
-                            if selected_team_path != "abort":
                                 try:
-                                    load_team_history(Path(selected_team_path))
-                                    console.print(
-                                        "[bold green] ✅ 成功加载子代理执行历史！[/bold green]"
+                                    selected_team_path = _interactive_choose_checkpoint(
+                                        team_histories,
+                                        title="\n 📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
                                     )
                                 except Exception as exc:
                                     log_error_traceback(
-                                        "main load team history error", exc
+                                        "main interactive load team history", exc
                                     )
-                                    console.print(
-                                        f"[bold red] ❌ 加载子代理执行历史失败: {exc}[/bold red]"
-                                    )
+                                    selected_team_path = "abort"
+
+                                if selected_team_path != "abort":
+                                    try:
+                                        load_team_history(Path(selected_team_path))
+                                        console.print(
+                                            "[bold green] ✅ 成功加载子代理执行历史！[/bold green]"
+                                        )
+                                    except Exception as exc:
+                                        log_error_traceback(
+                                            "main load team history error", exc
+                                        )
+                                        console.print(
+                                            f"[bold red] ❌ 加载子代理执行历史失败: {exc}[/bold red]"
+                                        )
                     except Exception as exc:
                         log_error_traceback("main load task plan error", exc)
                         console.print(
