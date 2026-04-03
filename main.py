@@ -187,6 +187,16 @@ def _render_tool_output(name: str, output: Any):
         print(f"\033[32m[✅ Result] {name}: {_stringify_output(output)}\033[0m")
 
 
+def _render_token_usage(messages: list):
+    tokens = estimate_tokens(messages)
+    pct = (tokens / THRESHOLD) * 100
+    color = "green" if pct < 70 else "yellow" if pct < 90 else "red"
+    if RICH_AVAILABLE:
+        console.print(f"[{color} dim] 📈 Context: {tokens}/{THRESHOLD} Tokens ({pct:.1f}%)[/]")
+    else:
+        print(f"\033[90m 📈 Context: {tokens}/{THRESHOLD} Tokens ({pct:.1f}%)\033[0m")
+
+
 def _request_with_progress(messages: list):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
@@ -358,7 +368,7 @@ def _init_user_session():
         sys.exit(1)
 
 
-def _read_user_query() -> str:
+def _read_user_query(messages: list = None) -> str:
     _init_user_session()
 
     if RICH_AVAILABLE:
@@ -366,11 +376,21 @@ def _read_user_query() -> str:
             "\n[dim] 💡 Tip: Press [bold]Enter[/bold] to send, [bold]Ctrl+N[/bold] for newline.[/dim]"
         )
 
+    rprompt = []
+    if messages is not None:
+        tokens = estimate_tokens(messages)
+        pct = (tokens / THRESHOLD) * 100
+        color = "ansigreen" if pct < 70 else "ansiyellow" if pct < 90 else "ansired"
+        rprompt = [(f"fg:{color}", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) ")]
+
     try:
-        return USER_SESSION.prompt([
-            ('class:prompt', ' 🤖 User '),
-            ('class:arrow', '❯❯ '),
-        ])
+        return USER_SESSION.prompt(
+            [
+                ('class:prompt', ' 🤖 User '),
+                ('class:arrow', '❯❯ '),
+            ],
+            rprompt=rprompt
+        )
     except Exception as exc:
         log_error_traceback("main user input prompt failure", exc)
         raise
@@ -379,6 +399,8 @@ def _read_user_query() -> str:
 def agent_loop(messages: list):
     while True:
         micro_compact(messages)
+        _render_token_usage(messages)
+
         try:
             response = _request_with_progress(messages)
         except Exception as e:
@@ -508,7 +530,7 @@ if __name__ == '__main__':
     history = [{"role": "system", "content": SYSTEM}]
     while True:
         try:
-            query = _read_user_query()
+            query = _read_user_query(history)
         except (EOFError, KeyboardInterrupt) as exc:
             log_error_traceback("main user input interrupted", exc)
             if RICH_AVAILABLE:
