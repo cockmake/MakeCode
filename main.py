@@ -450,10 +450,11 @@ def agent_loop(messages: list):
         if not has_tool_call:
             break
     # 对话结束后尝试压缩上下文
-    if estimate_tokens(messages) > THRESHOLD:
+    current_context_tokens = estimate_tokens(messages)
+    if current_context_tokens > THRESHOLD:
         compact_reason = (
             f"Post agent_loop auto compact triggered: estimated tokens "
-            f"{estimate_tokens(messages)} exceeded threshold {THRESHOLD}."
+            f"{current_context_tokens} exceeded threshold {THRESHOLD}."
         )
         try:
             output = SUPER_TOOLS_HANDLERS["Compact"](messages, reason=compact_reason)

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from init import WORKDIR, llm_client
 
-THRESHOLD = 10240 * 15
+THRESHOLD = 1024 * 128
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
@@ -47,7 +47,7 @@ try:
     import sys
 
     # Determine base path for the bundled executable or normal execution
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         _base_path = Path(sys._MEIPASS)
     else:
         _base_path = Path(__file__).parent.parent
@@ -84,20 +84,33 @@ def micro_compact(input_list: list) -> list:
         if msg.get("type") == "function_call":
             tool_call_info_map[msg.get("call_id")] = {
                 "name": msg.get("name"),
-                "arguments": msg.get("arguments")
+                "arguments": msg.get("arguments"),
             }
         elif msg.get("role") == "assistant" and msg.get("tool_calls"):
             for tc in msg["tool_calls"]:
-                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                tc_func = tc.get("function", {}) if isinstance(tc, dict) else getattr(tc, "function", None)
+                tc_id = (
+                    tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                )
+                tc_func = (
+                    tc.get("function", {})
+                    if isinstance(tc, dict)
+                    else getattr(tc, "function", None)
+                )
                 if tc_func:
-                    tc_name = tc_func.get("name") if isinstance(tc_func, dict) else getattr(tc_func, "name", None)
-                    tc_args = tc_func.get("arguments") if isinstance(tc_func, dict) else getattr(tc_func, "arguments",
-                                                                                                 None)
+                    tc_name = (
+                        tc_func.get("name")
+                        if isinstance(tc_func, dict)
+                        else getattr(tc_func, "name", None)
+                    )
+                    tc_args = (
+                        tc_func.get("arguments")
+                        if isinstance(tc_func, dict)
+                        else getattr(tc_func, "arguments", None)
+                    )
                     if tc_id:
                         tool_call_info_map[tc_id] = {
                             "name": tc_name,
-                            "arguments": tc_args
+                            "arguments": tc_args,
                         }
 
     to_clear = tool_results[:-KEEP_RECENT_TOOL_CALL]
@@ -107,7 +120,9 @@ def micro_compact(input_list: list) -> list:
         tool_name = info.get("name", "unknown tool")
         tool_arguments = info.get("arguments", {})
 
-        replacement = f"[Previous {tool_name} result cleared, arguments were: {tool_arguments}]"
+        replacement = (
+            f"[Previous {tool_name} result cleared, arguments were: {tool_arguments}]"
+        )
         if "output" in result:
             result["output"] = replacement
         elif "content" in result:
@@ -119,7 +134,7 @@ def micro_compact(input_list: list) -> list:
 class Compact(BaseModel):
     reason: str = Field(
         default="User triggered compact",
-        description="Reason for compacting the conversation."
+        description="Reason for compacting the conversation.",
     )
 
 
@@ -154,8 +169,14 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
     keep_msgs = messages[last_user_idx:]
 
     summary_msgs = [
-        {"role": "user", "content": f"[Previous conversation compressed. Reason: {reason}] \n\n{summary}"},
-        {"role": "assistant", "content": "Understood. I have the context from the summary. Continuing."}
+        {
+            "role": "user",
+            "content": f"[Previous conversation compressed. Reason: {reason}] \n\n{summary}",
+        },
+        {
+            "role": "assistant",
+            "content": "Understood. I have the context from the summary. Continuing.",
+        },
     ]
 
     # Rebuild history in-place
