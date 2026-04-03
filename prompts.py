@@ -102,3 +102,14 @@ def get_summary_user_prompt(conversation_text: str, reason: str) -> str:
         f"Include: 1) What was accomplished, 2) Current state, 3) Key decisions made. "
         f"Be concise but preserve critical details. Compaction reason: {reason}"
     )
+
+
+def get_skill_system_note(skill_dir: str, meta_json: str) -> str:
+    """Generate the system note for skill loading, providing workspace context."""
+    return (
+        f"> **[SYSTEM NOTE]**\n"
+        f"> The absolute workspace path for this skill is: `{skill_dir}`\n"
+        f"> Whenever you need to execute commands, read files, or access any directories (e.g., `scripts/`, `example/`, `output/`) mentioned in this skill document, "
+        f"> you MUST resolve them relative to this absolute path (e.g., `{skill_dir}/<relative_path>`).\n\n"
+        f"**Skill Metadata:**\n```json\n{meta_json}\n```\n\n"
+    )

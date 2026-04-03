@@ -6,6 +6,7 @@ from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
 
 from init import WORKDIR
+from prompts import get_skill_system_note
 
 SKILLS_DIR = WORKDIR / "skills"
 
@@ -80,13 +81,7 @@ class SkillLoader:
 
         meta_json = json.dumps(skill["meta"], ensure_ascii=False, indent=2)
 
-        system_note = (
-            f"> **[SYSTEM NOTE]**\n"
-            f"> The absolute workspace path for this skill is: `{skill_dir}`\n"
-            f"> Whenever you need to execute commands, read files, or access any directories (e.g., `scripts/`, `example/`, `output/`) mentioned in this skill document, "
-            f"> you MUST resolve them relative to this absolute path (e.g., `{skill_dir}/<relative_path>`).\n\n"
-            f"**Skill Metadata:**\n```json\n{meta_json}\n```\n\n"
-        )
+        system_note = get_skill_system_note(skill_dir, meta_json)
 
         return f"<skill name=\"{name}\">\n{system_note}{skill['body']}\n</skill>"
 
