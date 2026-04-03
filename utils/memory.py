@@ -9,11 +9,11 @@ from pydantic import BaseModel, Field
 
 from init import WORKDIR, llm_client
 
-THRESHOLD = 1024 * 96
+THRESHOLD = 1024 * 120
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-KEEP_RECENT_TOOL_CALL = 32
+KEEP_RECENT_TOOL_CALL = 42
 
 
 def save_checkpoint(messages: list, filepath: Path = None) -> Path:
