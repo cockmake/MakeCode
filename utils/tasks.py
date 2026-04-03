@@ -31,12 +31,18 @@ class CreateTask(BaseModel):
     - For tasks that may modify the same file, encode explicit topology order via `depend_on`.
     - Task will be topology-validated after insertion.
     """
-    subject: str = Field(..., min_length=1, description="Task title, concise and action-oriented.")
-    description: str = Field(default="", description="Optional detailed description for the task.")
-    depend_on: list[str] = Field(default_factory=list, description="IDs of tasks this task depends on.")
+
+    subject: str = Field(
+        ..., min_length=1, description="Task title, concise and action-oriented."
+    )
+    description: str = Field(
+        default="", description="Optional detailed description for the task."
+    )
+    depend_on: list[str] = Field(
+        default_factory=list, description="IDs of tasks this task depends on."
+    )
     status: Literal["pending", "in_progress", "completed"] = Field(
-        default="pending",
-        description="Initial task status."
+        default="pending", description="Initial task status."
     )
 
 
@@ -47,10 +53,10 @@ class UpdateTaskStatus(BaseModel):
     - task must exist
     - status must be one of pending/in_progress/completed
     """
+
     task_id: str = Field(..., min_length=1, description="Target task ID.")
     status: Literal["pending", "in_progress", "completed"] = Field(
-        ...,
-        description="New status for the task."
+        ..., description="New status for the task."
     )
 
 
@@ -63,12 +69,16 @@ class UpdateTaskDependencies(BaseModel):
     - task cannot depend on itself
     - dependency update must pass topology validation
     """
+
     task_id: str = Field(..., min_length=1, description="Target task ID.")
-    depend_on: list[str] = Field(default_factory=list, description="New full dependency list.")
+    depend_on: list[str] = Field(
+        default_factory=list, description="New full dependency list."
+    )
 
 
 class GetTask(BaseModel):
     """Get one task's full detail by ID."""
+
     task_id: str = Field(..., min_length=1, description="Target task ID.")
 
 
@@ -94,6 +104,22 @@ class GetTaskTable(BaseModel):
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
+
+
+def list_task_plans() -> list[Path]:
+    if not TASKS_DIR.exists():
+        return []
+    files = list(TASKS_DIR.glob("task_plan_*.json"))
+    files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return files
+
+
+def load_task_plan(filepath: Path) -> dict:
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    TASK_MANAGER.path = filepath
+    TASK_MANAGER._data = data
+    return data
 
 
 class TaskManager:
@@ -126,7 +152,9 @@ class TaskManager:
 
     def _save(self) -> None:
         self._data["updated_at"] = _now_iso()
-        self.path.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.path.write_text(
+            json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
     @staticmethod
     def _id_str(task_id: str | int) -> str:
@@ -151,7 +179,9 @@ class TaskManager:
         return ids
 
     @staticmethod
-    def _normalize_dep_ids(dep_input: list[str | int] | str | None, arg_name: str) -> list[str]:
+    def _normalize_dep_ids(
+        dep_input: list[str | int] | str | None, arg_name: str
+    ) -> list[str]:
         """Defensive parsing for LLM hallucinated nested dependency payloads."""
         if dep_input is None:
             return []
@@ -165,7 +195,9 @@ class TaskManager:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{arg_name} JSON parse error: {exc}") from exc
         if not isinstance(current, list):
-            raise ValueError(f"{arg_name} must be a list after parsing, got {type(current).__name__}.")
+            raise ValueError(
+                f"{arg_name} must be a list after parsing, got {type(current).__name__}."
+            )
 
         result: list[str] = []
         for idx, item in enumerate(current):
@@ -206,13 +238,19 @@ class TaskManager:
 
     def _validate_status(self, status: str) -> None:
         if status not in VALID_STATUS:
-            raise ValueError(f"Invalid status '{status}', must be one of {sorted(VALID_STATUS)}")
+            raise ValueError(
+                f"Invalid status '{status}', must be one of {sorted(VALID_STATUS)}"
+            )
 
     def _touch_task(self, task: dict[str, Any]) -> None:
         task["updated_at"] = _now_iso()
 
     def _active_task_ids(self) -> set[str]:
-        return {tid for tid, task in self._data["tasks"].items() if task["status"] != "completed"}
+        return {
+            tid
+            for tid, task in self._data["tasks"].items()
+            if task["status"] != "completed"
+        }
 
     def _validate_topology(self) -> None:
         """
@@ -230,7 +268,12 @@ class TaskManager:
                     graph[dep].append(tid)
                     indegree[tid] += 1
 
-        q = deque(sorted([tid for tid, deg in indegree.items() if deg == 0], key=self._id_sort_key))
+        q = deque(
+            sorted(
+                [tid for tid, deg in indegree.items() if deg == 0],
+                key=self._id_sort_key,
+            )
+        )
         visited = 0
         while q:
             cur = q.popleft()
@@ -241,17 +284,19 @@ class TaskManager:
                     q.append(nxt)
 
         if visited != len(active):
-            cycle_nodes = sorted([tid for tid, deg in indegree.items() if deg > 0], key=self._id_sort_key)
+            cycle_nodes = sorted(
+                [tid for tid, deg in indegree.items() if deg > 0], key=self._id_sort_key
+            )
             raise ValueError(f"Cycle detected among active tasks: {cycle_nodes}")
 
     # -------- Per-task APIs --------
     def create_task(
-            self,
-            subject: str,
-            description: str = "",
-            depend_on: list[str | int] | None = None,
-            status: str = "pending",
-            **kwargs
+        self,
+        subject: str,
+        description: str = "",
+        depend_on: list[str | int] | None = None,
+        status: str = "pending",
+        **kwargs,
     ) -> dict[str, Any]:
         subject = (subject or "").strip()
         if not subject:
@@ -283,7 +328,9 @@ class TaskManager:
         self._save()
         return task
 
-    def update_task_status(self, task_id: str | int, status: str, **kwargs) -> dict[str, Any]:
+    def update_task_status(
+        self, task_id: str | int, status: str, **kwargs
+    ) -> dict[str, Any]:
         self._validate_status(status)
         task = self._task(task_id)
         task["status"] = status
@@ -291,9 +338,13 @@ class TaskManager:
         self._save()
         return task
 
-    def update_task_dependencies(self, task_id: str | int, depend_on: list[str | int], **kwargs) -> dict[str, Any]:
+    def update_task_dependencies(
+        self, task_id: str | int, depend_on: list[str | int], **kwargs
+    ) -> dict[str, Any]:
         tid = self._ensure_task_exists(task_id)
-        dep_input = self._normalize_dep_ids(depend_on, "UpdateTaskDependencies.depend_on")
+        dep_input = self._normalize_dep_ids(
+            depend_on, "UpdateTaskDependencies.depend_on"
+        )
         dep_ids = self._ensure_tasks_exist(dep_input)
         if tid in dep_ids:
             raise ValueError("Task cannot depend on itself")
@@ -315,14 +366,16 @@ class TaskManager:
             if task["status"] != "pending":
                 continue
             if all(
-                    dep in tasks and tasks[dep]["status"] == "completed"
-                    for dep in task.get("depend_on", [])
+                dep in tasks and tasks[dep]["status"] == "completed"
+                for dep in task.get("depend_on", [])
             ):
                 runnable.append(task)
         return sorted(runnable, key=lambda t: self._id_sort_key(t["id"]))
 
     def get_task_table(self, **kwargs) -> dict[str, Any]:
-        tasks = sorted(self._data["tasks"].values(), key=lambda t: self._id_sort_key(t["id"]))
+        tasks = sorted(
+            self._data["tasks"].values(), key=lambda t: self._id_sort_key(t["id"])
+        )
         runnable_ids = {t["id"] for t in self.get_runnable_tasks()}
         status_count = {"pending": 0, "in_progress": 0, "completed": 0}
         rows = []

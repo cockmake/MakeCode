@@ -355,6 +355,7 @@ class TeammateManager:
             **SKILL_TOOLS_HANDLERS,
             "TodoUpdate": lambda items, **kwargs: local_todo.update(items)
         }
+        max_steps = 40
 
         def _build_incomplete_report(stop_reason: str, executed_steps: int) -> str:
             todo_snapshot = local_todo.render()
@@ -369,7 +370,7 @@ class TeammateManager:
                 "4) Include concrete evidence: tools used, important outputs, file paths, key decisions, and blockers.\n"
                 "5) If completion is uncertain because SubmitTaskReport was not called, state this uncertainty explicitly.\n"
                 "6) Use sections: Overview, Completed Work (Detailed), Current Completion Status, Remaining Work, Next Steps, Risks/Blockers.\n\n"
-                f"Executed steps: {executed_steps}/30\n\n"
+                f"Executed steps: {executed_steps}/{max_steps}\n\n"
                 f"Current todo snapshot:\n{todo_snapshot}\n\n"
                 f"Conversation transcript (stringified JSON):\n{messages_text}"
             )
@@ -397,15 +398,15 @@ class TeammateManager:
             return (
                 "Sub-agent stopped before formal completion and fallback summary generation failed.\n\n"
                 f"Stop reason: {stop_reason}\n"
-                f"Executed steps: {executed_steps}/30\n\n"
+                f"Executed steps: {executed_steps}/{max_steps}\n\n"
                 "The task is not complete. Continue from existing todo states and submit a final report."
             )
 
         final_report = "Error: Sub-agent terminated without submitting a report."
         stop_reason = "step_limit_exhausted_without_submit"
-        max_steps = 30
 
-        for step in range(max_steps):  # 最大 30 步限制
+
+        for step in range(max_steps):  # 最大 max_steps 步限制
             try:
                 response = llm_client.generate(
                     messages=messages,

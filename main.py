@@ -24,7 +24,8 @@ try:
 except ImportError as exc:
     log_error_traceback("main prompt_toolkit import", exc)
     print(
-        "\n\033[31mError: prompt_toolkit is required but not installed. Please install it using `pip install prompt_toolkit`.\033[0m")
+        "\n\033[31mError: prompt_toolkit is required but not installed. Please install it using `pip install prompt_toolkit`.\033[0m"
+    )
     sys.exit(1)
 
 try:
@@ -55,12 +56,30 @@ except Exception as exc:
     box = None
     RICH_AVAILABLE = False
 
-from utils.common import COMMON_TOOLS, COMMON_TOOLS_HANDLERS, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
+from utils.common import (
+    COMMON_TOOLS,
+    COMMON_TOOLS_HANDLERS,
+    STARTUP_TERMINAL_TYPE,
+    STARTUP_TERMINAL_SOURCE,
+)
 from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
-from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
+from utils.tasks import (
+    TASK_MANAGER_TOOLS,
+    TASK_MANAGER_TOOLS_HANDLERS,
+    list_task_plans,
+    load_task_plan,
+)
 from utils.teams import TEAM_TOOLS_HANDLERS, TEAM_TOOLS
-from utils.memory import micro_compact, MEMORY_TOOLS, MEMORY_TOOLS_HANDLERS, THRESHOLD, estimate_tokens, \
-    save_checkpoint, list_checkpoints, load_checkpoint
+from utils.memory import (
+    micro_compact,
+    MEMORY_TOOLS,
+    MEMORY_TOOLS_HANDLERS,
+    THRESHOLD,
+    estimate_tokens,
+    save_checkpoint,
+    list_checkpoints,
+    load_checkpoint,
+)
 
 console = Console() if RICH_AVAILABLE else None
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -99,7 +118,9 @@ Execution guidance:
 - Final answers should summarize: completed tasks, remaining tasks, and next runnable tasks.
 """
 
-SUPER_TOOLS = llm_client.format_tools(COMMON_TOOLS + SKILL_TOOLS + MEMORY_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS)
+SUPER_TOOLS = llm_client.format_tools(
+    COMMON_TOOLS + SKILL_TOOLS + MEMORY_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS
+)
 
 SUPER_TOOLS_HANDLERS = {
     **COMMON_TOOLS_HANDLERS,
@@ -116,7 +137,9 @@ def _extract_message_text(msg: dict) -> str:
         return content
     if not isinstance(content, list):
         return ""
-    chunks = [part["text"] for part in content if isinstance(part, dict) and part.get("text")]
+    chunks = [
+        part["text"] for part in content if isinstance(part, dict) and part.get("text")
+    ]
     return "\n\n".join(chunks).strip()
 
 
@@ -154,7 +177,7 @@ def _render_orchestrator_message(text: str):
                 title="[bold magenta]🧠 Orchestrator[/bold magenta]",
                 border_style="magenta",
                 box=box.ROUNDED,
-                padding=(1, 2)
+                padding=(1, 2),
             )
         )
     else:
@@ -163,10 +186,24 @@ def _render_orchestrator_message(text: str):
 
 def _render_tool_call(name: str, arguments: Any):
     if RICH_AVAILABLE:
-        body = Syntax(json.dumps(arguments, ensure_ascii=False, indent=2), "json", word_wrap=True,
-                      theme="monokai") if isinstance(arguments, (dict, list)) else Text(str(arguments))
+        body = (
+            Syntax(
+                json.dumps(arguments, ensure_ascii=False, indent=2),
+                "json",
+                word_wrap=True,
+                theme="monokai",
+            )
+            if isinstance(arguments, (dict, list))
+            else Text(str(arguments))
+        )
         console.print(
-            Panel(body, title=f"[bold cyan]🛠️  Action: {name}[/bold cyan]", border_style="cyan", box=box.ROUNDED))
+            Panel(
+                body,
+                title=f"[bold cyan]🛠️  Action: {name}[/bold cyan]",
+                border_style="cyan",
+                box=box.ROUNDED,
+            )
+        )
     else:
         print(f"\033[36m[🛠️  Action]: {name} -> {arguments}\033[0m")
 
@@ -177,14 +214,25 @@ def _render_tool_output(name: str, output: Any):
         if text.startswith("{") or text.startswith("["):
             try:
                 parsed = json.loads(text)
-                body = Syntax(json.dumps(parsed, ensure_ascii=False, indent=2), "json", word_wrap=True, theme="monokai")
+                body = Syntax(
+                    json.dumps(parsed, ensure_ascii=False, indent=2),
+                    "json",
+                    word_wrap=True,
+                    theme="monokai",
+                )
             except json.JSONDecodeError as exc:
                 log_error_traceback("main render tool output json decode", exc)
                 body = Text(text)
         else:
             body = Text(text, style="dim")
         console.print(
-            Panel(body, title=f"[bold green]✅ Result: {name}[/bold green]", border_style="green", box=box.ROUNDED))
+            Panel(
+                body,
+                title=f"[bold green]✅ Result: {name}[/bold green]",
+                border_style="green",
+                box=box.ROUNDED,
+            )
+        )
     else:
         print(f"\033[32m[✅ Result] {name}: {_stringify_output(output)}\033[0m")
 
@@ -194,7 +242,9 @@ def _render_token_usage(messages: list):
     pct = (tokens / THRESHOLD) * 100
     color = "green" if pct < 70 else "yellow" if pct < 90 else "red"
     if RICH_AVAILABLE:
-        console.print(f"[{color} dim] 📈 Context: {tokens}/{THRESHOLD} Tokens ({pct:.1f}%)[/]")
+        console.print(
+            f"[{color} dim] 📈 Context: {tokens}/{THRESHOLD} Tokens ({pct:.1f}%)[/]"
+        )
     else:
         print(f"\033[90m 📈 Context: {tokens}/{THRESHOLD} Tokens ({pct:.1f}%)\033[0m")
 
@@ -210,19 +260,23 @@ def _request_with_progress(messages: list):
         # 颜值升级 1: 使用 rich 的优雅 status 动画
         if RICH_AVAILABLE:
             with Progress(
-                    BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
-                    TextColumn("[bold cyan]✨ Orchestrator is thinking..."),
-                    transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
-                    console=console
+                BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
+                TextColumn("[bold cyan]✨ Orchestrator is thinking..."),
+                transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
+                console=console,
             ) as progress:
                 # total=None 表示进度未知，会触发左右来回弹跳的动画
                 progress.add_task("", total=None)
                 return future.result()
         elif TQDM_AVAILABLE:
-            with tqdm(total=None, bar_format="{desc}", leave=False, dynamic_ncols=True) as progress:
+            with tqdm(
+                total=None, bar_format="{desc}", leave=False, dynamic_ncols=True
+            ) as progress:
                 phase = 0
                 while not future.done():
-                    progress.set_description_str("Orchestrator thinking" + "." * ((phase % 10) + 1))
+                    progress.set_description_str(
+                        "Orchestrator thinking" + "." * ((phase % 10) + 1)
+                    )
                     progress.refresh()
                     time.sleep(0.12)
                     phase += 1
@@ -247,7 +301,7 @@ def _render_startup_banner():
                 box=box.DOUBLE_EDGE,
                 subtitle=subtitle,
                 subtitle_align="center",
-                padding=(1, 4)
+                padding=(1, 4),
             )
         )
     else:
@@ -297,14 +351,14 @@ COMMAND_DESCRIPTIONS = {
     "/clear": "清空当前对话历史",
     "/reset": "清空当前对话历史",
     "/quit": "退出程序",
-    "/exit": "退出程序"
+    "/exit": "退出程序",
 }
 
 
 class SlashCommandCompleter(Completer):
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
-        if text.startswith('/'):
+        if text.startswith("/"):
             for cmd, desc in COMMAND_DESCRIPTIONS.items():
                 if cmd.startswith(text):
                     # display_meta 可以在补全菜单右侧漂亮地显示中文描述
@@ -327,7 +381,7 @@ def _init_user_session():
             text = buffer.text.strip()
 
             # 处理斜杠命令的自动补全逻辑
-            if text.startswith('/'):
+            if text.startswith("/"):
                 # 如果当前输入的已经是完整的内置命令，直接提交
                 if text in COMMAND_DESCRIPTIONS:
                     buffer.validate_and_handle()
@@ -337,7 +391,9 @@ def _init_user_session():
                 if buffer.complete_state and buffer.complete_state.completions:
                     if buffer.complete_state.current_completion:
                         # 场景1：用户用上下键明确选中了某一项
-                        buffer.apply_completion(buffer.complete_state.current_completion)
+                        buffer.apply_completion(
+                            buffer.complete_state.current_completion
+                        )
                     else:
                         # 场景2：用户只敲了 /sk 就按回车，自动帮他补全成第一项 (/skills)
                         buffer.apply_completion(buffer.complete_state.completions[0])
@@ -346,17 +402,19 @@ def _init_user_session():
             # 常规对话输入或完整命令，直接提交给大模型
             buffer.validate_and_handle()
 
-        @user_kb.add('c-n')
+        @user_kb.add("c-n")
         def _insert_newline(event):
             event.current_buffer.insert_text("\n")
 
         def prompt_continuation(width, line_number, is_soft_wrap):
             return " " * (width - 4) + " ┊  "
 
-        custom_style = Style.from_dict({
-            'prompt': 'bold #00ff00',
-            'arrow': '#00ffff bold',
-        })
+        custom_style = Style.from_dict(
+            {
+                "prompt": "bold #00ff00",
+                "arrow": "#00ffff bold",
+            }
+        )
 
         USER_SESSION = PromptSession(
             multiline=True,
@@ -365,7 +423,7 @@ def _init_user_session():
             style=custom_style,
             completer=command_completer,
             reserve_space_for_menu=5,
-            complete_while_typing=True
+            complete_while_typing=True,
         )
     except Exception as exc:
         log_error_traceback("main init user session", exc)
@@ -391,10 +449,10 @@ def _read_user_query(messages: list = None) -> str:
     try:
         return USER_SESSION.prompt(
             [
-                ('class:prompt', ' 🤖 User '),
-                ('class:arrow', '❯❯ '),
+                ("class:prompt", " 🤖 User "),
+                ("class:arrow", "❯❯ "),
             ],
-            rprompt=rprompt
+            rprompt=rprompt,
         )
     except Exception as exc:
         log_error_traceback("main user input prompt failure", exc)
@@ -436,11 +494,17 @@ def agent_loop(messages: list):
                 arguments = _parse_arguments(tool_args)
                 handler = SUPER_TOOLS_HANDLERS.get(tool_name)
                 if handler:
-                    output = handler(messages, **arguments) if tool_name == "Compact" else handler(**arguments)
+                    output = (
+                        handler(messages, **arguments)
+                        if tool_name == "Compact"
+                        else handler(**arguments)
+                    )
                 else:
                     output = f"Unknown tool: {tool_name}"
             except Exception as e:
-                log_error_traceback(f"Orchestrator tool execution error: {tool_name}", e)
+                log_error_traceback(
+                    f"Orchestrator tool execution error: {tool_name}", e
+                )
                 output = f"Error executing {tool_name}: {e}. Check .makecode/error.log for details."
 
             _render_tool_output(tool_name, output)
@@ -461,14 +525,19 @@ def agent_loop(messages: list):
             _render_tool_output("Compact", output)
         except Exception as e:
             log_error_traceback("Orchestrator auto-compact error", e)
-            error_msg = f"Error executing Compact: {e}. Check .makecode/error.log for details."
+            error_msg = (
+                f"Error executing Compact: {e}. Check .makecode/error.log for details."
+            )
             if RICH_AVAILABLE:
                 console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             else:
                 print(f"\033[31m⚠️ {error_msg}\033[0m")
 
 
-def _interactive_choose_checkpoint(checkpoints: list) -> str:
+def _interactive_choose_checkpoint(
+    checkpoints: list,
+    title: str = "\n📌 Select a Checkpoint to Load (Use ⬆/⬇ arrows, Enter to confirm):\n",
+) -> str:
     if not checkpoints:
         return "abort"
 
@@ -482,7 +551,7 @@ def _interactive_choose_checkpoint(checkpoints: list) -> str:
         mtime = cp.stat().st_mtime
         date_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
 
-        desc = f"Checkpoint {uid} (Last updated: {date_str})"
+        desc = f"File: {uid} (Last updated: {date_str})"
         options.append((str(cp), desc))
 
     options.append(("abort", "取消 (Cancel)"))
@@ -507,7 +576,7 @@ def _interactive_choose_checkpoint(checkpoints: list) -> str:
         event.app.exit(result="abort")
 
     def get_formatted_text():
-        result = [("class:title", "\n📌 Select a Checkpoint to Load (Use ⬆/⬇ arrows, Enter to confirm):\n")]
+        result = [("class:title", title)]
         for i, (key, text) in enumerate(options):
             if i == selected_index[0]:
                 result.append(("class:selected", f"  👉 {text}\n"))
@@ -519,11 +588,13 @@ def _interactive_choose_checkpoint(checkpoints: list) -> str:
     window = Window(content=control, height=len(options) + 2)
     layout = Layout(window)
 
-    style = Style([
-        ("title", "fg:ansicyan bold"),
-        ("selected", "fg:ansigreen bold"),
-        ("unselected", "fg:ansigray"),
-    ])
+    style = Style(
+        [
+            ("title", "fg:ansicyan bold"),
+            ("selected", "fg:ansigreen bold"),
+            ("unselected", "fg:ansigray"),
+        ]
+    )
 
     app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
     return app.run()
@@ -531,7 +602,7 @@ def _interactive_choose_checkpoint(checkpoints: list) -> str:
 
 CURRENT_CHECKPOINT = None
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _render_startup_banner()
     _render_env_customization_hint()
     history = [{"role": "system", "content": SYSTEM}]
@@ -541,7 +612,9 @@ if __name__ == '__main__':
         except (EOFError, KeyboardInterrupt) as exc:
             log_error_traceback("main user input interrupted", exc)
             if RICH_AVAILABLE:
-                console.print("\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]")
+                console.print(
+                    "\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
+                )
             else:
                 print("\n\033[33m👋 Exiting MakeCode Agent. Goodbye!\033[0m")
             break
@@ -552,7 +625,9 @@ if __name__ == '__main__':
 
         if query in ["/quit", "/exit"]:
             if RICH_AVAILABLE:
-                console.print("\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]")
+                console.print(
+                    "\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
+                )
             else:
                 print("\n\033[33m👋 Exiting MakeCode Agent. Goodbye!\033[0m")
             break
@@ -561,7 +636,11 @@ if __name__ == '__main__':
             if RICH_AVAILABLE:
                 from rich.table import Table
 
-                table = Table(title="[bold cyan]🛠️ 可用内置命令列表[/bold cyan]", box=box.ROUNDED, expand=True)
+                table = Table(
+                    title="[bold cyan]🛠️ 可用内置命令列表[/bold cyan]",
+                    box=box.ROUNDED,
+                    expand=True,
+                )
                 table.add_column("命令 (Command)", style="bold green", justify="left")
                 table.add_column("描述 (Description)", style="white")
                 for cmd, desc in COMMAND_DESCRIPTIONS.items():
@@ -578,7 +657,9 @@ if __name__ == '__main__':
             history = [{"role": "system", "content": SYSTEM}]
             CURRENT_CHECKPOINT = None
             if RICH_AVAILABLE:
-                console.print("\n[bold green]✨ 对话历史已清空，开启全新会话！[/bold green]")
+                console.print(
+                    "\n[bold green]✨ 对话历史已清空，开启全新会话！[/bold green]"
+                )
             else:
                 print("\n\033[32m✨ 对话历史已清空，开启全新会话！\033[0m")
             continue
@@ -587,9 +668,13 @@ if __name__ == '__main__':
             checkpoints = list_checkpoints()
             if not checkpoints:
                 if RICH_AVAILABLE:
-                    console.print("\n[bold yellow]📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]")
+                    console.print(
+                        "\n[bold yellow]📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]"
+                    )
                 else:
-                    print("\n\033[33m📂 没有找到任何历史对话记录 (No checkpoints found).\033[0m")
+                    print(
+                        "\n\033[33m📂 没有找到任何历史对话记录 (No checkpoints found).\033[0m"
+                    )
                 continue
 
             # 如果已经在对话中(除去system prompt之外有其他内容)，并且当前还没有绑定任何 checkpoint，确保它被保存
@@ -614,15 +699,58 @@ if __name__ == '__main__':
                 CURRENT_CHECKPOINT = Path(selected_path)
                 if RICH_AVAILABLE:
                     console.print(
-                        f"\n[bold green]🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。[/bold green]")
+                        f"\n[bold green] 🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。[/bold green]"
+                    )
                 else:
-                    print(f"\n\033[32m🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。\033[0m")
+                    print(
+                        f"\n\033[32m 🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。\033[0m"
+                    )
             except Exception as exc:
                 log_error_traceback("main load checkpoint error", exc)
                 if RICH_AVAILABLE:
-                    console.print(f"\n[bold red]❌ 加载失败: {exc}[/bold red]")
+                    console.print(f"\n[bold red] ❌ 加载失败: {exc}[/bold red]")
                 else:
-                    print(f"\n\033[31m❌ 加载失败: {exc}\033[0m")
+                    print(f"\n\033[31m ❌ 加载失败: {exc}\033[0m")
+                continue
+
+            # Load tasks if available
+            task_plans = list_task_plans()
+            if task_plans:
+                if RICH_AVAILABLE:
+                    console.print(
+                        "\n[bold cyan] 📋 发现保存的任务看板 (Task Plans)，是否要加载？[/bold cyan]"
+                    )
+                else:
+                    print(
+                        "\n\033[36m 📋 发现保存的任务看板 (Task Plans)，是否要加载？\033[0m"
+                    )
+
+                try:
+                    selected_task_path = _interactive_choose_checkpoint(
+                        task_plans,
+                        title="\n 📌 Select a Task Plan to Load (Use ⬆/⬇ arrows, Enter to confirm):\n",
+                    )
+                except Exception as exc:
+                    log_error_traceback("main interactive load task plan", exc)
+                    selected_task_path = "abort"
+
+                if selected_task_path != "abort":
+                    try:
+                        load_task_plan(Path(selected_task_path))
+                        if RICH_AVAILABLE:
+                            console.print(
+                                "[bold green] 🚀 成功加载任务看板！[/bold green]"
+                            )
+                        else:
+                            print("\033[32m 🚀 成功加载任务看板！\033[0m")
+                    except Exception as exc:
+                        log_error_traceback("main load task plan error", exc)
+                        if RICH_AVAILABLE:
+                            console.print(
+                                f"[bold red] ❌ 加载任务看板失败: {exc}[/bold red]"
+                            )
+                        else:
+                            print(f"\033[31m ❌ 加载任务看板失败: {exc}\033[0m")
             continue
 
         # 核心逻辑：如果大模型需要处理软命令，把它和描述拼接在一起作为上下文
