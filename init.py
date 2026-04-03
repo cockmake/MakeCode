@@ -259,8 +259,10 @@ try:
 except KeyError as exc:
     log_error_traceback("init missing required env", exc)
     print(
-        "\033[31mError: Missing required environment variables. Please ensure OPENAI_API_KEY, OPENAI_BASE_URL, and MODEL_ID are set.\033[0m"
+        "\n\033[31m⚠️ Error: Missing required environment variables.\033[0m\n"
+        "\033[33mPlease ensure OPENAI_API_KEY, OPENAI_BASE_URL, and MODEL_ID are set in your .env file or system environment.\033[0m"
     )
+    input("\nPress Enter to exit... (按回车键退出...)")
     sys.exit(1)
 client = OpenAI(
     base_url=BASE_ULR,
