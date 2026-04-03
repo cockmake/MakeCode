@@ -41,8 +41,20 @@ def load_checkpoint(filepath: Path) -> list:
         return json.load(f)
 
 
+try:
+    import tiktoken
+
+    _ENCODER = tiktoken.get_encoding("cl100k_base")
+except ImportError:
+    _ENCODER = None
+
+
 def estimate_tokens(messages: list):
-    return len(json.dumps(messages)) // 2
+    system_prompt_tokens = 3000
+    text = json.dumps(messages, ensure_ascii=False)
+    if _ENCODER:
+        return len(_ENCODER.encode(text, disallowed_special=())) + system_prompt_tokens
+    return len(text) // 2 + system_prompt_tokens
 
 
 def micro_compact(input_list: list) -> list:
@@ -67,7 +79,8 @@ def micro_compact(input_list: list) -> list:
                 tc_func = tc.get("function", {}) if isinstance(tc, dict) else getattr(tc, "function", None)
                 if tc_func:
                     tc_name = tc_func.get("name") if isinstance(tc_func, dict) else getattr(tc_func, "name", None)
-                    tc_args = tc_func.get("arguments") if isinstance(tc_func, dict) else getattr(tc_func, "arguments", None)
+                    tc_args = tc_func.get("arguments") if isinstance(tc_func, dict) else getattr(tc_func, "arguments",
+                                                                                                 None)
                     if tc_id:
                         tool_call_info_map[tc_id] = {
                             "name": tc_name,
@@ -80,7 +93,7 @@ def micro_compact(input_list: list) -> list:
         info = tool_call_info_map.get(call_id, {})
         tool_name = info.get("name", "unknown tool")
         tool_arguments = info.get("arguments", {})
-        
+
         replacement = f"[Previous {tool_name} result cleared, arguments were: {tool_arguments}]"
         if "output" in result:
             result["output"] = replacement

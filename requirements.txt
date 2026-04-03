@@ -6,3 +6,4 @@ PyYAML
 Requests
 rich
 tqdm
+tiktoken
