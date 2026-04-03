@@ -29,10 +29,15 @@ class TaskSpec(BaseModel):
     task_id: str = Field(
         ...,
         min_length=1,
-        description="Task ID from TaskManager. Must come from GetRunnableTasks before delegation."
+        description="Task ID from TaskManager. Must come from GetRunnableTasks before delegation.",
     )
-    role_name: str = Field(..., description="The role of the sub-agent (e.g., 'Frontend Developer').")
-    context_prompt: str = Field(..., description="Detailed instructions and context for this specific sub-agent.")
+    role_name: str = Field(
+        ..., description="The role of the sub-agent (e.g., 'Frontend Developer')."
+    )
+    context_prompt: str = Field(
+        ...,
+        description="Detailed instructions and context for this specific sub-agent.",
+    )
 
 
 class DelegateTasks(BaseModel):
@@ -50,6 +55,7 @@ class DelegateTasks(BaseModel):
        - avoid batching tasks that may write the same file concurrently
     6) Sub-agents are stateless. Each context_prompt must be complete and self-contained.
     """
+
     tasks: list[TaskSpec] = Field(
         ...,
         description=(
@@ -58,15 +64,16 @@ class DelegateTasks(BaseModel):
             "Avoid putting tasks that may write the same file into the same runnable batch. "
             "Sub-agents are stateless, so each item must include complete context. "
             "Each item must include task_id, role_name, and context_prompt."
-        )
+        ),
     )
 
 
 class SubmitTaskReport(BaseModel):
     """Submit the final detailed report of your work back to the Orchestrator."""
+
     report: str = Field(
         ...,
-        description="Detailed explanation of what was accomplished, including findings or blockers."
+        description="Detailed explanation of what was accomplished, including findings or blockers.",
     )
 
 
@@ -92,8 +99,7 @@ class TeammateManager:
         """写入时加锁，保证多子节点并发完成时不会写坏文件"""
         with self._db_lock:
             self.history_path.write_text(
-                json.dumps(self.history, ensure_ascii=False, indent=2),
-                encoding="utf-8"
+                json.dumps(self.history, ensure_ascii=False, indent=2), encoding="utf-8"
             )
 
     def _set_plan_task_status(self, task_id: str, status: str):
@@ -104,11 +110,15 @@ class TeammateManager:
         if isinstance(tasks, str):
             payload = tasks.strip()
             if not payload:
-                raise ValueError("DelegateTasks.tasks is an empty string; expected a list of task objects.")
+                raise ValueError(
+                    "DelegateTasks.tasks is an empty string; expected a list of task objects."
+                )
             try:
                 tasks = json.loads(payload)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"DelegateTasks.tasks JSON parse error: {exc}") from exc
+                raise ValueError(
+                    f"DelegateTasks.tasks JSON parse error: {exc}"
+                ) from exc
 
         if not isinstance(tasks, list):
             raise ValueError(
@@ -126,15 +136,21 @@ class TeammateManager:
                 if isinstance(item_obj, str):
                     nested_payload = item_obj.strip()
                     if not nested_payload:
-                        raise ValueError(f"DelegateTasks.tasks[{idx}] is an empty string.")
+                        raise ValueError(
+                            f"DelegateTasks.tasks[{idx}] is an empty string."
+                        )
                     try:
                         item_obj = json.loads(nested_payload)
                     except json.JSONDecodeError as exc:
-                        raise ValueError(f"DelegateTasks.tasks[{idx}] JSON parse error: {exc}") from exc
+                        raise ValueError(
+                            f"DelegateTasks.tasks[{idx}] JSON parse error: {exc}"
+                        ) from exc
                     continue
                 break
             else:
-                raise ValueError(f"DelegateTasks.tasks[{idx}] exceeded max nested JSON depth.")
+                raise ValueError(
+                    f"DelegateTasks.tasks[{idx}] exceeded max nested JSON depth."
+                )
 
             if not isinstance(item_obj, dict):
                 raise ValueError(
@@ -144,7 +160,8 @@ class TeammateManager:
 
             item = dict(item_obj)
             missing = [
-                field for field in required_fields
+                field
+                for field in required_fields
                 if field not in item or str(item.get(field, "")).strip() == ""
             ]
             if missing:
@@ -186,15 +203,85 @@ class TeammateManager:
             )
 
         runnable_ids = {t["id"] for t in TASK_MANAGER.get_runnable_tasks()}
-        non_runnable = [item["task_id"] for item in normalized if item["task_id"] not in runnable_ids]
+        non_runnable = [
+            item["task_id"]
+            for item in normalized
+            if item["task_id"] not in runnable_ids
+        ]
         if non_runnable:
-            runnable_list = sorted(runnable_ids, key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
+            runnable_list = sorted(
+                runnable_ids, key=lambda x: (0, int(x)) if x.isdigit() else (1, x)
+            )
             raise ValueError(
                 "DelegateTasks only accepts runnable tasks from TaskManager.GetRunnableTasks. "
                 f"Non-runnable task_id(s): {non_runnable}. Current runnable: {runnable_list}."
             )
 
         return normalized
+
+    def _get_last_failed_context(self, plan_task_id: str) -> str:
+        last_record = None
+        with self._db_lock:
+            for record in reversed(self.history):
+                if record.get("plan_task_id") == plan_task_id:
+                    last_record = record
+                    break
+
+        if not last_record or last_record.get("status") == "completed":
+            return ""
+
+        trace_log_path = WORKDIR / last_record.get("trace_log", "")
+        if not trace_log_path.exists():
+            return ""
+
+        formatted_log = [f"\n### PREVIOUS ATTEMPT LOG (Task #{plan_task_id}) ###"]
+        formatted_log.append(
+            "A previous agent attempted this task but did not finish successfully. Below is the complete trace of their actions:\n"
+        )
+
+        try:
+            with open(trace_log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    event = json.loads(line)
+                    evt_type = event.get("event")
+                    data = event.get("data", {})
+                    timestamp = event.get("timestamp")
+
+                    formatted_log.append(f"--- [{timestamp}] Event: {evt_type} ---")
+                    if evt_type.endswith("_llm_output"):
+                        text = data.get("text", "")
+                        tools = data.get("tool_calls", [])
+                        if text:
+                            formatted_log.append(f"Thoughts:\n{text}")
+                        if tools:
+                            formatted_log.append(f"Tool Intent: {tools}")
+                    elif evt_type.endswith("_tool_execution"):
+                        t_name = data.get("tool_name", "")
+                        t_args = data.get("arguments", {})
+                        t_out = data.get("output", "")
+                        formatted_log.append(f"Tool Call: {t_name}")
+                        formatted_log.append(
+                            f"Arguments:\n{json.dumps(t_args, ensure_ascii=False, indent=2)}"
+                        )
+                        formatted_log.append(f"Result:\n{t_out}")
+                    else:
+                        if isinstance(data, dict):
+                            formatted_log.append(
+                                json.dumps(data, ensure_ascii=False, indent=2)
+                            )
+                        else:
+                            formatted_log.append(str(data))
+                    formatted_log.append("")
+        except Exception as e:
+            return f"\n[Error reading previous trace log: {e}]\n"
+
+        formatted_log.append("### END OF PREVIOUS ATTEMPT LOG ###")
+        formatted_log.append(
+            "Please resume the task from where it left off, avoiding the errors that caused the previous failure.\n"
+        )
+        return "\n".join(formatted_log)
 
     def delegate_concurrently(self, tasks: list[dict]) -> str:
         if not tasks:
@@ -211,7 +298,9 @@ class TeammateManager:
         current_run_dir = RUNS_DIR / run_id
         current_run_dir.mkdir(exist_ok=True)
 
-        print(f"\n\033[33m[Orchestrator] 正在并发唤醒 {len(tasks)} 个子节点... 日志目录: {run_id}\033[0m\n")
+        print(
+            f"\n\033[33m[Orchestrator] 正在并发唤醒 {len(tasks)} 个子节点... 日志目录: {run_id}\033[0m\n"
+        )
 
         results: list[dict] = []
 
@@ -219,6 +308,13 @@ class TeammateManager:
             plan_task_id = task_info["task_id"]
             role = task_info["role_name"]
             prompt = task_info["context_prompt"]
+
+            previous_context = self._get_last_failed_context(plan_task_id)
+            if previous_context:
+                prompt = f"{prompt}\n\n{previous_context}"
+                print(
+                    f"\033[35m  -> [Recovery] 发现子节点 '{role}' (Task #{plan_task_id}) 之前的失败记录，已加载并注入到新任务的上下文中。\033[0m"
+                )
 
             runtime_task_id = f"task_{plan_task_id}_{uuid.uuid4().hex[:6]}"
             start_time = datetime.now().isoformat()
@@ -235,7 +331,9 @@ class TeammateManager:
                 "status": "running",
                 "start_time": start_time,
                 "prompt": prompt,
-                "trace_log": str(log_file_path.relative_to(WORKDIR))  # 保存相对路径方便查看
+                "trace_log": str(
+                    log_file_path.relative_to(WORKDIR)
+                ),  # 保存相对路径方便查看
             }
 
             self._set_plan_task_status(plan_task_id, "in_progress")
@@ -244,7 +342,9 @@ class TeammateManager:
                 self.history.append(task_record)
             self._save_history()
 
-            print(f"\033[34m  -> [Spawn] 子节点 '{role}' 开始工作... (TaskManager #{plan_task_id})\033[0m")
+            print(
+                f"\033[34m  -> [Spawn] 子节点 '{role}' 开始工作... (TaskManager #{plan_task_id})\033[0m"
+            )
 
             try:
                 # 将日志文件路径传入执行沙盒
@@ -255,7 +355,9 @@ class TeammateManager:
                 self._set_plan_task_status(plan_task_id, final_plan_status)
                 history_status = "completed" if succeeded else "failed"
             except Exception as exc:
-                log_error_traceback(f"Sub-agent crash: {role} (Task #{plan_task_id})", exc)
+                log_error_traceback(
+                    f"Sub-agent crash: {role} (Task #{plan_task_id})", exc
+                )
                 report = f"Error: Sub-agent crashed - {exc}. Check .makecode/error.log for details."
                 succeeded = False
                 history_status = "failed"
@@ -277,14 +379,20 @@ class TeammateManager:
                 "status": "completed" if succeeded else "failed",
             }
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tasks), 5)) as executor:
-            future_to_task_id = {executor.submit(worker, t): t["task_id"] for t in tasks}
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(len(tasks), 5)
+        ) as executor:
+            future_to_task_id = {
+                executor.submit(worker, t): t["task_id"] for t in tasks
+            }
             for future in concurrent.futures.as_completed(future_to_task_id):
                 plan_task_id = future_to_task_id[future]
                 try:
                     results.append(future.result())
                 except Exception as exc:
-                    log_error_traceback(f"Thread pool execution error for Task #{plan_task_id}", exc)
+                    log_error_traceback(
+                        f"Thread pool execution error for Task #{plan_task_id}", exc
+                    )
                     results.append(
                         {
                             "task_id": plan_task_id,
@@ -297,9 +405,15 @@ class TeammateManager:
 
         print(f"\n\033[33m[Orchestrator] 所有任务已完成，汇总报告已生成。\033[0m\n")
 
-        final_combined_report = f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"
-        for item in sorted(results,
-                           key=lambda x: int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])):
+        final_combined_report = (
+            f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"
+        )
+        for item in sorted(
+                results,
+                key=lambda x: (
+                        int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
+                ),
+        ):
             final_combined_report += (
                 f"==== Task #{item['task_id']} | Role: {item['role']} | Status: {item['status']} ====\n"
                 f"{item['report']}\n\n"
@@ -316,7 +430,7 @@ class TeammateManager:
                 log_entry = {
                     "timestamp": datetime.now().isoformat(),
                     "event": event_type,
-                    "data": data
+                    "data": data,
                 }
                 f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
@@ -338,28 +452,36 @@ class TeammateManager:
         )
 
         # 记录初始启动状态
-        append_trace("agent_spawned", {"role": role, "sys_prompt": sys_prompt, "user_prompt": prompt})
+        append_trace(
+            "agent_spawned",
+            {"role": role, "sys_prompt": sys_prompt, "user_prompt": prompt},
+        )
 
         messages = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ]
 
         local_todo = TodoManager()
 
-        sub_agent_tools = llm_client.format_tools(COMMON_TOOLS + SKILL_TOOLS + TODO_TOOLS + [
-            pydantic_function_tool(SubmitTaskReport)
-        ])
+        sub_agent_tools = llm_client.format_tools(
+            COMMON_TOOLS
+            + SKILL_TOOLS
+            + TODO_TOOLS
+            + [pydantic_function_tool(SubmitTaskReport)]
+        )
         sub_handlers = {
             **COMMON_TOOLS_HANDLERS,
             **SKILL_TOOLS_HANDLERS,
-            "TodoUpdate": lambda items, **kwargs: local_todo.update(items)
+            "TodoUpdate": lambda items, **kwargs: local_todo.update(items),
         }
         max_steps = 40
 
         def _build_incomplete_report(stop_reason: str, executed_steps: int) -> str:
             todo_snapshot = local_todo.render()
-            messages_text = json.dumps(messages, ensure_ascii=False, default=str, indent=2)
+            messages_text = json.dumps(
+                messages, ensure_ascii=False, default=str, indent=2
+            )
             summary_prompt = (
                 "The sub-agent stopped before formal completion. "
                 "You must now produce an extremely detailed final report for the Orchestrator. "
@@ -387,13 +509,17 @@ class TeammateManager:
                 {"role": "user", "content": summary_prompt},
             ]
             try:
-                fallback_response = llm_client.generate(messages=fallback_messages, tools=[])
+                fallback_response = llm_client.generate(
+                    messages=fallback_messages, tools=[]
+                )
                 summary_text, _, _ = llm_client.parse_response(fallback_response)
                 summary_text = (summary_text or "").strip()
                 if summary_text:
                     return summary_text
             except Exception as exc:
-                log_error_traceback(f"Sub-agent fallback summary generation error (Role: {role})", exc)
+                log_error_traceback(
+                    f"Sub-agent fallback summary generation error (Role: {role})", exc
+                )
 
             return (
                 "Sub-agent stopped before formal completion and fallback summary generation failed.\n\n"
@@ -405,7 +531,6 @@ class TeammateManager:
         final_report = "Error: Sub-agent terminated without submitting a report."
         stop_reason = "step_limit_exhausted_without_submit"
 
-
         for step in range(max_steps):  # 最大 max_steps 步限制
             try:
                 response = llm_client.generate(
@@ -415,18 +540,20 @@ class TeammateManager:
             except Exception as e:
                 log_error_traceback(f"Sub-agent API generation error (Role: {role})", e)
                 append_trace("api_error", str(e))
-                return {"status": "failed",
-                        "report": f"API Error in sub-agent: {e}. Check .makecode/error.log for details."}
+                return {
+                    "status": "failed",
+                    "report": f"API Error in sub-agent: {e}. Check .makecode/error.log for details.",
+                }
 
             text_content, tool_calls, raw_message = llm_client.parse_response(response)
 
             # append assistant message to history
             llm_client.append_assistant_message(messages, raw_message)
 
-            append_trace(f"step_{step}_llm_output", {
-                "text": text_content,
-                "tool_calls": [tc["name"] for tc in tool_calls]
-            })
+            append_trace(
+                f"step_{step}_llm_output",
+                {"text": text_content, "tool_calls": [tc["name"] for tc in tool_calls]},
+            )
 
             has_tool_call = len(tool_calls) > 0
             task_completed = False
@@ -445,7 +572,11 @@ class TeammateManager:
                     append_trace("task_completed", final_report)
                     task_completed = True
                     # Need to append the tool result to close the tool call loop even if breaking
-                    messages.append(llm_client.format_tool_result(tool_id, tool_name, "Task submitted"))
+                    messages.append(
+                        llm_client.format_tool_result(
+                            tool_id, tool_name, "Task submitted"
+                        )
+                    )
                     break
 
                 try:
@@ -459,17 +590,25 @@ class TeammateManager:
                     else:
                         output = f"Unknown tool: {tool_name}"
                 except Exception as e:
-                    log_error_traceback(f"Sub-agent tool execution error (Role: {role}, Tool: {tool_name})", e)
+                    log_error_traceback(
+                        f"Sub-agent tool execution error (Role: {role}, Tool: {tool_name})",
+                        e,
+                    )
                     output = f"Error: {e}. Check .makecode/error.log for details."
 
                 # 记录工具调用的详细结果
-                append_trace(f"step_{step}_tool_execution", {
-                    "tool_name": tool_name,
-                    "arguments": args if 'args' in locals() else tool_args,
-                    "output": output
-                })
+                append_trace(
+                    f"step_{step}_tool_execution",
+                    {
+                        "tool_name": tool_name,
+                        "arguments": args if "args" in locals() else tool_args,
+                        "output": output,
+                    },
+                )
 
-                messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
+                messages.append(
+                    llm_client.format_tool_result(tool_id, tool_name, output)
+                )
 
             if task_completed or not has_tool_call:
                 if not task_completed and not has_tool_call:
@@ -477,7 +616,9 @@ class TeammateManager:
                 break
 
         if final_report.startswith("Error:"):
-            final_report = _build_incomplete_report(stop_reason=stop_reason, executed_steps=max_steps)
+            final_report = _build_incomplete_report(
+                stop_reason=stop_reason, executed_steps=max_steps
+            )
             append_trace("task_incomplete", final_report)
             return {"status": "failed", "report": final_report}
         return {"status": "completed", "report": final_report}
@@ -485,9 +626,7 @@ class TeammateManager:
 
 TEAM = TeammateManager(TEAM_DIR)
 
-TEAM_NAMESPACE_TOOLS = [
-    pydantic_function_tool(DelegateTasks)
-]
+TEAM_NAMESPACE_TOOLS = [pydantic_function_tool(DelegateTasks)]
 
 TEAM_NAMESPACE = {
     "type": "namespace",
@@ -502,9 +641,7 @@ TEAM_NAMESPACE = {
     "tools": TEAM_NAMESPACE_TOOLS,
 }
 
-TEAM_TOOLS = [
-    pydantic_function_tool(DelegateTasks)
-]
+TEAM_TOOLS = [pydantic_function_tool(DelegateTasks)]
 
 TEAM_TOOLS_HANDLERS = {
     "DelegateTasks": lambda tasks, **kwargs: TEAM.delegate_concurrently(tasks)
