@@ -65,11 +65,13 @@ class SkillLoader:
 
     def list_skills(self) -> str:
         """List all available skill names."""
+        self._load_all()
         skills_path = self.skills_dir.absolute().as_posix()
         return f"Skills available (stored in `{skills_path}`):\n{self.get_descriptions()}"
 
     def get_content(self, name: str) -> str:
         """Layer 2: full skill body returned in tool_result."""
+        self._load_all()
         skill = self.skills.get(name)
         if not skill:
             return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
