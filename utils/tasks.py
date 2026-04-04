@@ -348,10 +348,18 @@ class TaskManager:
         dep_ids = self._ensure_tasks_exist(dep_input)
         if tid in dep_ids:
             raise ValueError("Task cannot depend on itself")
+
         task = self._data["tasks"][tid]
+        old_deps = task.get("depend_on", [])
         task["depend_on"] = sorted(set(dep_ids), key=self._id_sort_key)
         self._touch_task(task)
-        self._validate_topology()
+
+        try:
+            self._validate_topology()
+        except ValueError as e:
+            task["depend_on"] = old_deps
+            raise e
+
         self._save()
         return task
 

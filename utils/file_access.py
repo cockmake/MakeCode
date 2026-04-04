@@ -1,5 +1,6 @@
 import os
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -51,9 +52,15 @@ class AgentFileAccess:
 
         recorded_mtime = self.visited_files[path]
         if recorded_mtime != current_mtime:
-            return (
-                False,
-                f" 🔴 拦截: 文件 '{path}' 在你上次读取后已被其他程序或智能体修改（或你刚修改过但未重新读取）。必须重新使用 RunRead 读取最新内容后再进行 RunEdit 。",
-            )
+            # 格式化时间戳为毫秒级 UTC 时间，例如：2026-04-04T07:41:58.823Z
+            def _fmt(ts: float) -> str:
+                return datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
+            error_msg = (
+                f" 🔴 拦截: 文件 '{path}' 在你上次读取后已被其他程序或智能体修改（或你刚修改过但未重新读取）。\n"
+                f"Last modification: {_fmt(current_mtime)}\n"
+                f"Last read: {_fmt(recorded_mtime)}\n"
+                f"必须重新使用 RunRead 读取最新内容后再进行 RunEdit 。"
+            )
+            return False, error_msg
         return True, ""
