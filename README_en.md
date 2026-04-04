@@ -14,9 +14,11 @@ MakeCode is an Agent CLI designed for engineering workflows. It follows an **Orc
 
 - The orchestrator understands requests, plans work, calls tools, and merges results.
 - TaskManager maintains dependency relationships and the runnable frontier.
-- The Team module wakes sub-agents concurrently for parallel-safe tasks.
+- The Team module wakes sub-agents concurrently for parallel-safe tasks, with **automatic failure context recovery**.
 - The Skills module loads domain-specific guidance on demand.
 - The Memory module compacts long conversations and stores transcripts.
+- The **File Access Control** module enforces read-before-edit, mtime-lock validation, and fine-grained file-level concurrency locks.
+- **Centralized Prompt Management** unifies all LLM prompts for easier maintenance and parameterization.
 
 The goal is not just to answer questions, but to provide an agent workflow that is **plannable, executable, traceable, and extensible**.
 
@@ -71,7 +73,7 @@ MakeCode employs a strict Workspace isolation mechanism. All relative paths, env
   - `OPENAI_BASE_URL`
   - `MODEL_ID`
 
-### 2.3 File and Terminal Tools (`utils/common.py`)
+### 2.3 File and Terminal Tools (`utils/common.py`) & File Access Control (`utils/file_access.py`)
 
 Provides the following execution primitives:
 
@@ -88,6 +90,14 @@ Implementation details:
 - Windows priority: `pwsh` / `powershell` / `cmd`
 - POSIX priority: `bash` / `zsh` / `sh`
 - Terminal command timeout defaults to 120 seconds.
+
+#### 🔒 File Access Control Mechanism (New)
+
+- **Mandatory Read-Before-Edit**: Agents must use `RunRead` before editing a file, otherwise the edit is blocked.
+- **Modification Time Lock Validation**: If a file is modified by another program or agent after being read, `RunEdit` is blocked and prompts for re-reading.
+- **Fine-Grained File-Level Locks**: Multi-agent concurrent read/write uses per-file `RLock` instead of a global lock, improving concurrency performance.
+- **Timestamp Diagnostics**: Block error messages include precise millisecond-level UTC timestamps (Last modification / Last read) for easier conflict troubleshooting.
+- **Transactional Dependency Rollback**: `UpdateTaskDependencies` automatically rolls back the dependency list on topology validation failure, maintaining data consistency.
 
 ### 2.4 Task Management (`utils/tasks.py`)
 
@@ -123,6 +133,12 @@ Runtime artifacts include:
 - `.makecode/team/task_history_{session_id}.json`
 - `.makecode/team/runs/<run_id>/..._trace.jsonl`
 
+#### 🔄 Failure Context Recovery (New)
+
+- When a sub-agent task fails, the system automatically reads that task's `trace_log`.
+- Failure records (including LLM output, tool calls, arguments, results, etc.) are formatted and injected into the retry task's context.
+- The new sub-agent can resume from where the previous one left off, avoiding repeated errors.
+
 ### 2.6 Skill System (`utils/skills.py`)
 
 Supports:
@@ -130,12 +146,7 @@ Supports:
 - `ListSkills`: list available skills with descriptions
 - `LoadSkill`: load the full content of a skill
 
-Current built-in skills in the repository:
-
-- `pdf`
-- `code-review`
-
-Skill location: `skills/<name>/SKILL.md`
+Skill location: `skills/<name>/SKILL.md`. Place your custom skills in this directory within your workspace, and they will be automatically discovered at startup.
 
 ### 2.7 Conversation Compaction (`utils/memory.py`)
 
@@ -144,7 +155,25 @@ Skill location: `skills/<name>/SKILL.md`
 - Performs lightweight cleanup of older tool outputs via `micro_compact`.
 - Uses the model to summarize past history and rebuild context.
 
-### 2.8 Sub-Agent Todo Tool (`tools/todo.py`)
+### 2.8 Centralized Prompt Management (`prompts.py`) (New)
+
+- All LLM prompts are centrally managed in `prompts.py` for easier maintenance and parameterization.
+- Includes the following prompt generator functions:
+  - `get_orchestrator_system_prompt()`: Orchestrator system prompt
+  - `get_sub_agent_system_prompt()`: Sub-agent system prompt
+  - `get_sub_agent_summary_prompt()`: Summary prompt when sub-agent fails
+  - `get_report_assistant_system_prompt()`: Report assistant system prompt
+  - `get_summary_system_prompt()` / `get_summary_user_prompt()`: Conversation compaction prompts
+  - `get_skill_system_note()`: System note for skill loading
+
+### 2.9 Sub-Agent Execution History Loading (New)
+
+- The `/load` command now supports loading sub-agent execution history (Team Histories).
+- Only prompts for loading sub-agent history after a task plan is successfully loaded.
+- If all tasks in the plan are already completed, skips the sub-agent history loading prompt to avoid unnecessary interaction.
+- History file location: `.makecode/team/task_history_*.json`
+
+### 2.10 Sub-Agent Todo Tool (`tools/todo.py`)
 
 Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for multi-step task tracking.
 
@@ -156,6 +185,7 @@ Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for
 Agent/
 ├─ main.py                  # orchestrator loop and CLI entry
 ├─ init.py                  # .env loading, workspace selection, OpenAI client init
+├─ prompts.py               # centralized management of all LLM prompts
 ├─ requirements.txt         # project dependencies
 ├─ README.md
 ├─ README_en.md
@@ -164,6 +194,7 @@ Agent/
 ├─ utils/
 │  ├─ llm_client.py         # LLM standard adapter (Chat vs Response API)
 │  ├─ common.py             # file / terminal / grep primitives
+│  ├─ file_access.py        # file access control and fine-grained concurrency locks
 │  ├─ tasks.py              # TaskManager topology and status logic
 │  ├─ teams.py              # concurrent delegation and execution logs
 │  ├─ skills.py             # skill discovery and loading
