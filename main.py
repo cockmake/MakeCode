@@ -20,6 +20,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.progress import Progress, TextColumn, BarColumn
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 
 from init import WORKDIR, llm_client, log_error_traceback
@@ -36,8 +37,7 @@ from utils.common import (
 from utils.file_access import AgentFileAccess
 from utils.memory import (
     micro_compact,
-    MEMORY_TOOLS,
-    MEMORY_TOOLS_HANDLERS,
+    auto_compact,
     THRESHOLD,
     estimate_tokens,
     save_checkpoint,
@@ -72,7 +72,7 @@ SYSTEM = get_orchestrator_system_prompt(
 )
 
 SUPER_TOOLS = llm_client.format_tools(
-    COMMON_TOOLS + SKILL_TOOLS + MEMORY_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS
+    COMMON_TOOLS + SKILL_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS
 )
 
 orchestrator_access = AgentFileAccess()
@@ -80,7 +80,6 @@ orchestrator_access = AgentFileAccess()
 SUPER_TOOLS_HANDLERS = {
     **COMMON_TOOLS_HANDLERS,
     **SKILL_TOOLS_HANDLERS,
-    **MEMORY_TOOLS_HANDLERS,
     **TASK_MANAGER_TOOLS_HANDLERS,
     **TEAM_TOOLS_HANDLERS,
     "RunRead": lambda path, start=None, end=None, **kwargs: run_read(
@@ -89,9 +88,9 @@ SUPER_TOOLS_HANDLERS = {
     "RunWrite": lambda path, content, **kwargs: run_write(
         path, content, orchestrator_access
     ),
-    "RunEdit": lambda path, start, end, new_content, **kwargs: (
-        run_edit(path, start, end, new_content, orchestrator_access)
-    )
+    "RunEdit": lambda path, start, end, new_content, **kwargs: run_edit(
+        path, start, end, new_content, orchestrator_access
+    ),
 }
 
 
@@ -211,10 +210,10 @@ def _request_with_progress(messages: list):
 
         # 颜值升级 1: 使用 rich 的优雅 status 动画
         with Progress(
-                BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
-                TextColumn("[bold cyan] ✨ Orchestrator is thinking..."),
-                transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
-                console=console,
+            BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
+            TextColumn("[bold cyan] ✨ Orchestrator is thinking..."),
+            transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
+            console=console,
         ) as progress:
             # total=None 表示进度未知，会触发左右来回弹跳的动画
             progress.add_task("", total=None)
@@ -406,11 +405,7 @@ def agent_loop(messages: list):
                 arguments = _parse_arguments(tool_args)
                 handler = SUPER_TOOLS_HANDLERS.get(tool_name)
                 if handler:
-                    output = (
-                        handler(messages, **arguments)
-                        if tool_name == "Compact"
-                        else handler(**arguments)
-                    )
+                    output = handler(**arguments)
                 else:
                     output = f"Unknown tool: {tool_name}"
             except Exception as e:
@@ -433,19 +428,19 @@ def agent_loop(messages: list):
             f"{current_context_tokens} exceeded threshold {THRESHOLD}."
         )
         try:
-            output = SUPER_TOOLS_HANDLERS["Compact"](messages, reason=compact_reason)
-            _render_tool_output("Compact", output)
+            auto_compact(messages, reason=compact_reason)
+            console.print(
+                "\n[bold green] ✨ 当前对话上下文已成功压缩并保存！[/bold green]"
+            )
         except Exception as e:
             log_error_traceback("Orchestrator auto-compact error", e)
-            error_msg = (
-                f"Error executing Compact: {e}. Check .makecode/error.log for details."
-            )
+            error_msg = f"Error executing auto_compact: {e}. Check .makecode/error.log for details."
             console.print(f"[bold red] ⚠️ {error_msg}[/bold red]")
 
 
 def _interactive_choose_checkpoint(
-        checkpoints: list,
-        title: str = "\n 📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+    checkpoints: list,
+    title: str = "\n 📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
 ) -> str:
     if not checkpoints:
         return "abort"
@@ -536,8 +531,6 @@ if __name__ == "__main__":
             break
 
         if query == "/cmds":
-            from rich.table import Table
-
             table = Table(
                 title="[bold cyan] 🛠️ 可用内置命令列表[/bold cyan]",
                 box=box.ROUNDED,
@@ -556,6 +549,14 @@ if __name__ == "__main__":
             console.print(
                 "\n[bold green] ✨ 对话历史已清空，开启全新会话！[/bold green]"
             )
+            continue
+
+        if query == "/compact":
+            auto_compact(history, reason="User triggered compact")
+            console.print(
+                "\n[bold green] ✨ 当前对话上下文已成功压缩并保存！[/bold green]"
+            )
+            CURRENT_CHECKPOINT = save_checkpoint(history, CURRENT_CHECKPOINT)
             continue
 
         if query == "/load":

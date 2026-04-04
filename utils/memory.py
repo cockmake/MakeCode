@@ -13,7 +13,7 @@ THRESHOLD = 1024 * 120
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-KEEP_RECENT_TOOL_CALL = 42
+KEEP_RECENT_TOOL_CALL = 64
 
 
 def save_checkpoint(messages: list, filepath: Path = None) -> Path:
@@ -131,13 +131,6 @@ def micro_compact(input_list: list) -> list:
     return input_list
 
 
-class Compact(BaseModel):
-    reason: str = Field(
-        default="User triggered compact",
-        description="Reason for compacting the conversation.",
-    )
-
-
 def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
     TRANSCRIPT_DIR.mkdir(exist_ok=True)
     transcript_path = TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
@@ -158,15 +151,7 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
 
     summary = llm_client.get_summary(conversation_text, reason)
 
-    # Find the start of the current turn to ensure we don't orphan function calls
-    last_user_idx = 0
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "user":
-            last_user_idx = i
-            break
-
     system_msgs = [m for m in messages if m.get("role") == "system"]
-    keep_msgs = messages[last_user_idx:]
 
     summary_msgs = [
         {
@@ -175,22 +160,13 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
         },
         {
             "role": "assistant",
-            "content": "Understood. I have the context from the summary. Continuing.",
+            "content": "Understood. I have the context from the summary. Ready to proceed.",
         },
     ]
 
     # Rebuild history in-place
-    new_history = system_msgs + summary_msgs + keep_msgs
+    new_history = system_msgs + summary_msgs
     messages.clear()
     messages.extend(new_history)
 
     return "History successfully compacted and summarized."
-
-
-MEMORY_TOOLS = [
-    pydantic_function_tool(Compact),
-]
-
-MEMORY_TOOLS_HANDLERS = {
-    "Compact": auto_compact,
-}
