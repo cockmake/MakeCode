@@ -4,6 +4,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from prompt_toolkit import print_formatted_text
+from prompt_toolkit.formatted_text import HTML
+
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
 
@@ -138,10 +141,10 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
     with open(transcript_path, "w", encoding="utf-8") as f:
         for msg in messages:
             f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
-    print(f"\033[33m[Transcript saved to: {transcript_path}]\033[0m")
+    print_formatted_text(HTML(f"<ansiyellow>[Transcript saved to: {transcript_path}]</ansiyellow>"))
 
     # Ask LLM to summarize via Responses API
-    print(f"\033[33m[Compacting conversation context... reason: {reason}]\033[0m")
+    print_formatted_text(HTML(f"<ansiyellow>[Compacting conversation context... reason: {reason}]</ansiyellow>"))
 
     # Filter out original system messages to prevent system instructions clash
     filtered_messages = [m for m in messages if m.get("role") != "system"]

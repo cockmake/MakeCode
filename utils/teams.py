@@ -5,6 +5,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from prompt_toolkit import print_formatted_text
+from prompt_toolkit.formatted_text import HTML
+
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field, ValidationError
 
@@ -308,9 +311,9 @@ class TeammateManager:
         current_run_dir = RUNS_DIR / run_id
         current_run_dir.mkdir(exist_ok=True)
 
-        print(
-            f"\n\033[33m[Orchestrator] 正在并发唤醒 {len(tasks)} 个子节点... 日志目录: {run_id}\033[0m\n"
-        )
+        print_formatted_text(HTML(
+                f"\n<ansiyellow>[Orchestrator] 正在并发唤醒 {len(tasks)} 个子节点... 日志目录: {run_id}</ansiyellow>\n"
+            ))
 
         results: list[dict] = []
 
@@ -322,9 +325,9 @@ class TeammateManager:
             previous_context = self._get_last_failed_context(plan_task_id)
             if previous_context:
                 prompt = f"{prompt}\n\n{previous_context}"
-                print(
-                    f"\033[35m  -> [Recovery] 发现子节点 '{role}' (Task #{plan_task_id}) 之前的失败记录，已加载并注入到新任务的上下文中。\033[0m"
-                )
+                print_formatted_text(HTML(
+                        f"<ansimagenta>  -> [Recovery] 发现子节点 '{role}' (Task #{plan_task_id}) 之前的失败记录，已加载并注入到新任务的上下文中。</ansimagenta>"
+                    ))
 
             runtime_task_id = f"task_{plan_task_id}_{uuid.uuid4().hex[:6]}"
             start_time = datetime.now().isoformat()
@@ -352,9 +355,9 @@ class TeammateManager:
                 self.history.append(task_record)
             self._save_history()
 
-            print(
-                f"\033[34m  -> [Spawn] 子节点 '{role}' 开始工作... (TaskManager #{plan_task_id})\033[0m"
-            )
+            print_formatted_text(HTML(
+                    f"<ansiblue>  -> [Spawn] 子节点 '{role}' 开始工作... (TaskManager #{plan_task_id})</ansiblue>"
+                ))
 
             try:
                 # 将日志文件路径传入执行沙盒
@@ -381,7 +384,7 @@ class TeammateManager:
                         record["end_time"] = datetime.now().isoformat()
             self._save_history()
 
-            print(f"\033[32m  <- [Done] 子节点 '{role}' 任务结束。\033[0m")
+            print_formatted_text(HTML(f"<ansigreen>  <- [Done] 子节点 '{role}' 任务结束。</ansigreen>"))
             return {
                 "task_id": plan_task_id,
                 "role": role,
@@ -413,7 +416,7 @@ class TeammateManager:
                     )
                     self._set_plan_task_status(plan_task_id, "pending")
 
-        print(f"\n\033[33m[Orchestrator] 所有任务已完成，汇总报告已生成。\033[0m\n")
+        print_formatted_text(HTML(f"\n<ansiyellow>[Orchestrator] 所有任务已完成，汇总报告已生成。</ansiyellow>\n"))
 
         final_combined_report = (
             f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"

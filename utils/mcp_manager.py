@@ -38,6 +38,12 @@ class GlobalMCPManager:
         if self._is_running:
             return
         if not self.config_path or not self.config_path.exists():
+            if self.console:
+                print_formatted_text(
+                    HTML(
+                        f"<ansiyellow><b> ⚠️ MCP 配置文件不存在，已跳过加载。\n   路径: {self.config_path}</b></ansiyellow>"
+                    )
+                )
             return
 
         try:
@@ -47,15 +53,17 @@ class GlobalMCPManager:
         except Exception as e:
             log_error_traceback("MCP Config Load Error", e)
             if self.console:
-                self.console.print(
-                    f"[bold red] ⚠️ Failed to load MCP config: {e}[/bold red]"
+                print_formatted_text(
+                    HTML(f"<ansired><b> ⚠️ Failed to load MCP config: {e}</b></ansired>")
                 )
             return
 
         if not self.server_configs:
             if self.console:
-                self.console.print(
-                    "[bold yellow] ⚠️ MCP 配置文件中没有定义 mcpServers[/bold yellow]"
+                print_formatted_text(
+                    HTML(
+                        "<ansiyellow><b> ⚠️ MCP 配置文件中没有定义 mcpServers</b></ansiyellow>"
+                    )
                 )
             return
 
@@ -74,8 +82,8 @@ class GlobalMCPManager:
         except Exception as e:
             log_error_traceback("MCP Background Loop Error", e)
             if self.console:
-                self.console.print(
-                    f"[bold red] ⚠️ MCP Background Loop Error: {e}[/bold red]"
+                print_formatted_text(
+                    HTML(f"<ansired><b> ⚠️ MCP Background Loop Error: {e}</b></ansired>")
                 )
         finally:
             self._is_running = False
@@ -192,8 +200,10 @@ class GlobalMCPManager:
                     except Exception as e:
                         log_error_traceback(f"MCP Server Load Error [{server_name}]", e)
                         if self.console:
-                            self.console.print(
-                                f"\r[bold red] ⚠️ 无法加载 MCP 服务 '{server_name}': {e}[/bold red]"
+                            print_formatted_text(
+                                HTML(
+                                    f"\r<ansired><b> ⚠️ 无法加载 MCP 服务 '{server_name}': {e}</b></ansired>"
+                                )
                             )
 
                 with self._db_lock:
@@ -212,8 +222,8 @@ class GlobalMCPManager:
         except Exception as e:
             log_error_traceback("MCP Async Lifecycle Stack Error", e)
             if self.console:
-                self.console.print(
-                    f"\r[bold red] ⚠️ MCP 后台连接异常断开: {e}[/bold red]"
+                print_formatted_text(
+                    HTML(f"\r<ansired><b> ⚠️ MCP 后台连接异常断开: {e}</b></ansired>")
                 )
 
     def get_tools(self) -> list:
@@ -245,7 +255,11 @@ class GlobalMCPManager:
             self.config_path = config_path
 
         if self.console:
-            self.console.print("[dim] 🔄 重载 MCP 配置并启动后台连接...[/dim]")
+            print_formatted_text(
+                HTML(
+                    "\n<ansicyan><b> 🔄 正在重新加载 MCP 配置并重启后台服务...</b></ansicyan>"
+                )
+            )
 
         self.start_background()
 

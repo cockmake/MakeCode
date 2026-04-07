@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 
 import frontmatter
+from prompt_toolkit import print_formatted_text
+from prompt_toolkit.formatted_text import HTML
+
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
 
@@ -13,9 +16,10 @@ SKILLS_DIR = WORKDIR / "skills"
 
 class LoadSkill(BaseModel):
     """Load a specialized skill module by name."""
+
     name: str = Field(
         ...,
-        description="The exact name of the skill to load. Must be one of the skills returned by ListSkills."
+        description="The exact name of the skill to load. Must be one of the skills returned by ListSkills.",
     )
 
 
@@ -45,7 +49,11 @@ class SkillLoader:
             post = frontmatter.loads(text)
             return post.metadata, post.content
         except Exception as e:
-            print(f"Warning: Failed to parse frontmatter: {e}")
+            print_formatted_text(
+                HTML(
+                    f"<ansiyellow>Warning: Failed to parse frontmatter: {e}</ansiyellow>"
+                )
+            )
             return {}, text
 
     def get_descriptions(self) -> str:
@@ -55,7 +63,7 @@ class SkillLoader:
         lines = []
         for i, (name, skill) in enumerate(self.skills.items(), 1):
             desc = skill["meta"].get("description", "No description")
-            desc = str(desc).strip().replace('\n', ' ').replace('\r', '')
+            desc = str(desc).strip().replace("\n", " ").replace("\r", "")
             tags = skill["meta"].get("tags", "")
             line = f"{i}. **{name}**: {desc}"
             if tags:
@@ -67,7 +75,9 @@ class SkillLoader:
         """List all available skill names."""
         self._load_all()
         skills_path = self.skills_dir.absolute().as_posix()
-        return f"Skills available (stored in `{skills_path}`):\n{self.get_descriptions()}"
+        return (
+            f"Skills available (stored in `{skills_path}`):\n{self.get_descriptions()}"
+        )
 
     def get_content(self, name: str) -> str:
         """Layer 2: full skill body returned in tool_result."""
@@ -85,7 +95,7 @@ class SkillLoader:
 
         system_note = get_skill_system_note(skill_dir, meta_json)
 
-        return f"<skill name=\"{name}\">\n{system_note}{skill['body']}\n</skill>"
+        return f'<skill name="{name}">\n{system_note}{skill["body"]}\n</skill>'
 
 
 SKILL_LOADER = SkillLoader(SKILLS_DIR)
