@@ -1,3 +1,4 @@
+fastmcp
 openai
 prompt_toolkit
 pydantic

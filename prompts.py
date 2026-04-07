@@ -3,12 +3,15 @@ Centralized prompt management for the Agent project.
 All LLM prompts are defined here as functions for easier maintenance and parameterization.
 """
 
+import datetime
+
 
 def get_orchestrator_system_prompt(
     workdir: str, startup_terminal_label: str, startup_terminal_source: str
 ) -> str:
     """Prompt 1: Orchestrator (Super-Agent) system prompt."""
     return f"""You are the Orchestrator (Super-Agent) at {workdir}.
+Today's date is {datetime.date.today().isoformat()}.
 
 Core operating policy:
 1) Always plan work with TaskManager first.
@@ -38,6 +41,7 @@ def get_sub_agent_system_prompt(
     """Prompt 2: Sub-Agent system prompt."""
     return (
         f"You are a '{role}', working at {workdir}. "
+        f"Today's date is {datetime.date.today().isoformat()}. "
         f"You have been assigned a specific task by the Orchestrator. "
         f"Use available tools to complete the task. "
         f"Your task is independent from sibling sub-agents in this run; do not assume ordering from them. "

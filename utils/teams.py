@@ -27,6 +27,7 @@ from utils.common import (
 from utils.file_access import AgentFileAccess
 from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER
+from utils.mcp_manager import GLOBAL_MCP_MANAGER
 
 MAKECODE_DIR = WORKDIR / ".makecode"
 TEAM_DIR = MAKECODE_DIR / "team"
@@ -245,7 +246,7 @@ class TeammateManager:
 
         formatted_log = [
             f"\n### PREVIOUS ATTEMPT LOG (Task #{plan_task_id}) ###",
-            "A previous agent attempted this task but did not finish successfully. Below is the complete trace of their actions:\n"
+            "A previous agent attempted this task but did not finish successfully. Below is the complete trace of their actions:\n",
         ]
 
         try:
@@ -389,7 +390,7 @@ class TeammateManager:
             }
 
         with concurrent.futures.ThreadPoolExecutor(
-                max_workers=min(len(tasks), 5)
+            max_workers=min(len(tasks), 5)
         ) as executor:
             future_to_task_id = {
                 executor.submit(worker, t): t["task_id"] for t in tasks
@@ -418,10 +419,10 @@ class TeammateManager:
             f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"
         )
         for item in sorted(
-                results,
-                key=lambda x: (
-                        int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
-                ),
+            results,
+            key=lambda x: (
+                int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
+            ),
         ):
             final_combined_report += (
                 f"==== Task #{item['task_id']} | Role: {item['role']} | Status: {item['status']} ====\n"
@@ -465,12 +466,14 @@ class TeammateManager:
             + SKILL_TOOLS
             + TODO_TOOLS
             + [pydantic_function_tool(SubmitTaskReport)]
+            + GLOBAL_MCP_MANAGER.get_tools()
         )
         agent_access = AgentFileAccess()
 
         sub_handlers = {
             **COMMON_TOOLS_HANDLERS,
             **SKILL_TOOLS_HANDLERS,
+            **GLOBAL_MCP_MANAGER.get_handlers(),
             "TodoUpdate": lambda items, **kwargs: local_todo.update(items),
             "RunRead": lambda path, start=None, end=None, **kwargs: run_read(
                 path, start, end, agent_access

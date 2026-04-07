@@ -1,3 +1,4 @@
+import datetime
 import locale
 import os
 import re
@@ -436,6 +437,16 @@ def run_grep(
     return "\n".join(output_blocks).strip()
 
 
+class GetSystemTime(BaseModel):
+    """Get the exact current system time (precise to the second)."""
+
+    pass
+
+
+def get_system_time(**kwargs) -> str:
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 TOOLS = [
     pydantic_function_tool(RunRead),
     pydantic_function_tool(RunWrite),
@@ -467,6 +478,7 @@ TERMINAL_NAMESPACE = {
 COMMON_TOOLS = [
     FILE_NAMESPACE,
     TERMINAL_NAMESPACE,
+    pydantic_function_tool(GetSystemTime),
 ]
 
 COMMON_TOOLS_HANDLERS = {
@@ -475,4 +487,5 @@ COMMON_TOOLS_HANDLERS = {
     "RunWrite": run_write,
     "RunGrep": run_grep,
     "RunEdit": run_edit,
+    "GetSystemTime": get_system_time,
 }

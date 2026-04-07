@@ -52,6 +52,7 @@ from utils.tasks import (
     load_task_plan,
 )
 from utils.teams import TEAM_TOOLS_HANDLERS, TEAM_TOOLS
+from utils.mcp_manager import GLOBAL_MCP_MANAGER
 
 console = Console()
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -200,12 +201,12 @@ def _render_token_usage(messages: list):
     )
 
 
-def _request_with_progress(messages: list):
+def _request_with_progress(messages: list, current_tools: list):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
             llm_client.generate,
             messages=messages,
-            tools=SUPER_TOOLS,
+            tools=current_tools,
         )
 
         # 颜值升级 1: 使用 rich 的优雅 status 动画
@@ -253,6 +254,7 @@ def _render_env_customization_hint():
 
 COMMAND_DESCRIPTIONS = {
     "/cmds": "列出所有的可用命令和功能描述",
+    "/mcp": "管理动态加载的 MCP 服务器和工具 (view|restart)",
     "/load": "列出历史checkpoint并选择加载",
     "/skills": "列出当前可用的skills",
     "/compact": "压缩当前对话上下文",
@@ -378,8 +380,20 @@ def agent_loop(messages: list):
     micro_compact(messages)
     while True:
         _render_token_usage(messages)
+
+        # 动态组装当前的全局工具和执行器
+        current_super_tools = llm_client.format_tools(
+            COMMON_TOOLS
+            + SKILL_TOOLS
+            + TASK_MANAGER_TOOLS
+            + TEAM_TOOLS
+            + GLOBAL_MCP_MANAGER.get_tools()
+        )
+
+        current_handlers = {**SUPER_TOOLS_HANDLERS, **GLOBAL_MCP_MANAGER.get_handlers()}
+
         try:
-            response = _request_with_progress(messages)
+            response = _request_with_progress(messages, current_super_tools)
         except Exception as e:
             log_error_traceback("Orchestrator generation error", e)
             error_msg = f"Error during agent execution: {e}. Check .makecode/error.log for details."
@@ -403,7 +417,7 @@ def agent_loop(messages: list):
 
             try:
                 arguments = _parse_arguments(tool_args)
-                handler = SUPER_TOOLS_HANDLERS.get(tool_name)
+                handler = current_handlers.get(tool_name)
                 if handler:
                     output = handler(**arguments)
                 else:
@@ -509,162 +523,226 @@ CURRENT_CHECKPOINT = None
 if __name__ == "__main__":
     _render_startup_banner()
     _render_env_customization_hint()
+
+    from init import MAKECODE_DIR
+
+    mcp_config_path = MAKECODE_DIR / "mcp_config.json"
+    if mcp_config_path.exists():
+        GLOBAL_MCP_MANAGER.initialize(config_path=mcp_config_path, console=console)
+        GLOBAL_MCP_MANAGER.start_background()
+
     history = [{"role": "system", "content": SYSTEM}]
-    while True:
-        try:
-            query = _read_user_query(history)
-        except (EOFError, KeyboardInterrupt) as exc:
-            log_error_traceback("main user input interrupted", exc)
-            console.print(
-                "\n[bold yellow] 👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
-            )
-            break
-
-        query = query.strip()
-        if not query:
-            continue
-
-        if query in ["/quit", "/exit"]:
-            console.print(
-                "\n[bold yellow] 👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
-            )
-            break
-
-        if query == "/cmds":
-            table = Table(
-                title="[bold cyan] 🛠️ 可用内置命令列表[/bold cyan]",
-                box=box.ROUNDED,
-                expand=True,
-            )
-            table.add_column("命令 (Command)", style="bold green", justify="left")
-            table.add_column("描述 (Description)", style="white")
-            for cmd, desc in COMMAND_DESCRIPTIONS.items():
-                table.add_row(cmd, desc)
-            console.print(table)
-            continue
-
-        if query in ["/clear", "/reset"]:
-            history = [{"role": "system", "content": SYSTEM}]
-            CURRENT_CHECKPOINT = None
-            console.print(
-                "\n[bold green] ✨ 对话历史已清空，开启全新会话！[/bold green]"
-            )
-            continue
-
-        if query == "/compact":
-            auto_compact(history, reason="User triggered compact")
-            console.print(
-                "\n[bold green] ✨ 当前对话上下文已成功压缩并保存！[/bold green]"
-            )
-            CURRENT_CHECKPOINT = save_checkpoint(history, CURRENT_CHECKPOINT)
-            continue
-
-        if query == "/load":
-            checkpoints = list_checkpoints()
-            if not checkpoints:
-                console.print(
-                    "\n[bold yellow] 📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]"
-                )
-                continue
-
-            # 如果已经在对话中(除去system prompt之外有其他内容)，并且当前还没有绑定任何 checkpoint，确保它被保存
-            if len(history) > 1 and CURRENT_CHECKPOINT is None:
-                CURRENT_CHECKPOINT = save_checkpoint(history)
-
+    try:
+        while True:
             try:
-                selected_path = _interactive_choose_checkpoint(checkpoints)
-            except Exception as exc:
-                log_error_traceback("main interactive load checkpoint", exc)
-                selected_path = "abort"
+                query = _read_user_query(history)
+            except (EOFError, KeyboardInterrupt) as exc:
+                log_error_traceback("main user input interrupted", exc)
+                console.print(
+                    "\n[bold yellow] 👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
+                )
+                break
 
-            if selected_path == "abort":
-                console.print("[dim]已取消加载。[/dim]")
+            query = query.strip()
+            if not query:
                 continue
 
-            try:
-                history = load_checkpoint(Path(selected_path))
-                CURRENT_CHECKPOINT = Path(selected_path)
+            if query in ["/quit", "/exit"]:
                 console.print(
-                    f"\n[bold green] 🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。[/bold green]"
+                    "\n[bold yellow] 👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
                 )
-            except Exception as exc:
-                log_error_traceback("main load checkpoint error", exc)
-                console.print(f"\n[bold red] ❌ 加载失败: {exc}[/bold red]")
-                continue
+                break
 
-            # Load tasks if available
-            task_plans = list_task_plans()
-            if task_plans:
-                console.print(
-                    "\n[bold cyan] 📋 发现保存的任务看板 (Task Plans)，是否要加载？[/bold cyan]"
-                )
+            if query.startswith("/mcp"):
+                parts = query.split(maxsplit=1)
+                subcommand = parts[1].strip() if len(parts) > 1 else ""
 
-                try:
-                    selected_task_path = _interactive_choose_checkpoint(
-                        task_plans,
-                        title="\n 📌 Select a Task Plan to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
-                    )
-                except Exception as exc:
-                    log_error_traceback("main interactive load task plan", exc)
-                    selected_task_path = "abort"
-
-                if selected_task_path != "abort":
-                    try:
-                        plan_data = load_task_plan(Path(selected_task_path))
-                        console.print("[bold green] 🚀 成功加载任务看板！[/bold green]")
-
-                        has_incomplete = any(
-                            task.get("status") != "completed"
-                            for task in plan_data.get("tasks", {}).values()
+                if subcommand == "view":
+                    status = GLOBAL_MCP_MANAGER.get_status_info()
+                    if not status["is_running"]:
+                        console.print(
+                            "\n[bold yellow] ⚠️ MCP 后台管理器当前未运行 (未配置或连接失败).[/bold yellow]"
                         )
+                    elif status["tool_count"] == 0:
+                        console.print(
+                            "\n[bold yellow] ⚠️ MCP 连接正常，但没有拉取到任何工具.[/bold yellow]"
+                        )
+                    else:
+                        servers = status.get("servers", [])
+                        server_txt = f"[{', '.join(servers)}]" if servers else ""
+                        table = Table(
+                            title=f"[bold cyan] 🔌 已加载的 MCP 工具 (共 {status['tool_count']} 个) {server_txt}[/bold cyan]",
+                            box=box.ROUNDED,
+                            expand=True,
+                        )
+                        table.add_column(
+                            "服务节点 (Server)", style="bold magenta", justify="left"
+                        )
+                        table.add_column(
+                            "工具名称 (Tool Name)", style="bold green", justify="left"
+                        )
+                        table.add_column("描述 (Description)", style="white")
 
-                        if has_incomplete:
-                            from utils.teams import (
-                                list_team_histories,
-                                load_team_history,
+                        for tool in status["tools"]:
+                            table.add_row(
+                                tool.get("provider", "Unknown"),
+                                tool["name"],
+                                tool["description"],
                             )
 
-                            team_histories = list_team_histories()
-                            if team_histories:
-                                console.print(
-                                    "\n[bold cyan] 💡 发现子代理执行历史 (Team Histories)，是否要加载？[/bold cyan]"
+                        console.print(table)
+
+                elif subcommand == "restart":
+                    console.print(
+                        "\n[bold cyan] 🔄 正在重新加载 MCP 配置并重启后台服务...[/bold cyan]"
+                    )
+                    GLOBAL_MCP_MANAGER.restart()
+                else:
+                    console.print(
+                        "\n[bold yellow] 用法: /mcp view (查看工具) 或者 /mcp restart (重新启动并加载配置)[/bold yellow]"
+                    )
+
+                continue
+
+            if query == "/cmds":
+                table = Table(
+                    title="[bold cyan] 🛠️ 可用内置命令列表[/bold cyan]",
+                    box=box.ROUNDED,
+                    expand=True,
+                )
+                table.add_column("命令 (Command)", style="bold green", justify="left")
+                table.add_column("描述 (Description)", style="white")
+                for cmd, desc in COMMAND_DESCRIPTIONS.items():
+                    table.add_row(cmd, desc)
+                console.print(table)
+                continue
+
+            if query in ["/clear", "/reset"]:
+                history = [{"role": "system", "content": SYSTEM}]
+                CURRENT_CHECKPOINT = None
+                console.print(
+                    "\n[bold green] ✨ 对话历史已清空，开启全新会话！[/bold green]"
+                )
+                continue
+
+            if query == "/compact":
+                auto_compact(history, reason="User triggered compact")
+                console.print(
+                    "\n[bold green] ✨ 当前对话上下文已成功压缩并保存！[/bold green]"
+                )
+                CURRENT_CHECKPOINT = save_checkpoint(history, CURRENT_CHECKPOINT)
+                continue
+
+            if query == "/load":
+                checkpoints = list_checkpoints()
+                if not checkpoints:
+                    console.print(
+                        "\n[bold yellow] 📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]"
+                    )
+                    continue
+
+                # 如果已经在对话中(除去system prompt之外有其他内容)，并且当前还没有绑定任何 checkpoint，确保它被保存
+                if len(history) > 1 and CURRENT_CHECKPOINT is None:
+                    CURRENT_CHECKPOINT = save_checkpoint(history)
+
+                try:
+                    selected_path = _interactive_choose_checkpoint(checkpoints)
+                except Exception as exc:
+                    log_error_traceback("main interactive load checkpoint", exc)
+                    selected_path = "abort"
+
+                if selected_path == "abort":
+                    console.print("[dim]已取消加载。[/dim]")
+                    continue
+
+                try:
+                    history = load_checkpoint(Path(selected_path))
+                    CURRENT_CHECKPOINT = Path(selected_path)
+                    console.print(
+                        f"\n[bold green] 🚀 成功加载对话记录！当前上下文包含 {len(history)} 条消息。[/bold green]"
+                    )
+                except Exception as exc:
+                    log_error_traceback("main load checkpoint error", exc)
+                    console.print(f"\n[bold red] ❌ 加载失败: {exc}[/bold red]")
+                    continue
+
+                # Load tasks if available
+                task_plans = list_task_plans()
+                if task_plans:
+                    console.print(
+                        "\n[bold cyan] 📋 发现保存的任务看板 (Task Plans)，是否要加载？[/bold cyan]"
+                    )
+
+                    try:
+                        selected_task_path = _interactive_choose_checkpoint(
+                            task_plans,
+                            title="\n 📌 Select a Task Plan to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                        )
+                    except Exception as exc:
+                        log_error_traceback("main interactive load task plan", exc)
+                        selected_task_path = "abort"
+
+                    if selected_task_path != "abort":
+                        try:
+                            plan_data = load_task_plan(Path(selected_task_path))
+                            console.print(
+                                "[bold green] 🚀 成功加载任务看板！[/bold green]"
+                            )
+
+                            has_incomplete = any(
+                                task.get("status") != "completed"
+                                for task in plan_data.get("tasks", {}).values()
+                            )
+
+                            if has_incomplete:
+                                from utils.teams import (
+                                    list_team_histories,
+                                    load_team_history,
                                 )
 
-                                try:
-                                    selected_team_path = _interactive_choose_checkpoint(
-                                        team_histories,
-                                        title="\n 📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                                team_histories = list_team_histories()
+                                if team_histories:
+                                    console.print(
+                                        "\n[bold cyan] 💡 发现子代理执行历史 (Team Histories)，是否要加载？[/bold cyan]"
                                     )
-                                except Exception as exc:
-                                    log_error_traceback(
-                                        "main interactive load team history", exc
-                                    )
-                                    selected_team_path = "abort"
 
-                                if selected_team_path != "abort":
                                     try:
-                                        load_team_history(Path(selected_team_path))
-                                        console.print(
-                                            "[bold green] ✅ 成功加载子代理执行历史！[/bold green]"
+                                        selected_team_path = _interactive_choose_checkpoint(
+                                            team_histories,
+                                            title="\n 📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
                                         )
                                     except Exception as exc:
                                         log_error_traceback(
-                                            "main load team history error", exc
+                                            "main interactive load team history", exc
                                         )
-                                        console.print(
-                                            f"[bold red] ❌ 加载子代理执行历史失败: {exc}[/bold red]"
-                                        )
-                    except Exception as exc:
-                        log_error_traceback("main load task plan error", exc)
-                        console.print(
-                            f"[bold red] ❌ 加载任务看板失败: {exc}[/bold red]"
-                        )
+                                        selected_team_path = "abort"
 
-            continue
+                                    if selected_team_path != "abort":
+                                        try:
+                                            load_team_history(Path(selected_team_path))
+                                            console.print(
+                                                "[bold green] ✅ 成功加载子代理执行历史！[/bold green]"
+                                            )
+                                        except Exception as exc:
+                                            log_error_traceback(
+                                                "main load team history error", exc
+                                            )
+                                            console.print(
+                                                f"[bold red] ❌ 加载子代理执行历史失败: {exc}[/bold red]"
+                                            )
+                        except Exception as exc:
+                            log_error_traceback("main load task plan error", exc)
+                            console.print(
+                                f"[bold red] ❌ 加载任务看板失败: {exc}[/bold red]"
+                            )
 
-        # 核心逻辑：如果大模型需要处理软命令，把它和描述拼接在一起作为上下文
-        if query in COMMAND_DESCRIPTIONS:
-            query = f"{query} {COMMAND_DESCRIPTIONS[query]}"
-        history.append({"role": "user", "content": query})
-        agent_loop(history)
-        CURRENT_CHECKPOINT = save_checkpoint(history, CURRENT_CHECKPOINT)
+                continue
+
+            # 核心逻辑：如果大模型需要处理软命令，把它和描述拼接在一起作为上下文
+            if query in COMMAND_DESCRIPTIONS:
+                query = f"{query} {COMMAND_DESCRIPTIONS[query]}"
+            history.append({"role": "user", "content": query})
+            agent_loop(history)
+            CURRENT_CHECKPOINT = save_checkpoint(history, CURRENT_CHECKPOINT)
+    finally:
+        GLOBAL_MCP_MANAGER.stop()
