@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+# 1. 在文件开头引入 copy_metadata 模块
+from PyInstaller.utils.hooks import copy_metadata
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('tiktoken_cache', 'tiktoken_cache')],
+    # 2. 将原来的 datas 列表与 copy_metadata 的结果相加
+    datas=[('tiktoken_cache', 'tiktoken_cache')] + copy_metadata('fastmcp'),
     hiddenimports=['tiktoken_ext.openai_public', 'tiktoken_ext'],
     hookspath=[],
     hooksconfig={},
