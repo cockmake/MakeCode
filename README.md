@@ -398,6 +398,9 @@ python main.py
 | 命令 | 描述 |
 | --- | --- |
 | `/cmds` | 列出所有的可用命令和功能描述 |
+| `/mcp` | 管理动态加载的 MCP 服务器和工具 |
+| `/mcp view` | 查看当前已加载的 MCP 工具列表 |
+| `/mcp restart` | 重新启动 MCP 服务并加载配置 |
 | `/load` | 列出历史 checkpoint 并选择加载 |
 | `/skills` | 列出当前工作区可用的 skills |
 | `/compact` | 压缩当前对话上下文 |
@@ -409,6 +412,9 @@ python main.py
 | `/clear` / `/reset` | 清空当前对话历史 |
 | `/quit` / `/exit` | 退出程序 |
 
+> 💡 **提示**：`/mcp` 命令支持 `view` 和 `restart` 两个子命令：
+> - `/mcp view`：以表格形式展示当前已连接的 MCP 服务节点及其提供的工具名称和描述
+> - `/mcp restart`：强制重启 MCP 后台管理器，重新读取 `.makecode/mcp_config.json` 配置文件并初始化所有服务
 ---
 
 ## 7. 使用约束
