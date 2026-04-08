@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession, print_formatted_text
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.containers import Window
@@ -213,10 +213,10 @@ def _request_with_progress(messages: list, current_tools: list):
 
         # 颜值升级 1: 使用 rich 的优雅 status 动画
         with Progress(
-            BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
-            TextColumn("[bold cyan] ✨ Orchestrator is thinking..."),
-            transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
-            console=console,
+                BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
+                TextColumn("[bold cyan] ✨ Orchestrator is thinking..."),
+                transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
+                console=console,
         ) as progress:
             # total=None 表示进度未知，会触发左右来回弹跳的动画
             progress.add_task("", total=None)
@@ -458,8 +458,8 @@ def agent_loop(messages: list):
 
 
 def _interactive_choose_checkpoint(
-    checkpoints: list,
-    title: str = "\n 📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+        checkpoints: list,
+        title: str = "\n 📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
 ) -> str:
     if not checkpoints:
         return "abort"
@@ -529,10 +529,7 @@ if __name__ == "__main__":
     _render_startup_banner()
     _render_env_customization_hint()
 
-    from init import MAKECODE_DIR
-
-    mcp_config_path = MAKECODE_DIR / "mcp_config.json"
-    GLOBAL_MCP_MANAGER.initialize(config_path=mcp_config_path, console=console)
+    GLOBAL_MCP_MANAGER.initialize(console=console)
     GLOBAL_MCP_MANAGER.start_background()
 
     history = [{"role": "system", "content": SYSTEM}]

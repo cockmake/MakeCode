@@ -9,12 +9,15 @@ from fastmcp import Client
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
 
-from init import log_error_traceback, llm_client
+from init import MAKECODE_DIR
+from init import log_error_traceback
+
+mcp_config_path = MAKECODE_DIR / "mcp_config.json"
 
 
 class GlobalMCPManager:
     def __init__(self):
-        self.config_path = None
+        self.config_path = mcp_config_path
         self.console = None
         self.loop = None
         self.thread = None
@@ -30,8 +33,7 @@ class GlobalMCPManager:
         self._db_lock = threading.Lock()
         self._is_running = False
 
-    def initialize(self, config_path: Path, console):
-        self.config_path = config_path
+    def initialize(self, console):
         self.console = console
 
     def start_background(self):
@@ -67,6 +69,13 @@ class GlobalMCPManager:
                 )
             return
 
+        if self.console:
+            names = ", ".join(self.server_configs.keys())
+            print_formatted_text(
+                HTML(
+                    f"<ansicyan> 🔄 识别到 {len(self.server_configs)} 个 MCP 服务 ({names})</ansicyan>\n"
+                )
+            )
         self.loop = asyncio.new_event_loop()
         self._stop_event = asyncio.Event()
         self._is_running = True
@@ -108,6 +117,14 @@ class GlobalMCPManager:
             async with AsyncExitStack() as stack:
                 # 逐个加载 server，实现真正的隔离和精确识别
                 for server_name, cfg in self.server_configs.items():
+                    if cfg.get("disabled", False):
+                        if self.console:
+                            print_formatted_text(
+                                HTML(
+                                    f"<ansiyellow><b> ⚠️ MCP 服务 '{server_name}' 已被标记为禁用，跳过加载。</b></ansiyellow>"
+                                )
+                            )
+                        continue
                     client = Client({"mcpServers": {server_name: cfg}})
                     try:
                         await stack.enter_async_context(client)
@@ -146,8 +163,8 @@ class GlobalMCPManager:
                             mcp_raw_schemas.append(t_dict)
 
                             desc = (
-                                t_dict.get("description")
-                                or f"MCP Tool: {t.name} from {server_name}"
+                                    t_dict.get("description")
+                                    or f"MCP Tool: {t.name} from {server_name}"
                             )
                             status_tools.append(
                                 {
@@ -158,7 +175,7 @@ class GlobalMCPManager:
                             )
 
                             def make_handler(
-                                c=client, original_name=t.name, t_name=tool_name
+                                    c=client, original_name=t.name, t_name=tool_name
                             ):
                                 def handler(**kwargs):
                                     try:
@@ -170,7 +187,7 @@ class GlobalMCPManager:
 
                                         # 处理 FastMCP 默认返回结构，提取纯文本
                                         if hasattr(result, "content") and isinstance(
-                                            result.content, list
+                                                result.content, list
                                         ):
                                             texts = [
                                                 c.text
