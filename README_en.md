@@ -266,48 +266,48 @@ Runtime-generated directories:
 
 ```mermaid
 flowchart TD
-    U[User / CLI Input] --> O[Orchestrator\nmain.py]
-    O --> AC[llm_client.py\nAdapter]
-    AC --> M[OpenAI Standard / Responses API]
-    O --> I[Initialization & Environment\ninit.py]
+    U["User / CLI Input"] --> O["Orchestrator\nmain.py"]
+    O --> AC["llm_client.py\nAdapter"]
+    AC --> M["OpenAI Standard / Responses API"]
+    O --> I["Initialization & Environment\ninit.py"]
 
-    O --> C[File / Terminal Tools\nutils/common.py]
-    O --> TM[TaskManager\nutils/tasks.py]
-    O --> S[Skills\nutils/skills.py]
-    O --> MM[Memory\nutils/memory.py]
-    O --> T[Team Delegation\nutils/teams.py]
-    O --> MCP[MCP Manager\nutils/mcp_manager.py] [NEW]
+    O --> C["File / Terminal Tools\nutils/common.py"]
+    O --> TM["TaskManager\nutils/tasks.py"]
+    O --> S["Skills\nutils/skills.py"]
+    O --> MM["Memory\nutils/memory.py"]
+    O --> T["Team Delegation\nutils/teams.py"]
+    O --> MCP["MCP Manager\nutils/mcp_manager.py [NEW]"]
 
-    C --> W[Workspace Files]
-    C --> X[Terminal Command Execution]
+    C --> W["Workspace Files"]
+    C --> X["Terminal Command Execution"]
 
-    S --> SK[skills/*/SKILL.md]
-    MM --> TR[.makecode/transcripts/]
-    TM --> TP[.makecode/tasks/]
-    T --> TH[.makecode/team/]
-    MCP --> MC[mcp_config.json\n.makecode/] [NEW]
-    MCP --> MT[MCP Services\nExternal Tools] [NEW]
+    S --> SK["skills/*/SKILL.md"]
+    MM --> TR[".makecode/transcripts/"]
+    TM --> TP[".makecode/tasks/"]
+    T --> TH[".makecode/team/"]
+    MCP --> MC["mcp_config.json\n.makecode/ [NEW]"]
+    MCP --> MT["MCP Services\nExternal Tools [NEW]"]
 
-    TM --> RQ[GetRunnableTasks\nRunnable Frontier]
+    TM --> RQ["GetRunnableTasks\nRunnable Frontier"]
     RQ --> T
 
-    T --> A1[Sub-Agent 1]
-    T --> A2[Sub-Agent 2]
-    T --> AN[Sub-Agent N]
+    T --> A1["Sub-Agent 1"]
+    T --> A2["Sub-Agent 2"]
+    T --> AN["Sub-Agent N"]
 
-    A1 --> TD[TodoUpdate\ntools/todo.py]
+    A1 --> TD["TodoUpdate\ntools/todo.py"]
     A2 --> TD
     AN --> TD
 
-    A1 --> RP[Task Reports]
+    A1 --> RP["Task Reports"]
     A2 --> RP
     AN --> RP
 
     RP --> T
     T --> TM
     T --> O
-    MCP -.-> AC[Tool Registration] [NEW]
-    O --> F[Final Response]
+    MCP -.-> AC["Tool Registration [NEW]"]
+    O --> F["Final Response"]
 ```
 
 ### 3.3 Architecture Overview

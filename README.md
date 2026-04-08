@@ -261,48 +261,48 @@ Agent/
 
 ```mermaid
 flowchart TD
-    U[用户 / CLI Input] --> O[Orchestrator\nmain.py]
-    O --> AC[llm_client.py\nAdapter]
-    AC --> M[OpenAI 标准 / Responses API]
-    O --> I[初始化与环境\ninit.py]
+    U["用户 / CLI Input"] --> O["Orchestrator\nmain.py"]
+    O --> AC["llm_client.py\nAdapter"]
+    AC --> M["OpenAI 标准 / Responses API"]
+    O --> I["初始化与环境\ninit.py"]
 
-    O --> C[File / Terminal Tools\nutils/common.py]
-    O --> TM[TaskManager\nutils/tasks.py]
-    O --> S[Skills\nutils/skills.py]
-    O --> MM[Memory\nutils/memory.py]
-    O --> T[Team Delegation\nutils/teams.py]
-    O --> MCP[MCP Manager\nutils/mcp_manager.py] [NEW]
+    O --> C["File / Terminal Tools\nutils/common.py"]
+    O --> TM["TaskManager\nutils/tasks.py"]
+    O --> S["Skills\nutils/skills.py"]
+    O --> MM["Memory\nutils/memory.py"]
+    O --> T["Team Delegation\nutils/teams.py"]
+    O --> MCP["MCP Manager\nutils/mcp_manager.py [NEW]"]
 
-    C --> W[工作区文件]
-    C --> X[终端命令执行]
+    C --> W["工作区文件"]
+    C --> X["终端命令执行"]
 
-    S --> SK[skills/*/SKILL.md]
-    MM --> TR[.makecode/transcripts/]
-    TM --> TP[.makecode/tasks/]
-    T --> TH[.makecode/team/]
-    MCP --> MC[mcp_config.json\n.makecode/] [NEW]
-    MCP --> MT[MCP Services\nExternal Tools] [NEW]
+    S --> SK["skills/*/SKILL.md"]
+    MM --> TR[".makecode/transcripts/"]
+    TM --> TP[".makecode/tasks/"]
+    T --> TH[".makecode/team/"]
+    MCP --> MC["mcp_config.json\n.makecode/ [NEW]"]
+    MCP --> MT["MCP Services\nExternal Tools [NEW]"]
 
-    TM --> RQ[GetRunnableTasks\nRunnable Frontier]
+    TM --> RQ["GetRunnableTasks\nRunnable Frontier"]
     RQ --> T
 
-    T --> A1[Sub-Agent 1]
-    T --> A2[Sub-Agent 2]
-    T --> AN[Sub-Agent N]
+    T --> A1["Sub-Agent 1"]
+    T --> A2["Sub-Agent 2"]
+    T --> AN["Sub-Agent N"]
 
-    A1 --> TD[TodoUpdate\ntools/todo.py]
+    A1 --> TD["TodoUpdate\ntools/todo.py"]
     A2 --> TD
     AN --> TD
 
-    A1 --> RP[任务报告]
+    A1 --> RP["任务报告"]
     A2 --> RP
     AN --> RP
 
     RP --> T
     T --> TM
     T --> O
-    MCP -.-> AC[工具注册] [NEW]
-    O --> F[最终响应]
+    MCP -.-> AC["工具注册 [NEW]"]
+    O --> F["最终响应"]
 ```
 
 ### 3.3 架构说明
