@@ -254,7 +254,7 @@ class RunEdit(BaseModel):
         ..., description="Path to the file to edit, relative to workspace."
     )
     start: int = Field(..., description="Start line number (1-indexed) to replace.")
-    end: int = Field(..., description="End line number (1-indexed) to replace.")
+    end: int = Field(..., description="End line number (1-indexed) to replace. This line is INCLUSIVE (i.e., it will be replaced).")
     new_content: str = Field(
         ..., description="The new content to insert in the specified line range."
     )
@@ -324,9 +324,9 @@ class RunGrep(BaseModel):
         default=".",
         description="Directory to search in, relative to workspace. Pinpoint specific source folders (e.g., 'src', 'app') to avoid scanning dependency directories.",
     )
-    filename_pattern: str | list[str] = Field(
-        default=["*"],
-        description="File name pattern(s) to filter files. Can be a string or a list of strings (e.g., ['*.py', '*.ts'], '*.js'). Defaults to ['*'] (all text files).",
+    filename_pattern: str = Field(
+        default="*",
+        description="File name pattern to filter files. Supports glob patterns with pipe separation for multiple patterns, e.g., '*.py', '*.py|*.js|*.vue'. Defaults to '*' (all text files).",
     )
 
 
@@ -346,7 +346,7 @@ def _is_binary_file(filepath: Path) -> bool:
 def run_grep(
     keyword_pattern: str,
     target_dir: str = ".",
-    filename_pattern: str | list[str] = ["*"],
+    filename_pattern: str = "*",
 ) -> str:
     try:
         regex = re.compile(keyword_pattern)
@@ -354,10 +354,10 @@ def run_grep(
         log_error_traceback("RunGrep regex compile", e)
         return f"Error: Invalid regex pattern '{keyword_pattern}': {e}"
 
-    if isinstance(filename_pattern, str):
-        patterns = [filename_pattern]
-    else:
-        patterns = filename_pattern
+    # Split pipe-separated patterns, e.g., "*.py|*.js|*.vue" -> ["*.py", "*.js", "*.vue"]
+    patterns = [p.strip() for p in filename_pattern.split("|") if p.strip()]
+    if not patterns:
+        patterns = ["*"]
 
     clean_patterns = [p.replace("**/", "") for p in patterns]
 

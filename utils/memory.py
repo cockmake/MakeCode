@@ -62,15 +62,40 @@ try:
 
     _ENCODER = tiktoken.get_encoding("cl100k_base")
 except ImportError:
+    print_formatted_text(HTML(
+        f"\n<ansiyellow> ⚠️ tiktoken加载失败, token将使用估算模式 </ansiyellow>\n"
+    ))
     _ENCODER = None
 
 
-def estimate_tokens(messages: list):
-    system_prompt_tokens = 3000
+def estimate_tokens(messages: list, tools_definition: list = None, system_prompt: str = None):
+    # 计算基础文本的 token 数
     text = json.dumps(messages, ensure_ascii=False)
     if _ENCODER:
-        return len(_ENCODER.encode(text, disallowed_special=())) + system_prompt_tokens
-    return len(text) // 2 + system_prompt_tokens
+        base_tokens = len(_ENCODER.encode(text, disallowed_special=()))
+    else:
+        base_tokens = len(text) // 2
+
+    # 加上系统提示词的 token 数
+    if system_prompt:
+        prompt_text = json.dumps(system_prompt, ensure_ascii=False)
+        if _ENCODER:
+            base_tokens += len(_ENCODER.encode(prompt_text, disallowed_special=()))
+        else:
+            base_tokens += len(prompt_text) // 2
+    else:
+        # 默认系统提示词开销
+        base_tokens += 3000
+
+    # 加上工具定义的 token 数
+    if tools_definition:
+        tools_text = json.dumps(tools_definition, ensure_ascii=False)
+        if _ENCODER:
+            base_tokens += len(_ENCODER.encode(tools_text, disallowed_special=()))
+        else:
+            base_tokens += len(tools_text) // 2
+
+    return base_tokens
 
 
 def micro_compact(input_list: list) -> list:
