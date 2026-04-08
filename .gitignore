@@ -33,3 +33,4 @@ dist/
 
 # Playwright MCP
 .playwright-mcp/
+t.py

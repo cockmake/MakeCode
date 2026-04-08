@@ -177,6 +177,54 @@ Skill location: `skills/<name>/SKILL.md`. Place your custom skills in this direc
 
 Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for multi-step task tracking.
 
+### 2.11 MCP Service Integration (`utils/mcp_manager.py`) 🆕
+
+MakeCode supports integrating external tools and services via the **Model Context Protocol (MCP)**, extending the agent's capability boundary.
+
+#### Core Features
+
+- **Configuration-Driven Loading**: Declaratively configure multiple MCP services via `mcp_config.json`, supporting standard protocol integration
+- **Asynchronous Lifecycle Management**: Initialize and manage MCP clients asynchronously in a background thread to avoid blocking the main loop
+- **Dynamic Service Control**: Enable/disable specific MCP services at runtime for flexible toolset adjustment
+- **Unified Tool Registration**: Automatically extract tool definitions from MCP services, format them consistently with built-in tools, and seamlessly integrate into `llm_client`
+- **Error Isolation & Recovery**: Failure to load a single MCP service does not affect others; detailed error logs and graceful degradation are provided
+
+#### Configuration Example
+
+Create `.makecode/mcp_config.json` in your workspace:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git"]
+    }
+  }
+}
+```
+
+#### Usage Flow
+
+1. **Configure**: Define MCP services to integrate in `mcp_config.json`
+2. **Start**: MakeCode automatically loads the config and starts MCP clients at initialization
+3. **Discover**: System automatically extracts tool lists from MCP services and registers them
+4. **Invoke**: Agents can use MCP-provided capabilities via the standard tool call interface
+5. **Monitor**: Check MCP service status via logs and status tools
+
+#### Related Components
+
+- `utils/mcp_manager.py`: MCP service manager responsible for config loading, client management, and tool registration
+- `utils/llm_client.py`: Unified tool format extractor, compatible with both MCP native Tool and pydantic_function_tool
+- `main.py`: Integrates `GLOBAL_MCP_MANAGER` into the main loop to ensure full toolset availability
+
+> 💡 **Tip**: MCP service integration is optional. If `mcp_config.json` is not configured, the system will skip loading and continue normal operation.
+
+---
 ---
 
 ## 3. Project Structure

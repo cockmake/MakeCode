@@ -2,25 +2,25 @@
 
  🌐 语言切换：**简体中文** | [English](README_en.md) | [ 📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
-> 一个多代理命令行编排器。
+> 一个多智能体命令行编排器。
 > 
-> 支持任务拓扑规划、并发子代理委派、技能加载、文件/终端工具调用，以及长会话压缩。
+> 支持任务拓扑规划、并发子智能体委派、技能加载、文件/终端工具调用，以及长会话压缩。
 
 ---
 
 ## 1. 项目简介
 
-MakeCode 是一个面向工程任务的 Agent CLI。它采用"编排器（Orchestrator）+ 子代理（Teammates）"模式：
+MakeCode 是一个面向工程任务的 Agent CLI。它采用"编排器（Orchestrator）+ 子智能体（Teammates）"模式：
 
-- 主代理负责理解需求、规划任务、调度工具、汇总结果。
+- 主智能体负责理解需求、规划任务、调度工具、汇总结果。
 - TaskManager 负责维护任务依赖关系与可执行前沿。
-- Team 系统负责并发唤醒子代理执行可并行任务，并支持**失败上下文自动恢复**。
+- Team 系统负责并发唤醒子智能体执行可并行任务，并支持**失败上下文自动恢复**。
 - Skills 系统负责按需加载领域技能说明。
 - Memory 模块负责在长会话下压缩上下文并保存转录。
 - **File Access Control** 模块提供强制读取后编辑、修改时间锁校验与细粒度文件级并发锁。
 - **Prompt 集中管理** 将所有 LLM Prompt 统一维护，便于扩展与参数化。
 
-这个项目的目标不是只回答问题，而是让代理具备**可规划、可执行、可追踪、可扩展**的工程工作流能力。
+这个项目的目标不是只回答问题，而是让智能体具备**可规划、可执行、可追踪、可扩展**的工程工作流能力。
 
 ---
 
@@ -115,16 +115,16 @@ TaskManager 提供：
 - 可执行任务定义为：状态为 `pending` 且所有依赖均已完成。
 - 每次运行的任务计划会写入工作区 `.makecode/tasks/`。
 
-### 2.5 并发子代理（`utils/teams.py`）
+### 2.5 并发子智能体（`utils/teams.py`）
 
 Team 模块支持：
 
 - 仅接受来自最新 `GetRunnableTasks` 的任务进行委派。
-- 用线程池并发运行多个子代理。
-- 子代理执行前自动将计划任务置为 `in_progress`。
+- 用线程池并发运行多个子智能体。
+- 子智能体执行前自动将计划任务置为 `in_progress`。
 - 执行完成后回写任务状态。
-- 为每个子代理保存独立 JSONL trace。
-- 汇总本轮所有子代理报告，返回统一报告文本。
+- 为每个子智能体保存独立 JSONL trace。
+- 汇总本轮所有子智能体报告，返回统一报告文本。
 
 运行过程会生成：
 
@@ -133,7 +133,7 @@ Team 模块支持：
 
 #### 🔄 失败上下文恢复（新增）
 
-- 子代理任务失败后，系统会自动读取该任务的 `trace_log`。
+- 子智能体任务失败后，系统会自动读取该任务的 `trace_log`。
 - 失败记录（包括 LLM 输出、工具调用、参数、结果等）会被格式化并注入到重试任务的上下文中。
 ### 2.6 技能系统（`utils/skills.py`）
 
@@ -158,23 +158,70 @@ Team 模块支持：
 - 所有 LLM Prompt 统一集中在 `prompts.py` 中管理，便于维护和参数化。
 - 包含以下 Prompt 生成函数：
   - `get_orchestrator_system_prompt()`：编排器系统提示
-  - `get_sub_agent_system_prompt()`：子代理系统提示
-  - `get_sub_agent_summary_prompt()`：子代理失败时的摘要提示
+  - `get_sub_agent_system_prompt()`：子智能体系统提示
+  - `get_sub_agent_summary_prompt()`：子智能体失败时的摘要提示
   - `get_report_assistant_system_prompt()`：报告助手系统提示
   - `get_summary_system_prompt()` / `get_summary_user_prompt()`：会话压缩提示
   - `get_skill_system_note()`：技能加载时的系统注释
 
-### 2.9 子代理执行历史加载（新增）
+### 2.9 子智能体执行历史加载（新增）
 
-- `/load` 命令支持加载子代理执行历史（Team Histories）。
-- 仅当任务看板成功加载后才提示加载子代理历史。
-- 若任务看板中所有任务已全部完成，则跳过子代理历史加载询问，避免不必要的交互。
+- `/load` 命令支持加载子智能体执行历史（Team Histories）。
+- 仅当任务看板成功加载后才提示加载子智能体历史。
+- 若任务看板中所有任务已全部完成，则跳过子智能体历史加载询问，避免不必要的交互。
 - 历史文件位置：`.makecode/team/task_history_*.json`
 
-### 2.10 子代理 Todo 工具（`tools/todo.py`）
+### 2.10 子智能体 Todo 工具（`tools/todo.py`）
 
-子代理内部可使用 `TodoUpdate` 工具维护一个简易待办列表，用于多步骤任务跟踪。
+子智能体内部可使用 `TodoUpdate` 工具维护一个简易待办列表，用于多步骤任务跟踪。
+### 2.11 MCP 服务集成（`utils/mcp_manager.py`）🆕
 
+MakeCode 支持通过 **Model Context Protocol (MCP)** 集成外部工具和服务，扩展智能体的能力边界。
+
+#### 核心功能
+
+- **配置驱动加载**：通过 `mcp_config.json` 声明式配置多个 MCP 服务，支持标准协议接入
+- **异步生命周期管理**：在后台线程中异步初始化和管理 MCP 客户端，避免阻塞主循环
+- **动态服务控制**：支持运行时动态启用/禁用特定 MCP 服务，灵活调整可用工具集
+- **统一工具注册**：自动提取 MCP 服务的工具定义，与内置工具统一格式，无缝集成到 `llm_client`
+- **错误隔离与恢复**：单个 MCP 服务加载失败不影响其他服务，提供详细的错误日志和降级提示
+
+#### 配置示例
+
+在项目工作区创建 `.makecode/mcp_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git"]
+    }
+  }
+}
+```
+
+#### 使用流程
+
+1. **配置**：在 `mcp_config.json` 中定义需要集成的 MCP 服务
+2. **启动**：MakeCode 初始化时自动加载配置并启动 MCP 客户端
+3. **发现**：系统自动提取 MCP 服务的工具列表并注册到工具集
+4. **调用**：智能体可通过标准工具调用接口使用 MCP 提供的能力
+5. **监控**：通过日志和状态工具查看 MCP 服务运行状态
+
+#### 相关组件
+
+- `utils/mcp_manager.py`：MCP 服务管理器，负责配置加载、客户端管理和工具注册
+- `utils/llm_client.py`：统一工具格式提取器，兼容 MCP 原生 Tool 和 pydantic_function_tool
+- `main.py`：集成 `GLOBAL_MCP_MANAGER` 到主循环，确保工具集完整可用
+
+> 💡 **提示**：MCP 服务集成是可选功能。如果未配置 `mcp_config.json`，系统将跳过加载并继续正常运行。
+
+## 3. 项目结构与架构
 ## 3. 项目结构与架构
 
 ### 3.1 目录结构
@@ -188,13 +235,13 @@ Agent/
 ├─ README.md
 ├─ README_en.md
 ├─ tools/
-│  └─ todo.py               # 子代理内部 Todo 管理工具
+│  └─ todo.py               # 子智能体内部 Todo 管理工具
 ├─ utils/
 │  ├─ llm_client.py         # LLM 标准适配器 (Chat vs Response) 
 │  ├─ common.py             # 文件/终端/搜索等基础工具
 │  ├─ file_access.py        # 文件访问控制与细粒度并发锁
 │  ├─ tasks.py              # TaskManager 任务拓扑与状态管理
-│  ├─ teams.py              # 子代理并发委派与执行日志
+│  ├─ teams.py              # 子智能体并发委派与执行日志
 │  ├─ skills.py             # 技能发现与加载
 │  └─ memory.py             # 会话压缩与转录保存
 ├─ skills/
@@ -208,9 +255,8 @@ Agent/
 运行中还会生成：
 
 - `.makecode/tasks/`：任务计划 JSON
-- `.makecode/team/`：子代理历史与运行日志
+- `.makecode/team/`：子智能体历史与运行日志
 - `.makecode/transcripts/`：压缩前会话转录
-
 ### 3.2 架构图（Mermaid）
 
 ```mermaid
@@ -263,10 +309,10 @@ flowchart TD
 - `utils/common.py` 提供文件读写、按行编辑、文本搜索和终端命令执行能力。
 - `utils/file_access.py` 实现文件访问控制机制：强制读取后编辑、修改时间锁校验、细粒度文件级并发锁。
 - `utils/tasks.py` 维护任务 DAG、状态流转与 runnable frontier。
-- `utils/teams.py` 负责把最新可执行任务并发委派给子代理，回收结果，并支持失败上下文恢复。
+- `utils/teams.py` 负责把最新可执行任务并发委派给子智能体，回收结果，并支持失败上下文恢复。
 - `utils/skills.py` 提供技能发现和技能内容加载。
 - `utils/memory.py` 负责长会话压缩与转录保存。
-- `tools/todo.py` 供子代理在多步骤任务中维护内部待办。
+- `tools/todo.py` 供子智能体在多步骤任务中维护内部待办。
 
 ---
 
@@ -280,7 +326,7 @@ flowchart TD
 4. 编排器执行工具并回填结果。
 5. 若存在可并行任务，则先调用 `GetRunnableTasks`。
 6. 对最新可执行前沿任务使用 `DelegateTasks` 并发委派。
-7. 子代理完成后回传报告。
+7. 子智能体完成后回传报告。
 8. 编排器继续推进后续任务，直到形成最终答案。
 
 ---
@@ -396,8 +442,9 @@ python main.py
 2. 实现具体的 Python 函数处理逻辑
 3. 通过 `pydantic_function_tool` 注册到对应工具集合列表
 4. 将该工具的方法名与对应的函数绑定到 `*_HANDLERS` 字典中
-5. 在主循环或子代理循环的工具聚合列表中接入
+5. 在主循环或子智能体循环的工具聚合列表中接入
 
+---
 ---
 
 ## 9. 常见问题
