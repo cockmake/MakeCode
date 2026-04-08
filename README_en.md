@@ -266,17 +266,17 @@ Runtime-generated directories:
 
 ```mermaid
 flowchart TD
-    U[User / CLI Input] --> O[Orchestrator<br/>main.py]
-    O --> AC[llm_client.py<br/>Adapter]
+    U[User / CLI Input] --> O[Orchestrator\nmain.py]
+    O --> AC[llm_client.py\nAdapter]
     AC --> M[OpenAI Standard / Responses API]
-    O --> I[Initialization & Environment<br/>init.py]
+    O --> I[Initialization & Environment\ninit.py]
 
-    O --> C[File / Terminal Tools<br/>utils/common.py]
-    O --> TM[TaskManager<br/>utils/tasks.py]
-    O --> S[Skills<br/>utils/skills.py]
-    O --> MM[Memory<br/>utils/memory.py]
-    O --> T[Team Delegation<br/>utils/teams.py]
-    O --> MCP[MCP Manager<br/>utils/mcp_manager.py] 🆕
+    O --> C[File / Terminal Tools\nutils/common.py]
+    O --> TM[TaskManager\nutils/tasks.py]
+    O --> S[Skills\nutils/skills.py]
+    O --> MM[Memory\nutils/memory.py]
+    O --> T[Team Delegation\nutils/teams.py]
+    O --> MCP[MCP Manager\nutils/mcp_manager.py] [NEW]
 
     C --> W[Workspace Files]
     C --> X[Terminal Command Execution]
@@ -285,17 +285,17 @@ flowchart TD
     MM --> TR[.makecode/transcripts/]
     TM --> TP[.makecode/tasks/]
     T --> TH[.makecode/team/]
-    MCP --> MC[mcp_config.json<br/>.makecode/] 🆕
-    MCP --> MT[MCP Services<br/>External Tools] 🆕
+    MCP --> MC[mcp_config.json\n.makecode/] [NEW]
+    MCP --> MT[MCP Services\nExternal Tools] [NEW]
 
-    TM --> RQ[GetRunnableTasks<br/>Runnable Frontier]
+    TM --> RQ[GetRunnableTasks\nRunnable Frontier]
     RQ --> T
 
     T --> A1[Sub-Agent 1]
     T --> A2[Sub-Agent 2]
     T --> AN[Sub-Agent N]
 
-    A1 --> TD[TodoUpdate<br/>tools/todo.py]
+    A1 --> TD[TodoUpdate\ntools/todo.py]
     A2 --> TD
     AN --> TD
 
@@ -306,7 +306,7 @@ flowchart TD
     RP --> T
     T --> TM
     T --> O
-    MCP -.-> AC[Tool Registration] 🆕
+    MCP -.-> AC[Tool Registration] [NEW]
     O --> F[Final Response]
 ```
 
