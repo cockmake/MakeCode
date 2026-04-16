@@ -405,9 +405,9 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | Command | Description |
 | --- | --- |
 | `/cmds` | List all available commands and their descriptions |
-| `/mcp` | Manage dynamically loaded MCP servers and tools |
-| `/mcp view` | View the list of currently loaded MCP tools |
-| `/mcp restart` | Restart MCP service and reload configuration |
+| `/mcp-view` | View the MCP status overview and the currently loaded MCP tool list |
+| `/mcp-restart` | Restart the MCP background manager and reload configuration |
+| `/mcp-switch` | Interactively toggle MCP services on/off, save changes to `.makecode/mcp_config.json` after confirmation, and attempt incremental enable/disable |
 | `/load` | List historical checkpoints and select one to load |
 | `/skills` | List available skills in the current workspace |
 | `/compact` | Compact the current conversation context |
@@ -419,9 +419,10 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | `/clear` / `/reset` | Clear current conversation history |
 | `/quit` / `/exit` | Exit the program |
 
-> 💡 **Tip**: The `/mcp` command supports two subcommands:
-> - `/mcp view`: Display a table of currently connected MCP service nodes with their tool names and descriptions
-> - `/mcp restart`: Force restart the MCP background manager, re-read `.makecode/mcp_config.json` and reinitialize all services
+> 💡 **Tip: MCP-related commands**
+> - `/mcp-view`: First shows an MCP status overview, including configured services / enabled in config / disabled in config / currently loaded services, then displays the detailed loaded tool table.
+> - `/mcp-restart`: Force restarts the MCP background manager, re-reads `.makecode/mcp_config.json`, and reinitializes services.
+> - `/mcp-switch`: Opens an interactive switch panel. Use `↑/↓` to select a service, `Space` to toggle the draft state, and the bottom actions to either confirm or cancel. On confirm, the updated `disabled` values are written back to the config file first, then the system attempts incremental enable/disable for the affected services. On cancel, nothing is saved and runtime state remains unchanged.
 ---
 
 ## 7. Operational Constraints

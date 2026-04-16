@@ -398,9 +398,9 @@ python main.py
 | 命令 | 描述 |
 | --- | --- |
 | `/cmds` | 列出所有的可用命令和功能描述 |
-| `/mcp` | 管理动态加载的 MCP 服务器和工具 |
-| `/mcp view` | 查看当前已加载的 MCP 工具列表 |
-| `/mcp restart` | 重新启动 MCP 服务并加载配置 |
+| `/mcp-view` | 查看 MCP 状态总览，以及当前已加载的 MCP 工具列表 |
+| `/mcp-restart` | 重新启动 MCP 后台管理器并重新加载配置 |
+| `/mcp-switch` | 交互式切换 MCP 服务启用/禁用状态，确认后保存到 `.makecode/mcp_config.json` 并尝试增量启停 |
 | `/load` | 列出历史 checkpoint 并选择加载 |
 | `/skills` | 列出当前工作区可用的 skills |
 | `/compact` | 压缩当前对话上下文 |
@@ -412,9 +412,10 @@ python main.py
 | `/clear` / `/reset` | 清空当前对话历史 |
 | `/quit` / `/exit` | 退出程序 |
 
-> 💡 **提示**：`/mcp` 命令支持 `view` 和 `restart` 两个子命令：
-> - `/mcp view`：以表格形式展示当前已连接的 MCP 服务节点及其提供的工具名称和描述
-> - `/mcp restart`：强制重启 MCP 后台管理器，重新读取 `.makecode/mcp_config.json` 配置文件并初始化所有服务
+> 💡 **提示：MCP 相关命令说明**
+> - `/mcp-view`：先展示 MCP 状态总览，包括“配置中的服务 / 配置中已启用 / 配置中已禁用 / 当前已加载服务”，再展示当前已加载工具明细。
+> - `/mcp-restart`：强制重启 MCP 后台管理器，重新读取 `.makecode/mcp_config.json` 并初始化服务。
+> - `/mcp-switch`：打开交互式开关面板，使用 `↑/↓` 选择服务，`Space` 切换草稿状态，底部可选择“确认保存并应用变更”或“取消，不保存本次修改”。确认后会先写回配置文件，再按变更尝试对单个服务做增量启用/停用；取消则不会保存也不会改动当前运行状态。
 ---
 
 ## 7. 使用约束

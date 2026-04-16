@@ -22,19 +22,53 @@ class GlobalMCPManager:
         self.loop = None
         self.thread = None
         self._stop_event = None
+        self._stack = None
 
         self.server_configs = {}
         self.clients = {}
+        self._server_tools = {}
+        self._server_status_tools = {}
 
         self._mcp_tools = []
         self._mcp_handlers = {}
-        self._status_tools = []  # 存储带 provider 信息的原生结构，用于 view 命令
+        self._status_tools = []
 
         self._db_lock = threading.Lock()
         self._is_running = False
 
     def initialize(self, console):
         self.console = console
+
+    def _load_config_dict(self) -> dict:
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _save_config_dict(self, config_dict: dict):
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(config_dict, f, ensure_ascii=False, indent=2)
+
+    def read_config(self) -> dict:
+        if not self.config_path or not self.config_path.exists():
+            raise FileNotFoundError(f"MCP 配置文件不存在: {self.config_path}")
+        return self._load_config_dict()
+
+    def list_server_switches(self) -> list:
+        config_dict = self.read_config()
+        servers = config_dict.get("mcpServers", {})
+        result = []
+        with self._db_lock:
+            loaded_servers = set(self.clients.keys())
+        for name, cfg in servers.items():
+            disabled = bool(cfg.get("disabled", False))
+            result.append(
+                {
+                    "name": name,
+                    "disabled": disabled,
+                    "enabled": not disabled,
+                    "loaded": name in loaded_servers,
+                }
+            )
+        return result
 
     def start_background(self):
         if self._is_running:
@@ -49,9 +83,8 @@ class GlobalMCPManager:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                config_dict = json.load(f)
-                self.server_configs = config_dict.get("mcpServers", {})
+            config_dict = self._load_config_dict()
+            self.server_configs = config_dict.get("mcpServers", {})
         except Exception as e:
             log_error_traceback("MCP Config Load Error", e)
             if self.console:
@@ -101,140 +134,196 @@ class GlobalMCPManager:
                     import gc
 
                     gc.collect()
-                    # 给剩余的任务和 transport 留一点时间清理
                     current_loop.run_until_complete(asyncio.sleep(0.1))
                     current_loop.close()
             except Exception:
                 pass
+            finally:
+                self.loop = None
+                self.thread = None
+                self._stop_event = None
+                self._stack = None
+
+    def _build_tool_name(self, server_name: str, raw_name: str) -> str:
+        raw_tool_name = f"{server_name}_{raw_name}"
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", raw_tool_name)[:64]
+
+    def _rebuild_global_registry_locked(self):
+        all_tools = []
+        all_handlers = {}
+        all_status_tools = []
+
+        for server_name in self.server_configs.keys():
+            all_tools.extend(self._server_tools.get(server_name, []))
+            server_status_items = self._server_status_tools.get(server_name, [])
+            all_status_tools.extend(server_status_items)
+            client = self.clients.get(server_name)
+            if not client:
+                continue
+            for item in server_status_items:
+                tool_name = item.get("name")
+                original_name = item.get("original_name")
+                if not tool_name or not original_name:
+                    continue
+                all_handlers[tool_name] = self._make_handler(
+                    client=client,
+                    original_name=original_name,
+                    tool_name=tool_name,
+                )
+
+        self._mcp_tools = all_tools
+        self._mcp_handlers = all_handlers
+        self._status_tools = [
+            {
+                "name": item["name"],
+                "description": item["description"],
+                "provider": item["provider"],
+            }
+            for item in all_status_tools
+        ]
+
+    def _make_handler(self, client, original_name: str, tool_name: str):
+        def handler(**kwargs):
+            try:
+                if not self.loop:
+                    return f"Error executing tool '{tool_name}': MCP event loop is not running"
+                future = asyncio.run_coroutine_threadsafe(
+                    client.call_tool(original_name, kwargs),
+                    self.loop,
+                )
+                result = future.result(timeout=120)
+
+                if hasattr(result, "content") and isinstance(result.content, list):
+                    texts = [c.text for c in result.content if hasattr(c, "text")]
+                    if texts:
+                        return "\n".join(texts)
+                    return str(result.content)
+
+                if hasattr(result, "data"):
+                    return str(result.data)
+                if hasattr(result, "content"):
+                    return str(result.content)
+                return str(result)
+            except Exception as ex:
+                log_error_traceback(
+                    f"MCP Tool Execution Error [{tool_name}]",
+                    ex,
+                )
+                return f"Error executing tool '{tool_name}': {ex}"
+
+        return handler
+
+    async def _connect_server(self, server_name: str, cfg: dict) -> bool:
+        if cfg.get("disabled", False):
+            if self.console:
+                print_formatted_text(
+                    HTML(
+                        f"<ansiyellow><b> ⚠️ MCP 服务 '{server_name}' 已被标记为禁用，跳过加载。</b></ansiyellow>"
+                    )
+                )
+            return False
+
+        if server_name in self.clients:
+            return True
+
+        client = Client({"mcpServers": {server_name: cfg}})
+        try:
+            if not self._stack:
+                raise RuntimeError("MCP stack is not initialized")
+
+            await self._stack.enter_async_context(client)
+            raw_tools = await client.list_tools()
+            server_tools = []
+            server_status_tools = []
+
+            if self.console:
+                print_formatted_text(
+                    HTML(
+                        f"<ansigreen> ✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>"
+                    )
+                )
+
+            for t in raw_tools:
+                tool_name = self._build_tool_name(server_name, t.name)
+                t_dict = (
+                    t.model_dump(exclude_none=True)
+                    if hasattr(t, "model_dump")
+                    else dict(t)
+                )
+                t_dict["name"] = tool_name
+
+                if not t_dict.get("inputSchema"):
+                    t_dict["inputSchema"] = {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    }
+
+                server_tools.append(t_dict)
+                desc = t_dict.get("description") or f"MCP Tool: {t.name} from {server_name}"
+                server_status_tools.append(
+                    {
+                        "name": tool_name,
+                        "description": desc,
+                        "provider": server_name,
+                        "original_name": t.name,
+                    }
+                )
+
+            with self._db_lock:
+                self.clients[server_name] = client
+                self._server_tools[server_name] = server_tools
+                self._server_status_tools[server_name] = server_status_tools
+                self._rebuild_global_registry_locked()
+            return True
+        except Exception as e:
+            with self._db_lock:
+                self.clients.pop(server_name, None)
+                self._server_tools.pop(server_name, None)
+                self._server_status_tools.pop(server_name, None)
+                self._rebuild_global_registry_locked()
+            log_error_traceback(f"MCP Server Load Error [{server_name}]", e)
+            if self.console:
+                print_formatted_text(
+                    HTML(
+                        f"\r<ansired><b> ⚠️ 无法加载 MCP 服务 '{server_name}': {e}</b></ansired>"
+                    )
+                )
+            return False
+
+    async def _disconnect_server(self, server_name: str):
+        client = None
+        with self._db_lock:
+            client = self.clients.pop(server_name, None)
+            self._server_tools.pop(server_name, None)
+            self._server_status_tools.pop(server_name, None)
+            self._rebuild_global_registry_locked()
+
+        if client and hasattr(client, "__aexit__"):
+            try:
+                await client.__aexit__(None, None, None)
+            except Exception as e:
+                log_error_traceback(f"MCP Server Close Error [{server_name}]", e)
 
     async def _async_lifecycle(self):
-        mcp_raw_schemas = []
-        handlers = {}
-        status_tools = []
-        loaded_servers = []
-
         try:
             async with AsyncExitStack() as stack:
-                # 逐个加载 server，实现真正的隔离和精确识别
+                self._stack = stack
                 for server_name, cfg in self.server_configs.items():
-                    if cfg.get("disabled", False):
-                        if self.console:
-                            print_formatted_text(
-                                HTML(
-                                    f"<ansiyellow><b> ⚠️ MCP 服务 '{server_name}' 已被标记为禁用，跳过加载。</b></ansiyellow>"
-                                )
-                            )
-                        continue
-                    client = Client({"mcpServers": {server_name: cfg}})
-                    try:
-                        await stack.enter_async_context(client)
-                        self.clients[server_name] = client
-
-                        raw_tools = await client.list_tools()
-                        loaded_servers.append(server_name)
-
-                        if self.console:
-                            print_formatted_text(
-                                HTML(
-                                    f"<ansigreen> ✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>"
-                                )
-                            )
-
-                        for t in raw_tools:
-                            raw_tool_name = f"{server_name}_{t.name}"
-                            tool_name = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_tool_name)[
-                                :64
-                            ]
-
-                            t_dict = (
-                                t.model_dump(exclude_none=True)
-                                if hasattr(t, "model_dump")
-                                else dict(t)
-                            )
-                            t_dict["name"] = tool_name
-
-                            if not t_dict.get("inputSchema"):
-                                t_dict["inputSchema"] = {
-                                    "type": "object",
-                                    "properties": {},
-                                    "required": [],
-                                }
-
-                            mcp_raw_schemas.append(t_dict)
-
-                            desc = (
-                                    t_dict.get("description")
-                                    or f"MCP Tool: {t.name} from {server_name}"
-                            )
-                            status_tools.append(
-                                {
-                                    "name": tool_name,
-                                    "description": desc,
-                                    "provider": server_name,
-                                }
-                            )
-
-                            def make_handler(
-                                    c=client, original_name=t.name, t_name=tool_name
-                            ):
-                                def handler(**kwargs):
-                                    try:
-                                        future = asyncio.run_coroutine_threadsafe(
-                                            c.call_tool(original_name, kwargs),
-                                            self.loop,
-                                        )
-                                        result = future.result(timeout=120)
-
-                                        # 处理 FastMCP 默认返回结构，提取纯文本
-                                        if hasattr(result, "content") and isinstance(
-                                                result.content, list
-                                        ):
-                                            texts = [
-                                                c.text
-                                                for c in result.content
-                                                if hasattr(c, "text")
-                                            ]
-                                            if texts:
-                                                return "\n".join(texts)
-                                            return str(result.content)
-
-                                        if hasattr(result, "data"):
-                                            return str(result.data)
-                                        elif hasattr(result, "content"):
-                                            return str(result.content)
-                                        return str(result)
-                                    except Exception as ex:
-                                        log_error_traceback(
-                                            f"MCP Tool Execution Error [{t_name}]",
-                                            ex,
-                                        )
-                                        return f"Error executing tool '{t_name}': {ex}"
-
-                                return handler
-
-                            handlers[tool_name] = make_handler()
-
-                    except Exception as e:
-                        log_error_traceback(f"MCP Server Load Error [{server_name}]", e)
-                        if self.console:
-                            print_formatted_text(
-                                HTML(
-                                    f"\r<ansired><b> ⚠️ 无法加载 MCP 服务 '{server_name}': {e}</b></ansired>"
-                                )
-                            )
+                    await self._connect_server(server_name, cfg)
 
                 with self._db_lock:
-                    self._mcp_tools = mcp_raw_schemas
-                    self._mcp_handlers = handlers
-                    self._status_tools = status_tools
+                    self._rebuild_global_registry_locked()
 
-                # Keep all successfully connected clients alive
-                if self.clients:
-                    await self._stop_event.wait()
+                await self._stop_event.wait()
 
-            # 优雅退出: 清空客户端引用，触发 transport 关闭
             with self._db_lock:
                 self.clients.clear()
+                self._server_tools = {}
+                self._server_status_tools = {}
+                self._mcp_tools = []
+                self._mcp_handlers = {}
+                self._status_tools = []
 
         except Exception as e:
             log_error_traceback("MCP Async Lifecycle Stack Error", e)
@@ -252,14 +341,15 @@ class GlobalMCPManager:
             return dict(self._mcp_handlers)
 
     def stop(self):
-        # 先清理全局引用，以便后续的 gc.collect 能够顺利销毁底层 client 和 transport
         with self._db_lock:
             self._mcp_tools = []
             self._mcp_handlers = {}
             self._status_tools = []
+            self._server_tools = {}
+            self._server_status_tools = {}
             self.clients.clear()
 
-        if self._is_running and self.loop:
+        if self._is_running and self.loop and self._stop_event:
             self.loop.call_soon_threadsafe(self._stop_event.set)
             if self.thread and self.thread.is_alive():
                 self.thread.join(timeout=5)
@@ -280,7 +370,143 @@ class GlobalMCPManager:
 
         self.start_background()
 
+    def apply_switches(self, disabled_updates: dict) -> dict:
+        if not disabled_updates:
+            return {
+                "saved": False,
+                "changed": [],
+                "enabled": [],
+                "disabled": [],
+                "failed": [],
+                "cancelled": False,
+                "message": "没有检测到任何 MCP 开关变更。",
+            }
+
+        config_dict = self.read_config()
+        servers = config_dict.get("mcpServers", {})
+        if not servers:
+            raise ValueError("MCP 配置文件中没有定义 mcpServers")
+
+        changed = []
+        enable_targets = []
+        disable_targets = []
+
+        for server_name, disabled in disabled_updates.items():
+            if server_name not in servers:
+                continue
+            old_disabled = bool(servers[server_name].get("disabled", False))
+            new_disabled = bool(disabled)
+            if old_disabled == new_disabled:
+                continue
+            servers[server_name]["disabled"] = new_disabled
+            changed.append(server_name)
+            if new_disabled:
+                disable_targets.append(server_name)
+            else:
+                enable_targets.append(server_name)
+
+        if not changed:
+            return {
+                "saved": False,
+                "changed": [],
+                "enabled": [],
+                "disabled": [],
+                "failed": [],
+                "cancelled": False,
+                "message": "没有检测到任何 MCP 开关变更。",
+            }
+
+        self._save_config_dict(config_dict)
+        self.server_configs = servers
+
+        if not self._is_running:
+            self.start_background()
+            return {
+                "saved": True,
+                "changed": changed,
+                "enabled": enable_targets,
+                "disabled": disable_targets,
+                "failed": [],
+                "cancelled": False,
+                "message": "配置已保存。由于 MCP 后台未运行，已按最新配置尝试启动。",
+            }
+
+        failed = []
+
+        for server_name in disable_targets:
+            try:
+                if self.loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._disconnect_server(server_name),
+                        self.loop,
+                    )
+                    future.result(timeout=30)
+                    if self.console:
+                        print_formatted_text(
+                            HTML(
+                                f"<ansiyellow><b> ⏹️ 已停用 MCP 服务: '{server_name}'</b></ansiyellow>"
+                            )
+                        )
+                else:
+                    failed.append({"server": server_name, "action": "disable", "error": "MCP event loop 未运行"})
+            except Exception as e:
+                failed.append({"server": server_name, "action": "disable", "error": str(e)})
+                log_error_traceback(f"MCP Disable Error [{server_name}]", e)
+
+        for server_name in enable_targets:
+            try:
+                if self.loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._connect_server(server_name, servers[server_name]),
+                        self.loop,
+                    )
+                    ok = future.result(timeout=60)
+                    if ok and self.console:
+                        print_formatted_text(
+                            HTML(
+                                f"<ansigreen><b> ▶️ 已启用 MCP 服务: '{server_name}'</b></ansigreen>"
+                            )
+                        )
+                    if not ok:
+                        failed.append({"server": server_name, "action": "enable", "error": "连接失败"})
+                else:
+                    failed.append({"server": server_name, "action": "enable", "error": "MCP event loop 未运行"})
+            except Exception as e:
+                failed.append({"server": server_name, "action": "enable", "error": str(e)})
+                log_error_traceback(f"MCP Enable Error [{server_name}]", e)
+
+        if failed:
+            message = "MCP 开关已保存，但部分增量启停失败。你可以执行 /mcp-restart 进行完整重载。"
+        else:
+            message = "MCP 开关已保存，并已按变更尝试增量启停服务。"
+
+        return {
+            "saved": True,
+            "changed": changed,
+            "enabled": enable_targets,
+            "disabled": disable_targets,
+            "failed": failed,
+            "cancelled": False,
+            "message": message,
+        }
+
     def get_status_info(self) -> dict:
+        config_servers = []
+        disabled_servers = []
+        enabled_config_servers = []
+        try:
+            config_dict = self.read_config()
+            servers = config_dict.get("mcpServers", {})
+            config_servers = list(servers.keys())
+            disabled_servers = [
+                name for name, cfg in servers.items() if bool(cfg.get("disabled", False))
+            ]
+            enabled_config_servers = [
+                name for name, cfg in servers.items() if not bool(cfg.get("disabled", False))
+            ]
+        except Exception:
+            pass
+
         with self._db_lock:
             return {
                 "is_running": self._is_running,
@@ -289,6 +515,10 @@ class GlobalMCPManager:
                 else "Not configured",
                 "tool_count": len(self._status_tools),
                 "servers": list(self.server_configs.keys()),
+                "config_servers": config_servers,
+                "enabled_config_servers": enabled_config_servers,
+                "disabled_servers": disabled_servers,
+                "loaded_servers": list(self.clients.keys()),
                 "tools": self._status_tools,
             }
 

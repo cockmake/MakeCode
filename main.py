@@ -226,14 +226,12 @@ def _request_with_progress(messages: list, current_tools: list):
             tools=current_tools,
         )
 
-        # 颜值升级 1: 使用 rich 的优雅 status 动画
         with Progress(
-                BarColumn(bar_width=30),  # 在这里修改你想要的宽度！
+                BarColumn(bar_width=30),
                 TextColumn("[bold cyan] ✨ Orchestrator is thinking..."),
-                transient=True,  # 任务完成后自动隐藏加载条，类似 console.status
+                transient=True,
                 console=console,
         ) as progress:
-            # total=None 表示进度未知，会触发左右来回弹跳的动画
             progress.add_task("", total=None)
             return future.result()
 
@@ -271,7 +269,9 @@ def _render_env_customization_hint():
 
 COMMAND_DESCRIPTIONS = {
     "/cmds": "列出所有的可用命令和功能描述",
-    "/mcp": "管理动态加载的 MCP 服务器和工具 (view|restart)",
+    "/mcp-view": "查看当前已加载的 MCP 服务器和工具",
+    "/mcp-restart": "重新启动 MCP 管理器并加载配置",
+    "/mcp-switch": "交互式切换 MCP 服务启用/禁用状态，并支持确认或取消保存",
     "/load": "列出历史checkpoint并选择加载",
     "/skills": "列出当前可用的skills",
     "/compact": "压缩当前对话上下文",
@@ -295,7 +295,6 @@ class SlashCommandCompleter(Completer):
         if text.startswith("/"):
             for cmd, desc in COMMAND_DESCRIPTIONS.items():
                 if cmd.startswith(text):
-                    # display_meta 可以在补全菜单右侧漂亮地显示中文描述
                     yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
 
@@ -314,26 +313,20 @@ def _init_user_session():
             buffer = event.current_buffer
             text = buffer.text.strip()
 
-            # 处理斜杠命令的自动补全逻辑
             if text.startswith("/"):
-                # 如果当前输入的已经是完整的内置命令，直接提交
                 if text in COMMAND_DESCRIPTIONS:
                     buffer.validate_and_handle()
                     return
 
-                # 如果命令不完整，但补全菜单中有匹配项
                 if buffer.complete_state and buffer.complete_state.completions:
                     if buffer.complete_state.current_completion:
-                        # 场景1：用户用上下键明确选中了某一项
                         buffer.apply_completion(
                             buffer.complete_state.current_completion
                         )
                     else:
-                        # 场景2：用户只敲了 /sk 就按回车，自动帮他补全成第一项 (/skills)
                         buffer.apply_completion(buffer.complete_state.completions[0])
                     return
 
-            # 常规对话输入或完整命令，直接提交给大模型
             buffer.validate_and_handle()
 
         @user_kb.add("c-n")
@@ -401,9 +394,7 @@ def _read_user_query(messages: list = None) -> str:
 
 def agent_loop(messages: list):
     global CURRENT_CHECKPOINT
-    # 对话开始前尝试压缩工具调用
     micro_compact(messages)
-    # 动态组装当前的全局工具和执行器
     current_super_tools = get_current_tools_definition()
     current_handlers = {
         **BASE_SUPER_TOOLS_HANDLERS,
@@ -452,12 +443,10 @@ def agent_loop(messages: list):
 
             messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
 
-        # 保存当前对话状态，更新 CURRENT_CHECKPOINT 指向最新文件
         CURRENT_CHECKPOINT = save_checkpoint(messages, CURRENT_CHECKPOINT)
 
         if not has_tool_call:
             break
-    # 对话结束后尝试压缩上下文
     current_context_tokens = estimate_tokens(
         messages, tools_definition=current_super_tools, system_prompt=SYSTEM
     )
@@ -486,14 +475,10 @@ def _interactive_choose_checkpoint(
 
     options = []
     for cp in checkpoints:
-        # cp is a Path object
         parts = cp.stem.split("_")
         uid = parts[-1] if len(parts) >= 4 else cp.name
-
-        # 使用文件的最后修改时间
         mtime = cp.stat().st_mtime
         date_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
-
         desc = f"File: {uid} (Last updated: {date_str})"
         options.append((str(cp), desc))
 
@@ -543,6 +528,92 @@ def _interactive_choose_checkpoint(
     return app.run()
 
 
+def _interactive_switch_mcp_servers(server_switches: list) -> str | dict:
+    if not server_switches:
+        return "empty"
+
+    selected_index = [0]
+    draft_states = {item["name"]: bool(item["disabled"]) for item in server_switches}
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(event):
+        selected_index[0] = max(0, selected_index[0] - 1)
+
+    @kb.add("down")
+    def _(event):
+        selected_index[0] = min(len(server_switches) + 1, selected_index[0] + 1)
+
+    @kb.add("space")
+    def _(event):
+        if selected_index[0] < len(server_switches):
+            server_name = server_switches[selected_index[0]]["name"]
+            draft_states[server_name] = not draft_states[server_name]
+
+    @kb.add("enter")
+    def _(event):
+        if selected_index[0] == len(server_switches):
+            event.app.exit(
+                result={
+                    "action": "confirm",
+                    "disabled_updates": dict(draft_states),
+                }
+            )
+        elif selected_index[0] == len(server_switches) + 1:
+            event.app.exit(result={"action": "cancel"})
+
+    @kb.add("c-c")
+    def _(event):
+        event.app.exit(result={"action": "cancel"})
+
+    def get_formatted_text():
+        lines = [
+            (
+                "class:title",
+                "\n 🔀 MCP 服务开关面板\n"
+                " 使用 ↑/↓ 选择，Space 切换启用/禁用，Enter 在底部执行确认或取消。\n"
+                " 已启用 = disabled=False；已禁用 = disabled=True\n\n",
+            )
+        ]
+
+        for i, item in enumerate(server_switches):
+            name = item["name"]
+            disabled = draft_states[name]
+            enabled = not disabled
+            loaded = item.get("loaded", False)
+            marker = "👉" if i == selected_index[0] else "  "
+            switch_box = "[x]" if enabled else "[ ]"
+            runtime_txt = "已加载" if loaded else "未加载"
+            status_txt = "启用" if enabled else "禁用"
+            style = "class:selected" if i == selected_index[0] else "class:unselected"
+            lines.append(
+                (
+                    style,
+                    f" {marker} {switch_box} {name}    当前草稿: {status_txt}    运行态: {runtime_txt}\n",
+                )
+            )
+
+        lines.append(("class:title", "\n"))
+        confirm_style = "class:selected" if selected_index[0] == len(server_switches) else "class:unselected"
+        cancel_style = "class:selected" if selected_index[0] == len(server_switches) + 1 else "class:unselected"
+        lines.append((confirm_style, "  [确认保存并应用变更]\n"))
+        lines.append((cancel_style, "  [取消，不保存本次修改]\n"))
+        return lines
+
+    control = FormattedTextControl(get_formatted_text)
+    window = Window(content=control, height=len(server_switches) + 8)
+    layout = Layout(window)
+    style = Style(
+        [
+            ("title", "fg:ansicyan bold"),
+            ("selected", "fg:ansigreen bold"),
+            ("unselected", "fg:ansigray"),
+        ]
+    )
+    app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
+    return app.run()
+
+
 CURRENT_CHECKPOINT = None
 
 if __name__ == "__main__":
@@ -574,52 +645,154 @@ if __name__ == "__main__":
                 )
                 break
 
-            if query.startswith("/mcp"):
-                parts = query.split(maxsplit=1)
-                subcommand = parts[1].strip() if len(parts) > 1 else ""
+            if query == "/mcp-view":
+                status = GLOBAL_MCP_MANAGER.get_status_info()
+                config_servers = status.get("config_servers", [])
+                enabled_config_servers = status.get("enabled_config_servers", [])
+                disabled_servers = status.get("disabled_servers", [])
+                loaded_servers = status.get("loaded_servers", [])
 
-                if subcommand == "view":
-                    status = GLOBAL_MCP_MANAGER.get_status_info()
-                    if not status["is_running"]:
-                        console.print(
-                            "\n[bold yellow] ⚠️ MCP 后台管理器当前未运行 (未配置或连接失败).[/bold yellow]"
-                        )
-                    elif status["tool_count"] == 0:
-                        console.print(
-                            "\n[bold yellow] ⚠️ MCP 连接正常，但没有拉取到任何工具.[/bold yellow]"
-                        )
-                    else:
-                        servers = status.get("servers", [])
-                        server_txt = f"[{', '.join(servers)}]" if servers else ""
-                        table = Table(
-                            title=f"[bold cyan] 🔌 已加载的 MCP 工具 (共 {status['tool_count']} 个) {server_txt}[/bold cyan]",
-                            box=box.ROUNDED,
-                            expand=True,
-                        )
-                        table.add_column(
-                            "服务节点 (Server)", style="bold magenta", justify="left"
-                        )
-                        table.add_column(
-                            "工具名称 (Tool Name)", style="bold green", justify="left"
-                        )
-                        table.add_column("描述 (Description)", style="white")
+                summary_table = Table(
+                    title="[bold cyan]🔌 MCP 状态总览[/bold cyan]",
+                    box=box.ROUNDED,
+                    expand=True,
+                )
+                summary_table.add_column("项目", style="bold green", justify="left")
+                summary_table.add_column("内容", style="white")
+                summary_table.add_row("配置文件", status.get("config_path", "Not configured"))
+                summary_table.add_row(
+                    "后台状态",
+                    "运行中" if status.get("is_running") else "未运行",
+                )
+                summary_table.add_row(
+                    "配置中的服务",
+                    ", ".join(config_servers) if config_servers else "(无)",
+                )
+                summary_table.add_row(
+                    "配置中已启用",
+                    ", ".join(enabled_config_servers) if enabled_config_servers else "(无)",
+                )
+                summary_table.add_row(
+                    "配置中已禁用",
+                    ", ".join(disabled_servers) if disabled_servers else "(无)",
+                )
+                summary_table.add_row(
+                    "当前已加载服务",
+                    ", ".join(loaded_servers) if loaded_servers else "(无)",
+                )
+                summary_table.add_row("当前已加载工具数", str(status.get("tool_count", 0)))
+                console.print(summary_table)
 
-                        for tool in status["tools"]:
-                            table.add_row(
-                                tool.get("provider", "Unknown"),
-                                tool["name"],
-                                tool["description"],
-                            )
-
-                        console.print(table)
-
-                elif subcommand == "restart":
-                    GLOBAL_MCP_MANAGER.restart()
-                else:
+                if not status.get("is_running"):
                     console.print(
-                        "\n[bold yellow] 用法: /mcp view (查看工具) 或者 /mcp restart (重新启动并加载配置)[/bold yellow]"
+                        "\n[bold yellow]⚠️ MCP 后台管理器当前未运行。若配置已准备好，可执行 /mcp-restart 或使用 /mcp-switch 保存启用状态后触发加载。[/bold yellow]"
+                    )
+                    continue
+
+                if status.get("tool_count", 0) == 0:
+                    console.print(
+                        "\n[bold yellow]⚠️ 当前没有已加载的 MCP 工具。请检查配置中的启用状态、服务连通性，或尝试 /mcp-restart。[/bold yellow]"
+                    )
+                    continue
+
+                table = Table(
+                    title=f"[bold cyan]🛠️ 已加载的 MCP 工具明细 (共 {status['tool_count']} 个)[/bold cyan]",
+                    box=box.ROUNDED,
+                    expand=True,
+                )
+                table.add_column(
+                    "服务节点 (Loaded Server)", style="bold magenta", justify="left"
+                )
+                table.add_column(
+                    "工具名称 (Tool Name)", style="bold green", justify="left"
+                )
+                table.add_column("描述 (Description)", style="white")
+
+                for tool in status["tools"]:
+                    table.add_row(
+                        tool.get("provider", "Unknown"),
+                        tool["name"],
+                        tool["description"],
                     )
 
+                console.print(table)
+                continue
+
+            if query == "/mcp-restart":
+                GLOBAL_MCP_MANAGER.restart()
+                continue
+
+            if query == "/mcp-switch":
+                console.print(
+                    "\n[bold cyan]🔧 正在打开 MCP 开关面板...[/bold cyan]\n"
+                    "[dim]操作说明：用 ↑/↓ 选择服务，按 Space 切换状态，移动到底部后按 Enter 选择确认或取消。[/dim]"
+                )
+                try:
+                    server_switches = GLOBAL_MCP_MANAGER.list_server_switches()
+                except FileNotFoundError as exc:
+                    console.print(f"\n[bold yellow]⚠️ {exc}[/bold yellow]")
+                    continue
+                except Exception as exc:
+                    log_error_traceback("main list mcp switches", exc)
+                    console.print(f"\n[bold red]❌ 读取 MCP 配置失败: {exc}[/bold red]")
+                    continue
+
+                if not server_switches:
+                    console.print(
+                        "\n[bold yellow]⚠️ mcp_config.json 中没有可切换的 mcpServers。[/bold yellow]"
+                    )
+                    continue
+
+                try:
+                    switch_result = _interactive_switch_mcp_servers(server_switches)
+                except Exception as exc:
+                    log_error_traceback("main interactive mcp switch", exc)
+                    console.print(f"\n[bold red]❌ 打开 MCP 开关面板失败: {exc}[/bold red]")
+                    continue
+
+                if switch_result == "empty" or switch_result.get("action") == "cancel":
+                    console.print(
+                        "\n[bold yellow]↩️ 已取消本次 MCP 开关修改，配置文件未保存，运行中的服务状态保持不变。[/bold yellow]"
+                    )
+                    continue
+
+                try:
+                    apply_result = GLOBAL_MCP_MANAGER.apply_switches(
+                        switch_result.get("disabled_updates", {})
+                    )
+                except Exception as exc:
+                    log_error_traceback("main apply mcp switches", exc)
+                    console.print(f"\n[bold red]❌ 应用 MCP 开关变更失败: {exc}[/bold red]")
+                    continue
+
+                if not apply_result.get("saved"):
+                    console.print(
+                        f"\n[bold yellow]ℹ️ {apply_result.get('message', '没有检测到变更。')}[/bold yellow]"
+                    )
+                    continue
+
+                changed = apply_result.get("changed", [])
+                enabled = apply_result.get("enabled", [])
+                disabled = apply_result.get("disabled", [])
+                failed = apply_result.get("failed", [])
+
+                summary_lines = [
+                    "\n[bold green]✅ MCP 开关修改已保存到配置文件，并已尝试按变更增量启停服务。[/bold green]",
+                    f"[dim]配置文件: {GLOBAL_MCP_MANAGER.get_status_info().get('config_path')}[/dim]",
+                ]
+                if changed:
+                    summary_lines.append(f"[green]已变更服务:[/green] {', '.join(changed)}")
+                if enabled:
+                    summary_lines.append(f"[green]本次启用:[/green] {', '.join(enabled)}")
+                if disabled:
+                    summary_lines.append(f"[yellow]本次停用:[/yellow] {', '.join(disabled)}")
+                if failed:
+                    failure_text = "; ".join(
+                        f"{item['server']} ({item['action']} 失败: {item['error']})"
+                        for item in failed
+                    )
+                    summary_lines.append(f"[bold red]部分服务切换失败:[/bold red] {failure_text}")
+                console.print("\n".join(summary_lines))
                 continue
 
             if query == "/cmds":
@@ -659,7 +832,6 @@ if __name__ == "__main__":
                     )
                     continue
 
-                # 如果已经在对话中(除去system prompt之外有其他内容)，并且当前还没有绑定任何 checkpoint，确保它被保存
                 if len(history) > 1 and CURRENT_CHECKPOINT is None:
                     CURRENT_CHECKPOINT = save_checkpoint(history)
 
@@ -684,7 +856,6 @@ if __name__ == "__main__":
                     console.print(f"\n[bold red] ❌ 加载失败: {exc}[/bold red]")
                     continue
 
-                # Load tasks if available
                 task_plans = list_task_plans()
                 if task_plans:
                     console.print(
@@ -756,7 +927,6 @@ if __name__ == "__main__":
 
                 continue
 
-            # 核心逻辑：如果大模型需要处理软命令，把它和描述拼接在一起作为上下文
             if query in COMMAND_DESCRIPTIONS:
                 query = f"{query} {COMMAND_DESCRIPTIONS[query]}"
             history.append({"role": "user", "content": query})
