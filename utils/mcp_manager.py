@@ -2,7 +2,6 @@ import asyncio
 import json
 import re
 import threading
-from contextlib import AsyncExitStack
 from pathlib import Path
 
 from fastmcp import Client
@@ -22,13 +21,11 @@ class GlobalMCPManager:
         self.loop = None
         self.thread = None
         self._stop_event = None
-        self._stack = None
 
         self.server_configs = {}
         self.clients = {}
         self._server_tools = {}
         self._server_status_tools = {}
-
         self._mcp_tools = []
         self._mcp_handlers = {}
         self._status_tools = []
@@ -142,7 +139,6 @@ class GlobalMCPManager:
                 self.loop = None
                 self.thread = None
                 self._stop_event = None
-                self._stack = None
 
     def _build_tool_name(self, server_name: str, raw_name: str) -> str:
         raw_tool_name = f"{server_name}_{raw_name}"
@@ -228,10 +224,9 @@ class GlobalMCPManager:
 
         client = Client({"mcpServers": {server_name: cfg}})
         try:
-            if not self._stack:
-                raise RuntimeError("MCP stack is not initialized")
+            # 独立管理连接生命周期
+            await client.__aenter__()
 
-            await self._stack.enter_async_context(client)
             raw_tools = await client.list_tools()
             server_tools = []
             server_status_tools = []
@@ -304,32 +299,31 @@ class GlobalMCPManager:
 
         if client and hasattr(client, "__aexit__"):
             try:
-                # 调用 __aexit__ 以触发底层的清理
+                # 优雅断开底层的清理
                 await client.__aexit__(None, None, None)
             except Exception as e:
                 log_error_traceback(f"MCP Server Close Error [{server_name}]", e)
-            finally:
-                # 尝试从 AsyncExitStack 移除对应 client 的上下文回调，防止由于频繁断开重连导致的句柄泄露
-                if self._stack and hasattr(self._stack, "_exit_callbacks"):
-                    callbacks = self._stack._exit_callbacks
-                    # 倒序遍历安全移除
-                    for i in range(len(callbacks) - 1, -1, -1):
-                        is_sync, cb = callbacks[i]
-                        # AsyncExitStack 对 async context manager 会将其封装进一个 closure，通常 __self__ 能拿到原本的对象
-                        if hasattr(cb, "__self__") and cb.__self__ is client:
-                            callbacks.pop(i)
 
     async def _async_lifecycle(self):
         try:
-            async with AsyncExitStack() as stack:
-                self._stack = stack
-                for server_name, cfg in self.server_configs.items():
-                    await self._connect_server(server_name, cfg)
+            for server_name, cfg in self.server_configs.items():
+                await self._connect_server(server_name, cfg)
 
-                with self._db_lock:
-                    self._rebuild_global_registry_locked()
+            with self._db_lock:
+                self._rebuild_global_registry_locked()
 
-                await self._stop_event.wait()
+            await self._stop_event.wait()
+        except Exception as e:
+            log_error_traceback("MCP Async Lifecycle Loop Error", e)
+            if self.console:
+                print_formatted_text(
+                    HTML(f"\r<ansired><b>⚠️ MCP 后台连接异常断开: {e}</b></ansired>")
+                )
+        finally:
+            # 清理所有仍存活的客户端
+            active_servers = list(self.clients.keys())
+            for server_name in active_servers:
+                await self._disconnect_server(server_name)
 
             with self._db_lock:
                 self.clients.clear()
@@ -338,13 +332,6 @@ class GlobalMCPManager:
                 self._mcp_tools = []
                 self._mcp_handlers = {}
                 self._status_tools = []
-
-        except Exception as e:
-            log_error_traceback("MCP Async Lifecycle Stack Error", e)
-            if self.console:
-                print_formatted_text(
-                    HTML(f"\r<ansired><b>⚠️ MCP 后台连接异常断开: {e}</b></ansired>")
-                )
 
     def get_tools(self) -> list:
         with self._db_lock:
