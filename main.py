@@ -652,7 +652,7 @@ def _interactive_switch_mcp_servers(server_switches: list) -> str | dict:
             disabled = draft_states[name]
             enabled = not disabled
             loaded = item.get("loaded", False)
-            marker = "👉" if i == selected_index[0] else "  "
+            marker = " 👉 " if i == selected_index[0] else "  "
             switch_box = "[x]" if enabled else "[ ]"
             runtime_txt = "已加载" if loaded else "未加载"
             status_txt = "启用" if enabled else "禁用"
@@ -732,7 +732,7 @@ if __name__ == "__main__":
                 loaded_servers = status.get("loaded_servers", [])
 
                 summary_table = Table(
-                    title="[bold cyan]🔌 MCP 状态总览[/bold cyan]",
+                    title="[bold cyan] 🔌 MCP 状态总览[/bold cyan]",
                     box=box.ROUNDED,
                     expand=True,
                 )
@@ -770,18 +770,18 @@ if __name__ == "__main__":
 
                 if not status.get("is_running"):
                     console.print(
-                        "\n[bold yellow]⚠️ MCP 后台管理器当前未运行。若配置已准备好，可执行 /mcp-restart 或使用 /mcp-switch 保存启用状态后触发加载。[/bold yellow]"
+                        "\n[bold yellow] ⚠️ MCP 后台管理器当前未运行。若配置已准备好，可执行 /mcp-restart 或使用 /mcp-switch 保存启用状态后触发加载。[/bold yellow]"
                     )
                     continue
 
                 if status.get("tool_count", 0) == 0:
                     console.print(
-                        "\n[bold yellow]⚠️ 当前没有已加载的 MCP 工具。请检查配置中的启用状态、服务连通性，或尝试 /mcp-restart。[/bold yellow]"
+                        "\n[bold yellow] ⚠️ 当前没有已加载的 MCP 工具。请检查配置中的启用状态、服务连通性，或尝试 /mcp-restart。[/bold yellow]"
                     )
                     continue
 
                 table = Table(
-                    title=f"[bold cyan]🛠️ 已加载的 MCP 工具明细 (共 {status['tool_count']} 个)[/bold cyan]",
+                    title=f"[bold cyan] 🛠️ 已加载的 MCP 工具明细 (共 {status['tool_count']} 个)[/bold cyan]",
                     box=box.ROUNDED,
                     expand=True,
                 )
@@ -809,22 +809,22 @@ if __name__ == "__main__":
 
             if query == "/mcp-switch":
                 console.print(
-                    "\n[bold cyan]🔧 正在打开 MCP 开关面板...[/bold cyan]\n"
+                    "\n[bold cyan] 🔧 正在打开 MCP 开关面板...[/bold cyan]\n"
                     "[dim]操作说明：用 ↑/↓ 选择服务，按 Space 切换状态，移动到底部后按 Enter 选择确认或取消。[/dim]"
                 )
                 try:
                     server_switches = GLOBAL_MCP_MANAGER.list_server_switches()
                 except FileNotFoundError as exc:
-                    console.print(f"\n[bold yellow]⚠️ {exc}[/bold yellow]")
+                    console.print(f"\n[bold yellow] ⚠️ {exc}[/bold yellow]")
                     continue
                 except Exception as exc:
                     log_error_traceback("main list mcp switches", exc)
-                    console.print(f"\n[bold red]❌ 读取 MCP 配置失败: {exc}[/bold red]")
+                    console.print(f"\n[bold red] ❌ 读取 MCP 配置失败: {exc}[/bold red]")
                     continue
 
                 if not server_switches:
                     console.print(
-                        "\n[bold yellow]⚠️ mcp_config.json 中没有可切换的 mcpServers。[/bold yellow]"
+                        "\n[bold yellow] ⚠️ mcp_config.json 中没有可切换的 mcpServers。[/bold yellow]"
                     )
                     continue
 
@@ -833,13 +833,13 @@ if __name__ == "__main__":
                 except Exception as exc:
                     log_error_traceback("main interactive mcp switch", exc)
                     console.print(
-                        f"\n[bold red]❌ 打开 MCP 开关面板失败: {exc}[/bold red]"
+                        f"\n[bold red] ❌ 打开 MCP 开关面板失败: {exc}[/bold red]"
                     )
                     continue
 
                 if switch_result == "empty" or switch_result.get("action") == "cancel":
                     console.print(
-                        "\n[bold yellow]↩️ 已取消本次 MCP 开关修改，配置文件未保存，运行中的服务状态保持不变。[/bold yellow]"
+                        "\n[bold yellow] ↩️ 已取消本次 MCP 开关修改，配置文件未保存，运行中的服务状态保持不变。[/bold yellow]"
                     )
                     continue
 
@@ -850,13 +850,13 @@ if __name__ == "__main__":
                 except Exception as exc:
                     log_error_traceback("main apply mcp switches", exc)
                     console.print(
-                        f"\n[bold red]❌ 应用 MCP 开关变更失败: {exc}[/bold red]"
+                        f"\n[bold red] ❌ 应用 MCP 开关变更失败: {exc}[/bold red]"
                     )
                     continue
 
                 if not apply_result.get("saved"):
                     console.print(
-                        f"\n[bold yellow]ℹ️ {apply_result.get('message', '没有检测到变更。')}[/bold yellow]"
+                        f"\n[bold yellow] ℹ️ {apply_result.get('message', '没有检测到变更。')}[/bold yellow]"
                     )
                     continue
 
@@ -866,7 +866,7 @@ if __name__ == "__main__":
                 failed = apply_result.get("failed", [])
 
                 summary_lines = [
-                    "\n[bold green]✅ MCP 开关修改已保存到配置文件，并已尝试按变更增量启停服务。[/bold green]",
+                    "\n[bold green] ✅ MCP 开关修改已保存到配置文件，并已尝试按变更增量启停服务。[/bold green]",
                     f"[dim]配置文件: {GLOBAL_MCP_MANAGER.get_status_info().get('config_path')}[/dim]",
                 ]
                 if changed:
@@ -911,7 +911,7 @@ if __name__ == "__main__":
                 history[0] = {"role": "system", "content": SYSTEM}
                 status_style = "green" if SKILL_LOADER.is_enabled else "yellow"
                 console.print(
-                    f"\n[bold {status_style}]✨ Skills prompt catalog 状态已切换：{status_text}。[/bold {status_style}]"
+                    f"\n[bold {status_style}] ✨ Skills prompt catalog 状态已切换：{status_text}。[/bold {status_style}]"
                 )
                 console.print(
                     Panel(
@@ -931,7 +931,7 @@ if __name__ == "__main__":
                 console.print(
                     Panel(
                         Markdown(f"### 当前可用技能列表\n\n{skills_list_text}"),
-                        title="[bold cyan]📚 Skills List[/bold cyan]",
+                        title="[bold cyan] 📚 Skills List[/bold cyan]",
                         border_style="cyan",
                         box=box.ROUNDED,
                     )

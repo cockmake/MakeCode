@@ -1,6 +1,6 @@
 # 🚀 MakeCode · 项目说明
 
- 🌐 语言切换：**简体中文** | [English](README_en.md) | [ 📦 Releases](https://github.com/cockmake/MakeCode/releases)
+🌐 语言切换：**简体中文** | [English](README_en.md) | [ 📦 Releases](https://github.com/cockmake/MakeCode/releases)
 
 > 一个多智能体命令行编排器。
 > 
@@ -174,7 +174,7 @@ Team 模块支持：
 ### 2.10 子智能体 Todo 工具（`tools/todo.py`）
 
 子智能体内部可使用 `TodoUpdate` 工具维护一个简易待办列表，用于多步骤任务跟踪。
-### 2.11 MCP 服务集成（`utils/mcp_manager.py`）🆕
+### 2.11 MCP 服务集成（`utils/mcp_manager.py`） 🆕
 
 MakeCode 支持通过 **Model Context Protocol (MCP)** 集成外部工具和服务，扩展智能体的能力边界。
 
