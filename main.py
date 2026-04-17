@@ -642,8 +642,7 @@ def _interactive_switch_mcp_servers(server_switches: list) -> str | dict:
             (
                 "class:title",
                 "\n🔀 MCP 服务开关面板\n"
-                " 使用 ↑/↓ 选择，Space 切换启用/禁用，Enter 在底部执行确认或取消。\n"
-                " 已启用 = disabled=False；已禁用 = disabled=True\n\n",
+                " 使用 ↑/↓ 选择，Space 切换启用/禁用，Enter 在底部执行确认或取消。\n\n"
             )
         ]
 

@@ -348,7 +348,8 @@ class GlobalMCPManager:
             self._status_tools = []
             self._server_tools = {}
             self._server_status_tools = {}
-            self.clients.clear()
+            # Do NOT clear self.clients here, let _async_lifecycle clean them up
+            # so that _disconnect_server can gracefully close the connections.
 
         if self._is_running and self.loop and self._stop_event:
             self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -473,7 +474,7 @@ class GlobalMCPManager:
                     if ok and self.console:
                         print_formatted_text(
                             HTML(
-                                f"<ansigreen><b>▶️ 已启用 MCP 服务: '{server_name}'</b></ansigreen>"
+                                f"<ansigreen><b>✅ 已启用 MCP 服务: '{server_name}'</b></ansigreen>"
                             )
                         )
                     if not ok:
