@@ -47,7 +47,11 @@ from utils.memory import (
     list_checkpoints,
     load_checkpoint,
 )
-from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
+from utils.skills import (
+    SKILL_TOOLS,
+    SKILL_TOOLS_HANDLERS,
+    SKILL_LOADER,
+)
 from utils.tasks import (
     TASK_MANAGER_TOOLS,
     TASK_MANAGER_TOOLS_HANDLERS,
@@ -70,13 +74,20 @@ MAKECODE_ASCII = r"""
 
 USER_SESSION = None
 
-SYSTEM = get_orchestrator_system_prompt(
-    WORKDIR, STARTUP_TERMINAL_LABEL, STARTUP_TERMINAL_SOURCE
-)
 
-BASE_SUPER_TOOLS = llm_client.format_tools(
-    COMMON_TOOLS + SKILL_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS
-)
+def build_system_prompt() -> str:
+    return get_orchestrator_system_prompt(
+        WORKDIR,
+        STARTUP_TERMINAL_LABEL,
+        STARTUP_TERMINAL_SOURCE,
+    )
+
+
+
+def refresh_system_prompt() -> str:
+    global SYSTEM
+    SYSTEM = build_system_prompt()
+    return SYSTEM
 
 
 def get_current_tools_definition():
@@ -88,6 +99,13 @@ def get_current_tools_definition():
         + TEAM_TOOLS
         + GLOBAL_MCP_MANAGER.get_tools()
     )
+
+
+SYSTEM = build_system_prompt()
+
+BASE_SUPER_TOOLS = llm_client.format_tools(
+    COMMON_TOOLS + SKILL_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS
+)
 
 
 orchestrator_access = AgentFileAccess()
@@ -273,7 +291,8 @@ COMMAND_DESCRIPTIONS = {
     "/mcp-restart": "重新启动 MCP 管理器并加载配置",
     "/mcp-switch": "交互式切换 MCP 服务启用/禁用状态，并支持确认或取消保存",
     "/load": "列出历史checkpoint并选择加载",
-    "/skills": "列出当前可用的skills",
+    "/skills-switch": "切换 skills 目录摘要注入状态 (开启/关闭)",
+    "/skills-list": "列出当前工作区可用的 skills",
     "/compact": "压缩当前对话上下文",
     "/tools": "列出当前可用工具详细信息",
     "/tasks": "查看任务看板和当前执行进度",
@@ -806,6 +825,39 @@ if __name__ == "__main__":
                 for cmd, desc in COMMAND_DESCRIPTIONS.items():
                     table.add_row(cmd, desc)
                 console.print(table)
+                continue
+
+            if query == "/skills-switch":
+                status_text = SKILL_LOADER.toggle()
+                refresh_system_prompt()
+                history[0] = {"role": "system", "content": SYSTEM}
+                status_style = "green" if SKILL_LOADER.is_enabled else "yellow"
+                console.print(
+                    f"\n[bold {status_style}]✨ Skills prompt catalog 状态已切换：{status_text}。[/bold {status_style}]"
+                )
+                console.print(
+                    Panel(
+                        Text(
+                            SKILL_LOADER.render_prompt_block().strip(),
+                            style="white",
+                        ),
+                        title="[bold cyan]Skills Catalog Status[/bold cyan]",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                    )
+                )
+                continue
+
+            if query == "/skills-list":
+                skills_list_text = SKILL_LOADER.get_descriptions()
+                console.print(
+                    Panel(
+                        Markdown(f"### 当前可用技能列表\n\n{skills_list_text}"),
+                        title="[bold cyan]📚 Skills List[/bold cyan]",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                    )
+                )
                 continue
 
             if query in ["/clear", "/reset"]:

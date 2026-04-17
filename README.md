@@ -139,13 +139,13 @@ Team 模块支持：
 
 支持：
 
-- `ListSkills`：列出可用技能及简述
-- `LoadSkill`：加载某个技能全文
+- `LoadSkill`：按精确名称加载某个技能全文
+- Skills Catalog 注入：将当前工作区 `skills/` 中可用技能的名称、说明、标签与目录摘要拼接到主智能体和子智能体的 `system prompt` 末尾
+- Skills Catalog 开关：
 
 技能存放位置：`skills/<name>/SKILL.md`。工作区启动后，将自定义技能放入该目录即可被自动发现。
 
-技能存放位置：`skills/<name>/SKILL.md`
-
+默认行为：skills 摘要注入默认开启。关闭后，系统会显示 `skills已关闭`，并停止把技能目录摘要拼接到主/子智能体的 `system prompt` 后面。
 ### 2.7 会话压缩（`utils/memory.py`）
 
 - 提供 `Compact` 工具用于压缩历史对话。
@@ -402,7 +402,8 @@ python main.py
 | `/mcp-restart` | 重新启动 MCP 后台管理器并重新加载配置 |
 | `/mcp-switch` | 交互式切换 MCP 服务启用/禁用状态，确认后保存到 `.makecode/mcp_config.json` 并尝试增量启停 |
 | `/load` | 列出历史 checkpoint 并选择加载 |
-| `/skills` | 列出当前工作区可用的 skills |
+| `/skills-switch` | 切换 skills 目录摘要注入状态 (开启/关闭) |
+| `/skills-list` | 列出当前工作区可用的 skills |
 | `/compact` | 压缩当前对话上下文 |
 | `/tools` | 列出当前可用工具详细信息 |
 | `/tasks` / `/plan` | 查看任务看板和当前执行进度 |
@@ -441,7 +442,8 @@ python main.py
    - `name`
    - `description`
    - `tags`
-4. 重启后即可通过 `ListSkills` / `LoadSkill` 发现
+4. 新技能会在后续构建 system prompt 时自动被扫描并汇总到 Skills Catalog 中；如需临时关闭摘要注入，可使用 `/skills-switch` 进行切换
+5. 当任务确实需要该技能全文时，智能体可直接调用 `LoadSkill`
 
 ### 8.2 新增工具
 

@@ -9,37 +9,49 @@ from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
 
 from init import WORKDIR
-from prompts import get_skill_system_note
 
 SKILLS_DIR = WORKDIR / "skills"
+DEFAULT_SKILLS_PROMPT_ENABLED = True
 
+
+def get_skill_system_note(skill_dir: str, meta_json: str) -> str:
+    """Generate the system note for skill loading, providing workspace context."""
+    return (
+        f"> **[SYSTEM NOTE]**\n"
+        f"> The absolute workspace path for this skill is: `{skill_dir}`\n"
+        f"> Whenever you need to execute commands, read files, or access any directories (e.g., `scripts/`, `example/`, `output/`) mentioned in this skill document, "
+        f"> you MUST resolve them relative to this absolute path (e.g., `{skill_dir}/<relative_path>`).\n\n"
+        f"**Skill Metadata:**\n```json\n{meta_json}\n```\n\n"
+    )
 
 class LoadSkill(BaseModel):
     """Load a specialized skill module by name."""
 
     name: str = Field(
         ...,
-        description="The exact name of the skill to load. Must be one of the skills returned by ListSkills.",
+        description="The exact name of the skill to load. Must match one of the injected available skills.",
     )
-
-
-class ListSkills(BaseModel):
-    """Return all available skills with their names and descriptions."""
 
 
 class SkillLoader:
     def __init__(self, skills_dir: Path):
         self.skills_dir = skills_dir
         self.skills = {}
+        self.is_enabled = DEFAULT_SKILLS_PROMPT_ENABLED
         self._load_all()
 
+    def toggle(self) -> str:
+        self.is_enabled = not self.is_enabled
+        return "skills已加载" if self.is_enabled else "skills已关闭"
+
     def _load_all(self):
+        self.skills = {}
         if not self.skills_dir.exists():
             return
         for f in sorted(self.skills_dir.rglob("SKILL.md")):
             text = f.read_text(encoding="utf-8")
             meta, body = self._parse_frontmatter(text)
-            name = meta.get("name", f.parent.name)
+            name = str(meta.get("name", f.parent.name)).strip() or f.parent.name
             self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
 
     @staticmethod
@@ -57,44 +69,71 @@ class SkillLoader:
             return {}, text
 
     def get_descriptions(self) -> str:
-        """Layer 1: short descriptions for the system prompt."""
+        """Short descriptions for UI/system prompt injection."""
+        self._load_all()
         if not self.skills:
             return "(no skills available)"
+
         lines = []
         for i, (name, skill) in enumerate(self.skills.items(), 1):
-            desc = skill["meta"].get("description", "No description")
-            desc = str(desc).strip().replace("\n", " ").replace("\r", "")
-            tags = skill["meta"].get("tags", "")
-            line = f"{i}. **{name}**: {desc}"
-            if tags:
-                line += f" [{tags}]"
+            meta = skill["meta"]
+            desc = str(meta.get("description", "No description provided.")).strip()
+            desc = desc.replace("\n", " ").replace("\r", "")
+            tags = meta.get("tags", "")
+            tags_text = ""
+            if isinstance(tags, list):
+                tags_text = ", ".join(str(tag).strip() for tag in tags if str(tag).strip())
+            elif tags:
+                tags_text = str(tags).strip()
+
+            path_text = Path(skill["path"]).parent.relative_to(self.skills_dir).as_posix()
+            line = f"{i}. **{name}**"
+            if tags_text:
+                line += f" [{tags_text}]"
+            line += f"\n   - Description: {desc}"
+            line += f"\n   - Directory: skills/{path_text}"
             lines.append(line)
         return "\n".join(lines)
 
-    def list_skills(self) -> str:
-        """List all available skill names."""
+    def render_prompt_block(self) -> str:
+        """Render a system-prompt block describing currently available skills."""
+        if not self.is_enabled:
+            return (
+                "\n\n## Skills Catalog Status\n"
+                "- Status: OFF\n"
+                "- Skills catalog injection into the system prompt is currently disabled.\n"
+                "- You may still use `LoadSkill` if the exact skill name is already known from prior context."
+            )
+
         self._load_all()
         skills_path = self.skills_dir.absolute().as_posix()
+        if not self.skills:
+            return (
+                "\n\n## Skills Catalog Status\n"
+                "- Status: ON\n"
+                f"- Source directory: `{skills_path}`\n"
+                "- No skills are currently available in this workspace."
+            )
+
         return (
-            f"Skills available (stored in `{skills_path}`):\n{self.get_descriptions()}"
+            "\n\n## Skills Catalog Status\n"
+            "- Status: ON\n"
+            f"- Source directory: `{skills_path}`\n"
+            "- The following skills are preloaded into context. When relevant, call `LoadSkill` directly using the exact skill name below.\n\n"
+            "### Available Skills\n"
+            f"{self.get_descriptions()}"
         )
 
     def get_content(self, name: str) -> str:
-        """Layer 2: full skill body returned in tool_result."""
+        """Return the full skill body in tool_result."""
         self._load_all()
         skill = self.skills.get(name)
         if not skill:
             return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
 
-        # Optimization 2: Use .as_posix() to ensure forward slashes
         skill_dir = Path(skill["path"]).parent.absolute().as_posix()
-
-        # Optimization 3: Include metadata JSON
-
         meta_json = json.dumps(skill["meta"], ensure_ascii=False, indent=2)
-
         system_note = get_skill_system_note(skill_dir, meta_json)
-
         return f'<skill name="{name}">\n{system_note}{skill["body"]}\n</skill>'
 
 
@@ -102,17 +141,14 @@ SKILL_LOADER = SkillLoader(SKILLS_DIR)
 
 TOOLS = [
     pydantic_function_tool(LoadSkill),
-    pydantic_function_tool(ListSkills),
 ]
 
 SKILL_NAMESPACE = {
     "type": "namespace",
     "name": "Skills",
     "description": (
-        "Tools for discovering and loading specialized skill modules. "
-        "Use these tools when a task requires domain-specific knowledge, multi-step reasoning, "
-        "or structured problem solving. "
-        "Always call 'ListSkills' before calling 'LoadSkill' unless the exact skill name has already been confirmed. "
+        "Tool for loading specialized skill modules by exact name. "
+        "Available skills are injected into the system prompt when the skills catalog toggle is on. "
         "Only load a skill when it is relevant to the user's request."
     ),
     "tools": TOOLS,
@@ -124,5 +160,4 @@ SKILL_TOOLS = [
 
 SKILL_TOOLS_HANDLERS = {
     "LoadSkill": SKILL_LOADER.get_content,
-    "ListSkills": SKILL_LOADER.list_skills,
 }

@@ -36,7 +36,10 @@ from utils.common import (
 from utils.file_access import AgentFileAccess
 from utils.llm_client import AsyncChatAPIClient, AsyncResponseAPIClient
 from utils.mcp_manager import GLOBAL_MCP_MANAGER
-from utils.skills import SKILL_TOOLS, SKILL_TOOLS_HANDLERS
+from utils.skills import (
+    SKILL_TOOLS,
+    SKILL_TOOLS_HANDLERS,
+)
 from utils.tasks import TASK_MANAGER
 
 MAKECODE_DIR = WORKDIR / ".makecode"
@@ -485,7 +488,10 @@ class TeammateManager:
                 await f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
         sys_prompt = get_sub_agent_system_prompt(
-            role, WORKDIR, STARTUP_TERMINAL_LABEL, STARTUP_TERMINAL_SOURCE
+            role,
+            WORKDIR,
+            STARTUP_TERMINAL_LABEL,
+            STARTUP_TERMINAL_SOURCE,
         )
 
         # 记录初始启动状态

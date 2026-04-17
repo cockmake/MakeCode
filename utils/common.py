@@ -151,7 +151,7 @@ class RunRead(BaseModel):
 
 
 def run_read(
-    path: str, start: int | None = None, end: int | None = None, agent_access=None
+        path: str, start: int | None = None, end: int | None = None, agent_access=None
 ) -> str:
     try:
         fp = safe_path(path)
@@ -192,7 +192,7 @@ def run_read(
         if s > e or s > total_lines:
             return f"Total lines: {total_lines}\n(Empty range or out of bounds)"
 
-        sliced_lines = lines[s - 1 : e]
+        sliced_lines = lines[s - 1: e]
         formatted_lines = [f"{i + s}: {line}" for i, line in enumerate(sliced_lines)]
 
         return f"Total lines: {total_lines}\n" + "\n".join(formatted_lines)
@@ -240,28 +240,33 @@ def run_write(path: str, content: str, agent_access=None) -> str:
         return f"Error: {e}"
 
 
+class EditBlock(BaseModel):
+    start: int = Field(..., description="Start line number (1-indexed) to replace.")
+    end: int = Field(..., description="End line number (1-indexed) to replace. Inclusive.")
+    new_content: str = Field(
+        ..., description="The new content to insert. MUST contain exactly required indentation."
+    )
+
+
 class RunEdit(BaseModel):
     """
-    Replace a specific line range in a file with new content.
+    Replace one or multiple specific line ranges in a file with new content.
     CRITICAL REQUIREMENTS:
     1. You MUST call `RunRead` first.
-    1.1 You MUST use this tool for modifying an existing file (do NOT use RunWrite to modify existing files).
-    2. `new_content` MUST contain the EXACT absolute indentation (spaces) required. The tool does NOT auto-indent.
-    3. Carefully check the `start` and `end` line numbers to avoid leaving orphaned code or duplicate signatures.
+    2. `new_content` MUST contain the EXACT absolute indentation (spaces).
+    3. You can provide multiple edit blocks to edit different parts of the file at once.
+    4. Multiple edit blocks MUST NOT overlap.
     """
-
     path: str = Field(
         ..., description="Path to the file to edit, relative to workspace."
     )
-    start: int = Field(..., description="Start line number (1-indexed) to replace.")
-    end: int = Field(..., description="End line number (1-indexed) to replace. This line is INCLUSIVE (i.e., it will be replaced).")
-    new_content: str = Field(
-        ..., description="The new content to insert in the specified line range."
+    edits: list[EditBlock] = Field(
+        ..., description="List of edit blocks to apply to the file."
     )
 
 
 def run_edit(
-    path: str, start: int, end: int, new_content: str, agent_access=None
+        path: str, edits: list[dict | EditBlock], agent_access=None
 ) -> str:
     try:
         fp = safe_path(path)
@@ -280,31 +285,63 @@ def run_edit(
             lines = text.splitlines()
             total_lines = len(lines)
 
-        try:
-            start = int(start)
-            end = int(end)
-        except ValueError as exc:
-            log_error_traceback("RunEdit invalid line range type", exc)
-            return "Error: start and end must be integers."
+        # 1. 提取并校验所有的 Edit Blocks
+        parsed_edits = []
+        for i, edit in enumerate(edits):
+            # 兼容字典格式或 BaseModel 实例 (取决于 openai 函数调用的序列化方式)
+            start = edit.start if hasattr(edit, 'start') else edit.get('start')
+            end = edit.end if hasattr(edit, 'end') else edit.get('end')
+            new_content = edit.new_content if hasattr(edit, 'new_content') else edit.get('new_content')
 
-        if start < 1 or end > total_lines or start > end:
-            return f"Error: Invalid line range [{start}, {end}]. File has {total_lines} lines."
+            try:
+                start = int(start)
+                end = int(end)
+            except (ValueError, TypeError) as exc:
+                log_error_traceback("RunEdit invalid line range type", exc)
+                return f"Error in edit block {i + 1}: start and end must be integers."
 
-        # Extract surrounding context
-        prefix = lines[: start - 1]
-        suffix = lines[end:]
+            if start < 1 or end > total_lines or start > end:
+                return f"Error in edit block {i + 1}: Invalid line range [{start}, {end}]. File has {total_lines} lines."
 
-        # Insert new content (could be multiple lines)
-        new_lines = new_content.splitlines() if new_content else []
+            parsed_edits.append({"start": start, "end": end, "new_content": new_content})
 
-        final_lines = prefix + new_lines + suffix
-        # Ensure trailing newline matches original behavior (splitlines drops trailing newline)
+        # 2. 按照 start 行号降序排列 (Bottom-Up)
+        parsed_edits.sort(key=lambda x: x["start"], reverse=True)
+
+        # 3. 校验重叠 (Overlap Check)
+        # 因为已经是降序，parsed_edits[i] 在文件下方，parsed_edits[i+1] 在文件上方
+        # 如果上方的 end >= 下方的 start，说明存在重叠或接壤冲突
+        for i in range(len(parsed_edits) - 1):
+            lower_block = parsed_edits[i]
+            upper_block = parsed_edits[i + 1]
+            if upper_block["end"] >= lower_block["start"]:
+                return (
+                    f"Error: Edit blocks overlap. Block ending at line {upper_block['end']} "
+                    f"overlaps with block starting at line {lower_block['start']}."
+                )
+
+        # 4. 从下往上依次应用修改
+        for edit in parsed_edits:
+            start = edit["start"]
+            end = edit["end"]
+            new_content = edit["new_content"]
+
+            prefix = lines[: start - 1]
+            suffix = lines[end:]
+            new_lines = new_content.splitlines() if new_content else []
+            lines = prefix + new_lines + suffix
+
+        # 5. 组装结果并写入
+        # 保持原文件末尾的空行习惯
+        final_text = "\n".join(lines)
         if text.endswith("\n") or not text:
-            fp.write_text("\n".join(final_lines) + "\n", encoding="utf-8")
-        else:
-            fp.write_text("\n".join(final_lines), encoding="utf-8")
+            final_text += "\n"
 
-        return f"Edited {path}: Replaced lines {start} to {end}."
+        with file_lock:
+            fp.write_text(final_text, encoding="utf-8")
+
+        return f"Edited {path}: Successfully applied {len(parsed_edits)} edit block(s)."
+
     except Exception as e:
         log_error_traceback("RunEdit execution", e)
         return f"Error: {e}"
@@ -344,9 +381,9 @@ def _is_binary_file(filepath: Path) -> bool:
 
 
 def run_grep(
-    keyword_pattern: str,
-    target_dir: str = ".",
-    filename_pattern: str = "*",
+        keyword_pattern: str,
+        target_dir: str = ".",
+        filename_pattern: str = "*",
 ) -> str:
     try:
         regex = re.compile(keyword_pattern)

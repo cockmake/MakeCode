@@ -143,10 +143,13 @@ Runtime artifacts include:
 
 Supports:
 
-- `ListSkills`: list available skills with descriptions
-- `LoadSkill`: load the full content of a skill
+- `LoadSkill`: load the full content of a skill by exact name
+- Skills Catalog injection: append a summary of available workspace skills (name, description, tags, and directory) to the end of both orchestrator and sub-agent system prompts
+- Skills Catalog toggle: 
 
 Skill location: `skills/<name>/SKILL.md`. Place your custom skills in this directory within your workspace, and they will be automatically discovered at startup.
+
+Default behavior: the skills summary injection is enabled by default. When disabled, the UI shows `skills已关闭`, and the skills catalog is no longer appended to orchestrator/sub-agent system prompts.
 
 ### 2.7 Conversation Compaction (`utils/memory.py`)
 
@@ -409,7 +412,8 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | `/mcp-restart` | Restart the MCP background manager and reload configuration |
 | `/mcp-switch` | Interactively toggle MCP services on/off, save changes to `.makecode/mcp_config.json` after confirmation, and attempt incremental enable/disable |
 | `/load` | List historical checkpoints and select one to load |
-| `/skills` | List available skills in the current workspace |
+| `/skills-switch` | Toggle skills catalog injection status (On/Off) |
+| `/skills-list` | List available skills in the current workspace |
 | `/compact` | Compact the current conversation context |
 | `/tools` | List detailed information of available tools |
 | `/tasks` / `/plan` | View the task board and current execution progress |
@@ -448,7 +452,8 @@ Important built-in rules include:
    - `name`
    - `description`
    - `tags`
-4. Restart the app, then discover it via `ListSkills` / `LoadSkill`
+4. New skills are automatically rescanned and summarized into the Skills Catalog the next time system prompts are built; use `/skills-switch` to toggle that injection temporarily
+5. When the full skill content is actually needed, the agent can call `LoadSkill` directly
 
 ### 8.2 Add a Tool
 
