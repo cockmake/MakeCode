@@ -527,8 +527,8 @@ class TeammateManager:
             "RunWrite": lambda path, content, **kwargs: run_write(
                 path, content, agent_access
             ),
-            "RunEdit": lambda path, start, end, new_content, **kwargs: run_edit(
-                path, start, end, new_content, agent_access
+            "RunEdit": lambda path, edits, **kwargs: run_edit(
+                path, edits, agent_access
             ),
         }
         max_steps = 40

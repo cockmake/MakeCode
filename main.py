@@ -121,8 +121,8 @@ BASE_SUPER_TOOLS_HANDLERS = {
     "RunWrite": lambda path, content, **kwargs: run_write(
         path, content, orchestrator_access
     ),
-    "RunEdit": lambda path, start, end, new_content, **kwargs: run_edit(
-        path, start, end, new_content, orchestrator_access
+    "RunEdit": lambda path, edits, **kwargs: run_edit(
+        path, edits, orchestrator_access
     ),
 }
 
