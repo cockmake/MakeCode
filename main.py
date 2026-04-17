@@ -539,7 +539,7 @@ def agent_loop(messages: list):
 
 def _interactive_choose_checkpoint(
     checkpoints: list,
-    title: str = "\n 📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+    title: str = "\n📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
 ) -> str:
     if not checkpoints:
         return "abort"
@@ -641,7 +641,7 @@ def _interactive_switch_mcp_servers(server_switches: list) -> str | dict:
         lines = [
             (
                 "class:title",
-                "\n 🔀 MCP 服务开关面板\n"
+                "\n🔀 MCP 服务开关面板\n"
                 " 使用 ↑/↓ 选择，Space 切换启用/禁用，Enter 在底部执行确认或取消。\n"
                 " 已启用 = disabled=False；已禁用 = disabled=True\n\n",
             )
@@ -1003,7 +1003,7 @@ if __name__ == "__main__":
                     try:
                         selected_task_path = _interactive_choose_checkpoint(
                             task_plans,
-                            title="\n 📌 Select a Task Plan to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                            title="\n📌 Select a Task Plan to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
                         )
                     except Exception as exc:
                         log_error_traceback("main interactive load task plan", exc)
@@ -1036,7 +1036,7 @@ if __name__ == "__main__":
                                     try:
                                         selected_team_path = _interactive_choose_checkpoint(
                                             team_histories,
-                                            title="\n 📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                                            title="\n📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
                                         )
                                     except Exception as exc:
                                         log_error_traceback(

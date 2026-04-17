@@ -89,7 +89,7 @@ def _interactive_choose_mode(cwd: Path) -> str:
         result = [
             (
                 "class:title",
-                "\n 📂 Select Workspace Directory (Use ↑/↓ arrows, Enter to confirm):\n",
+                "\n📂 Select Workspace Directory (Use ↑/↓ arrows, Enter to confirm):\n",
             )
         ]
         for i, (key, text) in enumerate(options):
@@ -142,7 +142,7 @@ def _init_workdir() -> Path:
 
     # 3. 用户选择了自定义输入路径
     try:
-        print_formatted_text("\n ✏️ Enter custom workspace path:")
+        print_formatted_text("\n✏️ Enter custom workspace path:")
         user_input = prompt(
             [("class:prompt", "📂 Target Directory ❯❯ ")],
             style=Style.from_dict({"prompt": "bold #00ffff"}),
@@ -206,7 +206,7 @@ def _interactive_choose_api_standard() -> str:
         result = [
             (
                 "class:title",
-                "\n ⚙️ Select LLM API Standard (Use ↑/↓ arrows, Enter to confirm):\n",
+                "\n⚙️ Select LLM API Standard (Use ↑/↓ arrows, Enter to confirm):\n",
             )
         ]
         for i, (key, text) in enumerate(options):
