@@ -247,13 +247,17 @@ def run_write(path: str, content: str, agent_access=None) -> str:
 
 
 class EditBlock(BaseModel):
-    start: int = Field(..., description="Start line number (1-indexed) to replace.")
+    start: int = Field(
+        ...,
+        description="Start line number (1-indexed) in the ORIGINAL file to replace.",
+    )
     end: int = Field(
-        ..., description="End line number (1-indexed) to replace. Inclusive."
+        ...,
+        description="End line number (1-indexed) in the ORIGINAL file to replace. Inclusive (the end line will be replaced).",
     )
     new_content: str = Field(
         ...,
-        description="The new content to insert. MUST contain exactly required indentation.",
+        description="The new content to replace the specified line range. MUST contain exactly required indentation.",
     )
 
 
@@ -262,9 +266,10 @@ class RunEdit(BaseModel):
     Replace one or multiple specific line ranges in a file with new content.
     CRITICAL REQUIREMENTS:
     1. You MUST call `RunRead` first.
-    2. `new_content` MUST contain the EXACT absolute indentation (spaces).
-    3. You can provide multiple edit blocks to edit different parts of the file at once.
-    4. Multiple edit blocks MUST NOT overlap.
+    2. This is a REPLACE operation. The lines from `start` to `end` (inclusive) in the ORIGINAL file will be completely replaced by `new_content`.
+    3. `new_content` MUST contain the EXACT absolute indentation (spaces).
+    4. You can provide multiple edit blocks to edit different parts of the file at once.
+    5. Multiple edit blocks MUST NOT overlap.
     """
 
     path: str = Field(
