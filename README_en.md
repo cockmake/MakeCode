@@ -225,7 +225,7 @@ Create `.makecode/mcp_config.json` in your workspace:
 - `utils/llm_client.py`: Unified tool format extractor, compatible with both MCP native Tool and pydantic_function_tool
 - `main.py`: Integrates `GLOBAL_MCP_MANAGER` into the main loop to ensure full toolset availability
 
-> 💡 **Tip**: MCP service integration is optional. If `mcp_config.json` is not configured, the system will skip loading and continue normal operation.
+>💡 **Tip**: MCP service integration is optional. If `mcp_config.json` is not configured, the system will skip loading and continue normal operation.
 
 ---
 ---
@@ -423,7 +423,7 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | `/clear` / `/reset` | Clear current conversation history |
 | `/quit` / `/exit` | Exit the program |
 
-> 💡 **Tip: MCP-related commands**
+>💡 **Tip: MCP-related commands**
 > - `/mcp-view`: First shows an MCP status overview, including configured services / enabled in config / disabled in config / currently loaded services, then displays the detailed loaded tool table.
 > - `/mcp-restart`: Force restarts the MCP background manager, re-reads `.makecode/mcp_config.json`, and reinitializes services.
 > - `/mcp-switch`: Opens an interactive switch panel. Use `↑/↓` to select a service, `Space` to toggle the draft state, and the bottom actions to either confirm or cancel. On confirm, the updated `disabled` values are written back to the config file first, then the system attempts incremental enable/disable for the affected services. On cancel, nothing is saved and runtime state remains unchanged.
@@ -471,9 +471,9 @@ Typical steps:
 
 To prevent style and layout messes caused by frequent use of Emojis in CLI outputs and Markdown documents, MakeCode adopts a unified **V2 Emoji Formatting Strategy**:
 
-- **Left Snug**: If the Emoji is immediately to the right of quotes (`"`, `'`), brackets/tags (`[`, `]`, `(`, `{`, `<`), or is at the beginning of a line, the space before the Emoji is removed (e.g., `"[bold red]⚠️ "`, `"[📦 Releases]"`).
+- **Left Snug**: If the Emoji is immediately to the right of quotes (`"`, `'`), brackets/tags (`[`, `]`, `(`, `{`, `<`), or is at the beginning of a line, the space before the Emoji is removed (e.g., `"[bold red]⚠️"`, `"[📦 Releases]"`).
 - **Right Snug**: If the Emoji is immediately to the left of closing punctuation (`"`, `'`, `]`, `}`, `>`, `.`, `,`, `。`, `，`, `！`, etc.), or is at the end of a line, the space after the Emoji is removed (e.g., `"User 🤖"`).
-- **Normal Spacing**: If the above conditions are not met, and the left/right side is plain text or Markdown control characters (`#`, `-`, `*`, etc.), exactly one space is strictly kept on the left/right side of the Emoji (e.g., `Hello 🤖`, `# 🤖 Title`).
+- **Normal Spacing**: If the above conditions are not met, and the left/right side is plain text or Markdown control characters (`#`, `-`, `*`, etc.), exactly one space is strictly kept on the left/right side of the Emoji (e.g., `Hello 🤖 `, `# 🤖 Title`).
 
 > All `.py` source files and `.md` documents strictly adhere to this formatting strategy.
 

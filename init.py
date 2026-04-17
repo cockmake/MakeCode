@@ -129,14 +129,14 @@ def _init_workdir() -> Path:
     if choice == "abort":
         print_formatted_text(
             HTML(
-                f"\n<ansiyellow> ⚠️ Setup cancelled. Defaulting to: {cwd}</ansiyellow>\n"
+                f"\n<ansiyellow>⚠️ Setup cancelled. Defaulting to: {cwd}</ansiyellow>\n"
             )
         )
         return cwd
 
     if choice == "default":
         print_formatted_text(
-            HTML(f"<ansigreen> ✅ Workspace set to: {cwd}</ansigreen>\n")
+            HTML(f"<ansigreen>✅ Workspace set to: {cwd}</ansigreen>\n")
         )
         return cwd
 
@@ -151,14 +151,14 @@ def _init_workdir() -> Path:
         log_error_traceback("init custom workdir input interrupted", exc)
         print_formatted_text(
             HTML(
-                f"\n<ansiyellow> ⚠️ Input cancelled. Defaulting to: {cwd}</ansiyellow>\n"
+                f"\n<ansiyellow>⚠️ Input cancelled. Defaulting to: {cwd}</ansiyellow>\n"
             )
         )
         return cwd
 
     if not user_input.strip():
         print_formatted_text(
-            HTML(f"<ansigreen> ✅ Using default directory: {cwd}</ansigreen>\n")
+            HTML(f"<ansigreen>✅ Using default directory: {cwd}</ansigreen>\n")
         )
         return cwd
 
@@ -166,13 +166,13 @@ def _init_workdir() -> Path:
 
     if target_path.exists() and target_path.is_dir():
         print_formatted_text(
-            HTML(f"<ansigreen> ✅ Workspace set to: {target_path}</ansigreen>\n")
+            HTML(f"<ansigreen>✅ Workspace set to: {target_path}</ansigreen>\n")
         )
         return target_path
     else:
         print_formatted_text(
             HTML(
-                f"<ansiyellow> ⚠️ Warning: Path '{target_path}' does not exist or is not a directory.\n"
+                f"<ansiyellow>⚠️ Warning: Path '{target_path}' does not exist or is not a directory.\n"
                 f"   Falling back to default: {cwd}</ansiyellow>\n"
             )
         )
@@ -240,13 +240,13 @@ def _init_api_standard() -> str:
     if choice in ("abort", "chat"):
         print_formatted_text(
             HTML(
-                "<ansigreen> ✅ API Standard set to: Chat Completions API</ansigreen>\n"
+                "<ansigreen>✅ API Standard set to: Chat Completions API</ansigreen>\n"
             )
         )
         return "chat"
     else:
         print_formatted_text(
-            HTML("<ansigreen> ✅ API Standard set to: Responses API</ansigreen>\n")
+            HTML("<ansigreen>✅ API Standard set to: Responses API</ansigreen>\n")
         )
         return "response"
 
@@ -266,7 +266,7 @@ def _load_env_files():
                         if os.environ[key] != value:
                             print_formatted_text(
                                 HTML(
-                                    f"\n<ansiyellow> ⚠️ Conflict detected for environment variable: {key}</ansiyellow>"
+                                    f"\n<ansiyellow>⚠️ Conflict detected for environment variable: {key}</ansiyellow>"
                                 )
                             )
                             print_formatted_text(f"  Current value : {os.environ[key]}")
@@ -288,17 +288,17 @@ def _load_env_files():
                             if choice.strip().lower() == "y":
                                 os.environ[key] = value
                                 print_formatted_text(
-                                    HTML(f"<ansigreen> ✅ Overridden {key}</ansigreen>")
+                                    HTML(f"<ansigreen>✅ Overridden {key}</ansigreen>")
                                 )
                             else:
                                 print_formatted_text(
-                                    HTML(f"<ansigray> ⏭️ Skipped {key}</ansigray>")
+                                    HTML(f"<ansigray>⏭️ Skipped {key}</ansigray>")
                                 )
                     else:
                         os.environ[key] = value
         print_formatted_text(
             HTML(
-                f"<ansiblue> ℹ️ Loaded environment variables from Workspace: {workdir_env}</ansiblue>"
+                f"<ansiblue>ℹ️ Loaded environment variables from Workspace: {workdir_env}</ansiblue>"
             )
         )
     except FileNotFoundError:
@@ -322,7 +322,7 @@ except KeyError as exc:
     log_error_traceback("init missing required env", exc)
     print_formatted_text(
         HTML(
-            "\n<ansired> ⚠️ Error: Missing required environment variables.</ansired>\n"
+            "\n<ansired>⚠️ Error: Missing required environment variables.</ansired>\n"
             "<ansiyellow>Please ensure OPENAI_API_KEY, OPENAI_BASE_URL, and MODEL_ID are set in your .env file or system environment.</ansiyellow>"
         )
     )

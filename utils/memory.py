@@ -61,7 +61,7 @@ try:
     _ENCODER = tiktoken.get_encoding("cl100k_base")
 except ImportError:
     print_formatted_text(
-        HTML(f"\n<ansiyellow> ⚠️ tiktoken加载失败, token将使用估算模式 </ansiyellow>\n")
+        HTML(f"\n<ansiyellow>⚠️ tiktoken加载失败, token将使用估算模式 </ansiyellow>\n")
     )
     _ENCODER = None
 
