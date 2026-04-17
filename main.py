@@ -250,7 +250,7 @@ def _render_history(messages: list):
             if content:
                 _render_orchestrator_message(content)
 
-            tool_calls = msg.get("tool_calls", [])
+            tool_calls = msg.get("tool_calls") or []
             for tc in tool_calls:
                 tc_func = (
                     tc.get("function", {})
@@ -977,6 +977,8 @@ if __name__ == "__main__":
 
                 try:
                     history = load_checkpoint(Path(selected_path))
+                    if history and history[0].get("role") == "system":
+                        history[0]["content"] = SYSTEM
                     CURRENT_CHECKPOINT = Path(selected_path)
 
                     console.clear()
