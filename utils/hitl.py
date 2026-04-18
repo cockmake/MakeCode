@@ -19,7 +19,7 @@ SESSION_WHITELIST = set()
 hitl_lock = threading.Lock()
 
 # Context Variable for Agent Role
-current_agent_role = ContextVar("current_agent_role", default="#0:Orchestrator")
+current_agent_role = ContextVar("current_agent_role", default="#0 - Orchestrator")
 
 console = Console()
 
