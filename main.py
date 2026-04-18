@@ -1,8 +1,6 @@
 import concurrent.futures
 import json
 import sys
-import time
-from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -21,6 +19,13 @@ from rich.text import Text
 
 from init import WORKDIR, log_error_traceback
 from prompts import get_orchestrator_system_prompt
+# 导入命令模块
+from utils.commands import (
+    COMMAND_DESCRIPTIONS,
+    SlashCommandCompleter,
+    CommandHandler,
+    CommandAction,
+)
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
@@ -45,14 +50,6 @@ from utils.memory import (
 from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS, TEAM_TOOLS_HANDLERS
-
-# 导入命令模块
-from utils.commands import (
-    COMMAND_DESCRIPTIONS,
-    SlashCommandCompleter,
-    CommandHandler,
-    CommandAction,
-)
 
 console = Console(force_terminal=True)
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -282,10 +279,10 @@ def _request_with_progress(messages: list, current_tools: list):
         )
 
         with Progress(
-            BarColumn(bar_width=30),
-            TextColumn("[bold cyan]✨ Orchestrator is thinking..."),
-            transient=True,
-            console=console,
+                BarColumn(bar_width=30),
+                TextColumn("[bold cyan]✨ Orchestrator is thinking..."),
+                transient=True,
+                console=console,
         ) as progress:
             progress.add_task("", total=None)
             return future.result()

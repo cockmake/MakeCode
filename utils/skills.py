@@ -2,10 +2,9 @@ import json
 from pathlib import Path
 
 import frontmatter
+from openai import pydantic_function_tool
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
-
-from openai import pydantic_function_tool
 from pydantic import BaseModel, Field
 
 from init import WORKDIR
@@ -23,6 +22,7 @@ def get_skill_system_note(skill_dir: str, meta_json: str) -> str:
         f"> you MUST resolve them relative to this absolute path (e.g., `{skill_dir}/<relative_path>`).\n\n"
         f"**Skill Metadata:**\n```json\n{meta_json}\n```\n\n"
     )
+
 
 class LoadSkill(BaseModel):
     """Load a specialized skill module by name."""

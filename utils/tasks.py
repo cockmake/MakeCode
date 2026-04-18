@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from openai import pydantic_function_tool
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from init import WORKDIR
 from utils.hitl import check_permission
@@ -61,7 +61,7 @@ class CreateTask(BaseModel):
                     return v
             except json.JSONDecodeError:
                 pass
-        
+
         if isinstance(v, list):
             res = []
             for item in v:
@@ -72,7 +72,7 @@ class CreateTask(BaseModel):
                             item = item_parsed
                     except json.JSONDecodeError:
                         pass
-                
+
                 if isinstance(item, dict):
                     if "task_id" in item:
                         res.append(str(item["task_id"]))
@@ -130,7 +130,7 @@ class UpdateTaskDependencies(BaseModel):
                     return v
             except json.JSONDecodeError:
                 pass
-        
+
         if isinstance(v, list):
             res = []
             for item in v:
@@ -141,7 +141,7 @@ class UpdateTaskDependencies(BaseModel):
                             item = item_parsed
                     except json.JSONDecodeError:
                         pass
-                
+
                 if isinstance(item, dict):
                     if "task_id" in item:
                         res.append(str(item["task_id"]))
@@ -182,7 +182,7 @@ class DeleteAllTasks(BaseModel):
     You MUST provide confirm=True to execute this action.
     """
     confirm: bool = Field(
-        ..., 
+        ...,
         description="Must be set to True to confirm the deletion of all tasks."
     )
 
@@ -341,12 +341,12 @@ class TaskManager:
 
     # -------- Per-task APIs --------
     def create_task(
-        self,
-        subject: str,
-        description: str = "",
-        depend_on: Any = None,
-        status: str = "pending",
-        **kwargs,
+            self,
+            subject: str,
+            description: str = "",
+            depend_on: Any = None,
+            status: str = "pending",
+            **kwargs,
     ) -> dict[str, Any]:
         try:
             validated_model = CreateTask.model_validate(
@@ -393,7 +393,7 @@ class TaskManager:
         return task
 
     def update_task_status(
-        self, task_id: str | int, status: str, **kwargs
+            self, task_id: str | int, status: str, **kwargs
     ) -> dict[str, Any]:
         self._validate_status(status)
         task = self._task(task_id)
@@ -403,7 +403,7 @@ class TaskManager:
         return task
 
     def update_task_dependencies(
-        self, task_id: str | int, depend_on: Any, **kwargs
+            self, task_id: str | int, depend_on: Any, **kwargs
     ) -> dict[str, Any]:
         try:
             validated_model = UpdateTaskDependencies.model_validate(
@@ -441,7 +441,7 @@ class TaskManager:
         tid = self._ensure_task_exists(task_id)
         if not subject.strip():
             raise ValueError("Task subject cannot be empty.")
-            
+
         task = self._data["tasks"][tid]
         task["subject"] = subject.strip()
         task["description"] = description
@@ -453,15 +453,16 @@ class TaskManager:
         if not confirm:
             raise ValueError("DANGER: Deletion aborted. You must explicitly pass confirm=True to delete all tasks.")
 
-        allowed, reason = check_permission("tool", "DeleteAllTasks", "WARNING: Attempting to delete ALL tasks in the topology plan.")
+        allowed, reason = check_permission("tool", "DeleteAllTasks",
+                                           "WARNING: Attempting to delete ALL tasks in the topology plan.")
         if not allowed:
             return {"status": "error", "message": f"User Denied Execution. Reason: {reason}"}
-            
+
         self._data["tasks"] = {}
         self._data["next_id"] = 1
-        self._data["epic_subject"] = "Main Project Task (Reset)" 
+        self._data["epic_subject"] = "Main Project Task (Reset)"
         self._data["updated_at"] = _now_iso()
-        
+
         self._save()
         return {"status": "success", "message": "All tasks have been permanently deleted."}
 
@@ -473,8 +474,8 @@ class TaskManager:
             if task["status"] != "pending":
                 continue
             if all(
-                dep in tasks and tasks[dep]["status"] == "completed"
-                for dep in task.get("depend_on", [])
+                    dep in tasks and tasks[dep]["status"] == "completed"
+                    for dep in task.get("depend_on", [])
             ):
                 runnable.append(task)
         return sorted(runnable, key=lambda t: self._id_sort_key(t["id"]))

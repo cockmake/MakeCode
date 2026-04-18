@@ -3,13 +3,13 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import aiofiles
 from openai import AsyncOpenAI, pydantic_function_tool
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field, ValidationError, model_validator, field_validator
-from typing import Any
 
 from init import (
     WORKDIR,
@@ -35,6 +35,7 @@ from utils.common import (
     run_edit,
 )
 from utils.file_access import AgentFileAccess
+from utils.hitl import current_agent_role
 from utils.llm_client import AsyncChatAPIClient, AsyncResponseAPIClient
 from utils.mcp_manager import GLOBAL_MCP_MANAGER
 from utils.skills import (
@@ -42,7 +43,6 @@ from utils.skills import (
     SKILL_TOOLS_HANDLERS,
 )
 from utils.tasks import TASK_MANAGER
-from utils.hitl import current_agent_role
 
 MAKECODE_DIR = WORKDIR / ".makecode"
 TEAM_DIR = MAKECODE_DIR / "team"
@@ -152,7 +152,7 @@ class TeammateManager:
                 await f.write(json.dumps(self.history, ensure_ascii=False, indent=2))
 
     async def _set_plan_task_status(
-        self, task_id: str, status: str, lock: asyncio.Lock
+            self, task_id: str, status: str, lock: asyncio.Lock
     ):
         async with lock:
             TASK_MANAGER.update_task_status(task_id=task_id, status=status)
@@ -213,7 +213,7 @@ class TeammateManager:
         return normalized
 
     async def _get_last_failed_context(
-        self, plan_task_id: str, lock: asyncio.Lock
+            self, plan_task_id: str, lock: asyncio.Lock
     ) -> str:
         last_record = None
         async with lock:
@@ -432,10 +432,10 @@ class TeammateManager:
             f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"
         )
         for item in sorted(
-            results,
-            key=lambda x: (
-                int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
-            ),
+                results,
+                key=lambda x: (
+                        int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
+                ),
         ):
             final_combined_report += (
                 f"==== Task #{item['task_id']} | Role: {item['role']} | Status: {item['status']} ====\n"
@@ -445,10 +445,10 @@ class TeammateManager:
         return final_combined_report
 
     async def _sub_agent_loop(
-        self, plan_task_id: str, role: str, prompt: str, log_file: Path, local_async_llm_client
+            self, plan_task_id: str, role: str, prompt: str, log_file: Path, local_async_llm_client
     ) -> dict:
         """子节点独立的运行沙盒，将每一步决策实时写入 JSONL"""
-        
+
         current_agent_role.set(f"#{plan_task_id} - {role}")
 
         # 辅助函数：实时追加日志
@@ -508,7 +508,7 @@ class TeammateManager:
         max_steps = 40
 
         async def _build_incomplete_report(
-            stop_reason: str, executed_steps: int
+                stop_reason: str, executed_steps: int
         ) -> str:
             todo_snapshot = local_todo.render()
             messages_text = json.dumps(

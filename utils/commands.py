@@ -2,8 +2,8 @@
 斜杠命令模块 - 负责处理所有内置命令和交互式界面
 """
 import time
-from enum import Enum, auto
 from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Any
 
@@ -22,7 +22,6 @@ from rich.table import Table
 from rich.text import Text
 
 from init import log_error_traceback
-from utils.memory import list_checkpoints
 from utils.tasks import list_task_plans, load_task_plan
 from utils.teams import list_team_histories, load_team_history
 
@@ -35,6 +34,7 @@ class CommandAction(Enum):
     UPDATE_CHECKPOINT = auto()
     LOAD_HISTORY = auto()
     UPDATE_SYSTEM_PROMPT = auto()
+
 
 @dataclass
 class CommandResult:
@@ -89,8 +89,8 @@ class SlashCommandCompleter(Completer):
 # ============================================================================
 
 def interactive_choose_checkpoint(
-    checkpoints: list,
-    title: str = "\n📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+        checkpoints: list,
+        title: str = "\n📌 Select a Checkpoint to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
 ) -> str:
     """交互式选择 checkpoint"""
     if not checkpoints:
@@ -257,15 +257,15 @@ class CommandHandler:
     """命令处理器 - 统一处理所有斜杠命令"""
 
     def __init__(
-        self,
-        console: Console,
-        mcp_manager,
-        skill_loader,
-        get_system_prompt_fn,
-        save_checkpoint_fn,
-        load_checkpoint_fn,
-        list_checkpoints_fn,
-        auto_compact_fn,
+            self,
+            console: Console,
+            mcp_manager,
+            skill_loader,
+            get_system_prompt_fn,
+            save_checkpoint_fn,
+            load_checkpoint_fn,
+            list_checkpoints_fn,
+            auto_compact_fn,
     ):
         self.console = console
         self.mcp_manager = mcp_manager
@@ -499,7 +499,7 @@ class CommandHandler:
         """处理 /clear 和 /reset 命令，返回 (should_continue, new_checkpoint)"""
         from utils.hitl import SESSION_WHITELIST
         SESSION_WHITELIST.clear()
-        
+
         history.clear()
         history.append({"role": "system", "content": self.get_system_prompt_fn()})
         self.console.print(
@@ -517,12 +517,12 @@ class CommandHandler:
         return True, new_checkpoint
 
     def handle_load(
-        self,
-        history: list,
-        current_checkpoint: Optional[Path],
-        render_banner_fn,
-        render_hint_fn,
-        render_history_fn,
+            self,
+            history: list,
+            current_checkpoint: Optional[Path],
+            render_banner_fn,
+            render_hint_fn,
+            render_history_fn,
     ) -> tuple:
         """处理 /load 命令，返回 (new_history, new_checkpoint)"""
         checkpoints = self.list_checkpoints()
@@ -631,13 +631,13 @@ class CommandHandler:
         return loaded, new_checkpoint
 
     def process_command(
-        self,
-        query: str,
-        history: list,
-        current_checkpoint: Optional[Path],
-        render_banner_fn,
-        render_hint_fn,
-        render_history_fn,
+            self,
+            query: str,
+            history: list,
+            current_checkpoint: Optional[Path],
+            render_banner_fn,
+            render_hint_fn,
+            render_history_fn,
     ) -> CommandResult:
         """
         处理命令入口，返回结构化的 CommandResult

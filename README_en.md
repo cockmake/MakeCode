@@ -4,7 +4,8 @@
 
 > A multi-agent command-line orchestrator.
 >
-> It supports task topology planning, concurrent sub-agent delegation, skill loading, file/terminal tools, and long-session compaction.
+> It supports task topology planning, concurrent sub-agent delegation, skill loading, file/terminal tools, and
+> long-session compaction.
 
 ---
 
@@ -17,10 +18,12 @@ MakeCode is an Agent CLI designed for engineering workflows. It follows an **Orc
 - The Team module wakes sub-agents concurrently for parallel-safe tasks, with **automatic failure context recovery**.
 - The Skills module loads domain-specific guidance on demand.
 - The Memory module compacts long conversations and stores transcripts.
-- The **File Access Control** module enforces read-before-edit, mtime-lock validation, and fine-grained file-level concurrency locks.
+- The **File Access Control** module enforces read-before-edit, mtime-lock validation, and fine-grained file-level
+  concurrency locks.
 - **Centralized Prompt Management** unifies all LLM prompts for easier maintenance and parameterization.
 
-The goal is not just to answer questions, but to provide an agent workflow that is **plannable, executable, traceable, and extensible**.
+The goal is not just to answer questions, but to provide an agent workflow that is **plannable, executable, traceable,
+and extensible**.
 
 ---
 
@@ -50,28 +53,34 @@ The goal is not just to answer questions, but to provide an agent workflow that 
 - Uses OpenAI `responses.create(...)` for multi-turn interaction.
 - Automatically executes model-issued tool calls.
 - Aggregates these tool groups:
-  - File / Terminal tools
-  - Skills tools
-  - Memory tools
-  - TaskManager tools
-  - Team tools
+    - File / Terminal tools
+    - Skills tools
+    - Memory tools
+    - TaskManager tools
+    - Team tools
 - Supports Rich / tqdm / plain terminal fallback rendering.
 - Shows terminal environment at startup and compacts context when needed.
 
 ### 2.2 Workspace and Environment Init (`init.py`)
 
-MakeCode employs a strict Workspace isolation mechanism. All relative paths, environment variables, and skill loading are resolved relative to the user's chosen **Workspace Directory (`WORKDIR`)**, not the location of the MakeCode source code.
+MakeCode employs a strict Workspace isolation mechanism. All relative paths, environment variables, and skill loading
+are resolved relative to the user's chosen **Workspace Directory (`WORKDIR`)**, not the location of the MakeCode source
+code.
 
-- **Environment Variable (`.env`) Loading**: At startup, the system automatically searches for a `.env` file within the currently selected `WORKDIR`. If loaded variables conflict with existing system environment variables, the CLI will present an interactive prompt allowing the user to decide whether to override them.
-- **Skill Library (`skills/`) Loading**: The system strictly scans and loads custom skills (`SKILL.md`) from the `WORKDIR/skills` directory. This ensures that different projects can maintain their own dedicated skill configurations without interference.
+- **Environment Variable (`.env`) Loading**: At startup, the system automatically searches for a `.env` file within the
+  currently selected `WORKDIR`. If loaded variables conflict with existing system environment variables, the CLI will
+  present an interactive prompt allowing the user to decide whether to override them.
+- **Skill Library (`skills/`) Loading**: The system strictly scans and loads custom skills (`SKILL.md`) from the
+  `WORKDIR/skills` directory. This ensures that different projects can maintain their own dedicated skill configurations
+  without interference.
 - Supports interactive workspace selection (current directory or custom directory).
 - **New** Supports interactive API Standard selection:
-  - `Chat Completions API` (Standard format, suitable for DeepSeek, Ollama, vLLM, and standard OpenAI endpoints)
-  - `Responses API` (Legacy/Custom Beta format)
+    - `Chat Completions API` (Standard format, suitable for DeepSeek, Ollama, vLLM, and standard OpenAI endpoints)
+    - `Responses API` (Legacy/Custom Beta format)
 - Initializes the OpenAI client from:
-  - `OPENAI_API_KEY`
-  - `OPENAI_BASE_URL`
-  - `MODEL_ID`
+    - `OPENAI_API_KEY`
+    - `OPENAI_BASE_URL`
+    - `MODEL_ID`
 
 ### 2.3 File and Terminal Tools (`utils/common.py`) & File Access Control (`utils/file_access.py`)
 
@@ -79,7 +88,8 @@ Provides the following execution primitives:
 
 - `RunRead`: read file contents, optionally by line range
 - `RunWrite`: only for creating and writing a NEW file (when target file does not exist or is empty)
-- `RunEdit`: modify an existing file. **Supports passing multiple non-overlapping edit blocks in a single call to modify different parts of the file concurrently** (must call `RunRead` first)
+- `RunEdit`: modify an existing file. **Supports passing multiple non-overlapping edit blocks in a single call to modify
+  different parts of the file concurrently** (must call `RunRead` first)
 - `RunGrep`: search text files in a target directory with a regex pattern
 - `RunTerminalCommand`: run a non-interactive terminal command
 
@@ -94,19 +104,32 @@ Implementation details:
 ### 2.4 File Access Control Mechanism (`utils/file_access.py`)
 
 - **Mandatory Read-Before-Edit**: Agents must use `RunRead` before editing a file, otherwise the edit is blocked.
-- **Modification Time Lock Validation**: If a file is modified by another program or agent after being read, `RunEdit` is blocked and prompts for re-reading.
-- **Fine-Grained File-Level Locks**: Multi-agent concurrent read/write uses per-file `RLock` instead of a global lock, improving concurrency performance.
-- **Timestamp Diagnostics**: Block error messages include precise millisecond-level UTC timestamps (Last modification / Last read) for easier conflict troubleshooting.
-- **Transactional Dependency Rollback**: `UpdateTaskDependencies` automatically rolls back the dependency list on topology validation failure, maintaining data consistency.
+- **Modification Time Lock Validation**: If a file is modified by another program or agent after being read, `RunEdit`is
+  blocked and prompts for re-reading.
+- **Fine-Grained File-Level Locks**: Multi-agent concurrent read/write uses per-file `RLock` instead of a global lock,
+  improving concurrency performance.
+- **Timestamp Diagnostics**: Block error messages include precise millisecond-level UTC timestamps (Last modification /
+  Last read) for easier conflict troubleshooting.
+- **Transactional Dependency Rollback**: `UpdateTaskDependencies` automatically rolls back the dependency list on
+  topology validation failure, maintaining data consistency.
 
 ### 2.5 Human-In-The-Loop (HITL) Interceptor 🆕
 
-To guarantee agent execution safety in real engineering environments, the system introduces a Human-In-The-Loop (HITL) interception mechanism:
+To guarantee agent execution safety in real engineering environments, the system introduces a Human-In-The-Loop (HITL)
+interception mechanism:
 
-- **Sensitive Operation Blocks**: By default, file modification actions (`RunEdit`, `RunWrite`) and critical terminal commands (e.g. `npm`, `git`, `rm`, gated by an exclusion whitelist) are intercepted.
-- **TUI Interactive Panel**: A terminal visual intercept panel built with `prompt_toolkit`, allowing the user to use arrow keys to choose either "Allow" or "Reject with feedback".
-- **Concurrency-Safe Queuing**: During multi-sub-agent concurrent execution, the underlying system uses `ContextVar` to trace the identity of the agent triggering the block (e.g. `0:Orchestrator` or `1:Frontend Developer`) across coroutines and threads. A global `threading.Lock` enforces safe rendering of interception requests to avoid UI layout mess.
-- **Sandbox Escape Protection**: Comprehensively catches `Ctrl+C` (`KeyboardInterrupt`) and `EOFError` within the interception panel. When a user forcefully interrupts an interaction, it won't crash the sub-agent to death. Instead, it converts the interruption into a string feedback rejecting the LLM request, letting the agent self-correct properly.
+- **Sensitive Operation Blocks**: By default, file modification actions (`RunEdit`, `RunWrite`) and critical terminal
+  commands (e.g. `npm`, `git`, `rm`, gated by an exclusion whitelist) are intercepted.
+- **TUI Interactive Panel**: A terminal visual intercept panel built with `prompt_toolkit`, allowing the user to use
+  arrow keys to choose either "Allow" or "Reject with feedback".
+- **Concurrency-Safe Queuing**: During multi-sub-agent concurrent execution, the underlying system uses `ContextVar` to
+  trace the identity of the agent triggering the block (e.g. `0:Orchestrator` or `1:Frontend Developer`) across
+  coroutines and threads. A global `threading.Lock` enforces safe rendering of interception requests to avoid UI layout
+  mess.
+- **Sandbox Escape Protection**: Comprehensively catches `Ctrl+C` (`KeyboardInterrupt`) and `EOFError` within the
+  interception panel. When a user forcefully interrupts an interaction, it won't crash the sub-agent to death. Instead,
+  it converts the interruption into a string feedback rejecting the LLM request, letting the agent self-correct
+  properly.
 
 ### 2.6 Task Management (`utils/tasks.py`)
 
@@ -127,7 +150,8 @@ Key characteristics:
 - DAG validation for active tasks to prevent dependency cycles
 - A task is runnable when it is `pending` and all dependencies are completed
 - Each run writes a task-plan file under `.makecode/tasks/`
-- `DeleteAllTasks` provides a one-click topology reset capability, making it easy to start a fresh plan on complex failures.
+- `DeleteAllTasks` provides a one-click topology reset capability, making it easy to start a fresh plan on complex
+  failures.
 
 ### 2.7 Concurrent Sub-Agents (`utils/teams.py`)
 
@@ -148,7 +172,8 @@ Runtime artifacts include:
 #### 🔄 Failure Context Recovery (New)
 
 - When a sub-agent task fails, the system automatically reads that task's `trace_log`.
-- Failure records (including LLM output, tool calls, arguments, results, etc.) are formatted and injected into the retry task's context.
+- Failure records (including LLM output, tool calls, arguments, results, etc.) are formatted and injected into the retry
+  task's context.
 - The new sub-agent can resume from where the previous one left off, avoiding repeated errors.
 
 ### 2.8 Skill System (`utils/skills.py`)
@@ -156,12 +181,15 @@ Runtime artifacts include:
 Supports:
 
 - `LoadSkill`: load the full content of a skill by exact name
-- Skills Catalog injection: append a summary of available workspace skills (name, description, tags, and directory) to the end of both orchestrator and sub-agent system prompts
-- Skills Catalog toggle: 
+- Skills Catalog injection: append a summary of available workspace skills (name, description, tags, and directory) to
+  the end of both orchestrator and sub-agent system prompts
+- Skills Catalog toggle:
 
-Skill location: `skills/<name>/SKILL.md`. Place your custom skills in this directory within your workspace, and they will be automatically discovered at startup.
+Skill location: `skills/<name>/SKILL.md`. Place your custom skills in this directory within your workspace, and they
+will be automatically discovered at startup.
 
-Default behavior: the skills summary injection is enabled by default. When disabled, the UI shows `skills已关闭`, and the skills catalog is no longer appended to orchestrator/sub-agent system prompts.
+Default behavior: the skills summary injection is enabled by default. When disabled, the UI shows `skills已关闭`, and
+the skills catalog is no longer appended to orchestrator/sub-agent system prompts.
 
 ### 2.9 Conversation Compaction (`utils/memory.py`)
 
@@ -172,22 +200,31 @@ Default behavior: the skills summary injection is enabled by default. When disab
 
 ### 2.10 Centralized Prompt Management (`prompts.py`) (New)
 
-- **Unified Prompt File**: All LLM system prompts, summarization prompts, and user-guided texts are maintained in a single `prompts.py`.
-- **HITL Defense Cognitive Implant**: Built-in specialized system instructions (for both Sub-Agent and Orchestrator) after interception failures, educating the LLM to understand why "Human-In-The-Loop" rejected its request, prompting the LLM to autonomously adapt rather than retrying blindly.
+- **Unified Prompt File**: All LLM system prompts, summarization prompts, and user-guided texts are maintained in a
+  single `prompts.py`.
+- **HITL Defense Cognitive Implant**: Built-in specialized system instructions (for both Sub-Agent and Orchestrator)
+  after interception failures, educating the LLM to understand why "Human-In-The-Loop" rejected its request, prompting
+  the LLM to autonomously adapt rather than retrying blindly.
 - Includes the following prompt generator functions:
-  - `get_orchestrator_system_prompt()`: Orchestrator system prompt
-  - `get_sub_agent_system_prompt()`: Sub-agent system prompt
-  - `get_sub_agent_summary_prompt()`: Summary prompt when sub-agent fails
-  - `get_report_assistant_system_prompt()`: Report assistant system prompt
-  - `get_summary_system_prompt()` / `get_summary_user_prompt()`: Conversation compaction prompts
-  - `get_skill_system_note()`: System note for skill loading
+    - `get_orchestrator_system_prompt()`: Orchestrator system prompt
+    - `get_sub_agent_system_prompt()`: Sub-agent system prompt
+    - `get_sub_agent_summary_prompt()`: Summary prompt when sub-agent fails
+    - `get_report_assistant_system_prompt()`: Report assistant system prompt
+    - `get_summary_system_prompt()` / `get_summary_user_prompt()`: Conversation compaction prompts
+    - `get_skill_system_note()`: System note for skill loading
 
 ### 2.11 Conversation History and Loading (`/load`)
 
-- The `/load` command supports restoring any historical session from a Checkpoint, including the main agent conversation chain and sub-agent execution histories.
-- **Full UI Re-rendering**: After loading a history record, the system automatically clears the screen (`console.clear()`) and re-renders every message (including User inputs, AI text, Tool call intents, and Tool execution results) according to the latest terminal UI styling.
-- **Configuration Anti-Pollution**: When loading a historical Checkpoint, the system automatically syncs the latest System Prompt and global configurations (such as the current date, MCP/Skills toggle status) to prevent them from being overwritten by old data.
-- For sub-agent histories, the system only prompts for loading after the task plan is successfully loaded. If all tasks in the plan are already completed, it automatically skips the prompt.
+- The `/load` command supports restoring any historical session from a Checkpoint, including the main agent conversation
+  chain and sub-agent execution histories.
+- **Full UI Re-rendering**: After loading a history record, the system automatically clears the screen (
+  `console.clear()`) and re-renders every message (including User inputs, AI text, Tool call intents, and Tool execution
+  results) according to the latest terminal UI styling.
+- **Configuration Anti-Pollution**: When loading a historical Checkpoint, the system automatically syncs the latest
+  System Prompt and global configurations (such as the current date, MCP/Skills toggle status) to prevent them from
+  being overwritten by old data.
+- For sub-agent histories, the system only prompts for loading after the task plan is successfully loaded. If all tasks
+  in the plan are already completed, it automatically skips the prompt.
 
 ### 2.12 Sub-Agent Todo Tool (`tools/todo.py`)
 
@@ -195,15 +232,20 @@ Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for
 
 ### 2.13 MCP Service Integration (`utils/mcp_manager.py`)🆕
 
-MakeCode supports integrating external tools and services via the **Model Context Protocol (MCP)**, extending the agent's capability boundary.
+MakeCode supports integrating external tools and services via the **Model Context Protocol (MCP)**, extending the
+agent's capability boundary.
 
 #### Core Features
 
-- **Configuration-Driven Loading**: Declaratively configure multiple MCP services via `mcp_config.json`, supporting standard protocol integration
-- **Asynchronous Lifecycle Management**: Initialize and manage MCP clients asynchronously in a background thread to avoid blocking the main loop
+- **Configuration-Driven Loading**: Declaratively configure multiple MCP services via `mcp_config.json`, supporting
+  standard protocol integration
+- **Asynchronous Lifecycle Management**: Initialize and manage MCP clients asynchronously in a background thread to
+  avoid blocking the main loop
 - **Dynamic Service Control**: Enable/disable specific MCP services at runtime for flexible toolset adjustment
-- **Unified Tool Registration**: Automatically extract tool definitions from MCP services, format them consistently with built-in tools, and seamlessly integrate into `llm_client`
-- **Error Isolation & Recovery**: Failure to load a single MCP service does not affect others; detailed error logs and graceful degradation are provided
+- **Unified Tool Registration**: Automatically extract tool definitions from MCP services, format them consistently with
+  built-in tools, and seamlessly integrate into `llm_client`
+- **Error Isolation & Recovery**: Failure to load a single MCP service does not affect others; detailed error logs and
+  graceful degradation are provided
 
 #### Configuration Example
 
@@ -214,11 +256,18 @@ Create `.makecode/mcp_config.json` in your workspace:
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/workspace"
+      ]
     },
     "git": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-git"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git"
+      ]
     }
   }
 }
@@ -238,7 +287,8 @@ Create `.makecode/mcp_config.json` in your workspace:
 - `utils/llm_client.py`: Unified tool format extractor, compatible with both MCP native Tool and pydantic_function_tool
 - `main.py`: Integrates `GLOBAL_MCP_MANAGER` into the main loop to ensure full toolset availability
 
->💡 **Tip**: MCP service integration is optional. If `mcp_config.json` is not configured, the system will skip loading and continue normal operation.
+> 💡 **Tip**: MCP service integration is optional. If `mcp_config.json` is not configured, the system will skip loading
+> and continue normal operation.
 
 ---
 ---
@@ -336,13 +386,17 @@ flowchart TD
 - `init.py` provides workspace selection, environment variable loading, and OpenAI client initialization.
 - `prompts.py` centrally manages all LLM prompts for easier maintenance and parameterization.
 - `utils/common.py` provides file read/write, line-based editing, text search, and terminal command execution.
-- `utils/hitl.py` 🆕 manages secure interception of high-risk commands and destructive operations through a globally queued TUI, complete with trace context for concurrency safety.
-- `utils/file_access.py` implements file access control: mandatory read-before-edit, mtime-lock validation, and fine-grained file-level concurrency locks.
+- `utils/hitl.py` 🆕 manages secure interception of high-risk commands and destructive operations through a globally
+  queued TUI, complete with trace context for concurrency safety.
+- `utils/file_access.py` implements file access control: mandatory read-before-edit, mtime-lock validation, and
+  fine-grained file-level concurrency locks.
 - `utils/tasks.py` maintains task DAG, state transitions, and runnable frontier.
-- `utils/teams.py` delegates the latest runnable tasks to sub-agents concurrently, collects results, and supports failure context recovery.
+- `utils/teams.py` delegates the latest runnable tasks to sub-agents concurrently, collects results, and supports
+  failure context recovery.
 - `utils/skills.py` provides skill discovery and content loading.
 - `utils/memory.py` handles long-session compaction and transcript saving.
-- `utils/mcp_manager.py` 🆕 manages MCP service configuration loading, client lifecycle, tool extraction and registration, with support for dynamic enable/disable.
+- `utils/mcp_manager.py` 🆕 manages MCP service configuration loading, client lifecycle, tool extraction and
+  registration, with support for dynamic enable/disable.
 - `tools/todo.py` allows sub-agents to maintain internal todos for multi-step task tracking.
 
 ---
@@ -390,7 +444,9 @@ pip install -r requirements.txt
 
 ### 6.2 Prepare Workspace (Important)
 
-MakeCode employs a strict Workspace isolation mechanism. It is **not recommended** to run tasks directly in the MakeCode source directory. Instead, prepare the following in your actual project directory (the directory where you want the Agent to work):
+MakeCode employs a strict Workspace isolation mechanism. It is **not recommended** to run tasks directly in the MakeCode
+source directory. Instead, prepare the following in your actual project directory (the directory where you want the
+Agent to work):
 
 1. **Environment Configuration `.env`**:
    Create a `.env` file in the root of your target workspace directory and fill in the model configuration:
@@ -399,11 +455,15 @@ MakeCode employs a strict Workspace isolation mechanism. It is **not recommended
    OPENAI_API_KEY=your_api_key
    MODEL_ID=your_model_id
    ```
-   > Note: The model behind `MODEL_ID` must support the Chat Completions API or Responses API. If any variables in this file conflict with existing system environment variables, MakeCode will prompt you interactively at startup to choose whether to override them.
+   > Note: The model behind `MODEL_ID` must support the Chat Completions API or Responses API. If any variables in this
+   file conflict with existing system environment variables, MakeCode will prompt you interactively at startup to choose
+   whether to override them.
 
 2. **Custom Skills Library `skills/` (Optional)**:
-   If your project requires specific expert skills, create a `skills` folder in the root of your target workspace directory.
-   The structure should look like this: `skills/<skill-name>/SKILL.md`. MakeCode will strictly load skills only from this directory.
+   If your project requires specific expert skills, create a `skills` folder in the root of your target workspace
+   directory.
+   The structure should look like this: `skills/<skill-name>/SKILL.md`. MakeCode will strictly load skills only from
+   this directory.
 
 ### 6.3 Start
 
@@ -414,8 +474,11 @@ python main.py
 ```
 
 After startup, you will enter a wizard flow:
-1. **Interactive Workspace Selection (WORKDIR)**: Enter the directory (absolute path) where you just prepared your `.env` and `skills`, or press Enter to use the current directory.
-2. **Resolve Environment Variable Conflicts**: If there are conflicts between your `.env` file and system variables, follow the prompt to confirm overrides.
+
+1. **Interactive Workspace Selection (WORKDIR)**: Enter the directory (absolute path) where you just prepared your`.env`
+   and `skills`, or press Enter to use the current directory.
+2. **Resolve Environment Variable Conflicts**: If there are conflicts between your `.env` file and system variables,
+   follow the prompt to confirm overrides.
 3. **Select API Standard**: Choose your underlying API protocol (Chat Completions API or Responses API).
 4. **Enter Interactive Terminal**: Begin your conversation with the main agent.
 
@@ -423,28 +486,33 @@ After startup, you will enter a wizard flow:
 
 In the interactive CLI, you can type `/` to trigger quick commands (with auto-completion support):
 
-| Command | Description |
-| --- | --- |
-| `/cmds` | List all available commands and their descriptions |
-| `/mcp-view` | View the MCP status overview and the currently loaded MCP tool list |
-| `/mcp-restart` | Restart the MCP background manager and reload configuration |
-| `/mcp-switch` | Interactively toggle MCP services on/off, save changes to `.makecode/mcp_config.json` after confirmation, and attempt incremental enable/disable |
-| `/load` | List historical checkpoints and select one to load |
-| `/skills-switch` | Toggle skills catalog injection status (On/Off) |
-| `/skills-list` | List available skills in the current workspace |
-| `/compact` | Compact the current conversation context |
-| `/tools` | List detailed information of available tools |
-| `/tasks` / `/plan` | View the task board and current execution progress |
-| `/status` | Report system status, completed tasks, and next steps |
-| `/help` | Show usage help and self-introduction |
-| `/workspace` / `/ls` | View the current workspace directory structure |
-| `/clear` / `/reset` | Clear current conversation history |
-| `/quit` / `/exit` | Exit the program |
+| Command              | Description                                                                                                                                      |
+|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| `/cmds`              | List all available commands and their descriptions                                                                                               |
+| `/mcp-view`          | View the MCP status overview and the currently loaded MCP tool list                                                                              |
+| `/mcp-restart`       | Restart the MCP background manager and reload configuration                                                                                      |
+| `/mcp-switch`        | Interactively toggle MCP services on/off, save changes to `.makecode/mcp_config.json` after confirmation, and attempt incremental enable/disable |
+| `/load`              | List historical checkpoints and select one to load                                                                                               |
+| `/skills-switch`     | Toggle skills catalog injection status (On/Off)                                                                                                  |
+| `/skills-list`       | List available skills in the current workspace                                                                                                   |
+| `/compact`           | Compact the current conversation context                                                                                                         |
+| `/tools`             | List detailed information of available tools                                                                                                     |
+| `/tasks` / `/plan`   | View the task board and current execution progress                                                                                               |
+| `/status`            | Report system status, completed tasks, and next steps                                                                                            |
+| `/help`              | Show usage help and self-introduction                                                                                                            |
+| `/workspace` / `/ls` | View the current workspace directory structure                                                                                                   |
+| `/clear` / `/reset`  | Clear current conversation history                                                                                                               |
+| `/quit` / `/exit`    | Exit the program                                                                                                                                 |
 
->💡 **Tip: MCP-related commands**
-> - `/mcp-view`: First shows an MCP status overview, including configured services / enabled in config / disabled in config / currently loaded services, then displays the detailed loaded tool table.
-> - `/mcp-restart`: Force restarts the MCP background manager, re-reads `.makecode/mcp_config.json`, and reinitializes services.
-> - `/mcp-switch`: Opens an interactive switch panel. Use `↑/↓` to select a service, `Space` to toggle the draft state, and the bottom actions to either confirm or cancel. On confirm, the updated `disabled` values are written back to the config file first, then the system attempts incremental enable/disable for the affected services. On cancel, nothing is saved and runtime state remains unchanged.
+> 💡 **Tip: MCP-related commands**
+> - `/mcp-view`: First shows an MCP status overview, including configured services / enabled in config / disabled in
+    config / currently loaded services, then displays the detailed loaded tool table.
+> - `/mcp-restart`: Force restarts the MCP background manager, re-reads `.makecode/mcp_config.json`, and reinitializes
+    services.
+> - `/mcp-switch`: Opens an interactive switch panel. Use `↑/↓` to select a service, `Space` to toggle the draft state,
+    and the bottom actions to either confirm or cancel. On confirm, the updated `disabled` values are written back to
+    the config file first, then the system attempts incremental enable/disable for the affected services. On cancel,
+    nothing is saved and runtime state remains unchanged.
 ---
 
 ## 7. Operational Constraints
@@ -467,10 +535,11 @@ Important built-in rules include:
 1. Create `skills/<name>/`
 2. Add `SKILL.md`
 3. Optionally include frontmatter fields:
-   - `name`
-   - `description`
-   - `tags`
-4. New skills are automatically rescanned and summarized into the Skills Catalog the next time system prompts are built; use `/skills-switch` to toggle that injection temporarily
+    - `name`
+    - `description`
+    - `tags`
+4. New skills are automatically rescanned and summarized into the Skills Catalog the next time system prompts are built;
+   use `/skills-switch` to toggle that injection temporarily
 5. When the full skill content is actually needed, the agent can call `LoadSkill` directly
 
 ### 8.2 Add a Tool
@@ -487,11 +556,16 @@ Typical steps:
 
 ### 8.3 Code Style and Emoji Formatting
 
-To prevent style and layout messes caused by frequent use of Emojis in CLI outputs and Markdown documents, MakeCode adopts a unified **V2 Emoji Formatting Strategy**:
+To prevent style and layout messes caused by frequent use of Emojis in CLI outputs and Markdown documents, MakeCode
+adopts a unified **V2 Emoji Formatting Strategy**:
 
-- **Left Snug**: If the Emoji is immediately to the right of quotes (`"`, `'`), brackets/tags (`[`, `]`, `(`, `{`, `<`), or is at the beginning of a line, the space before the Emoji is removed (e.g., `"[bold red]⚠️"`, `"[📦 Releases]"`).
-- **Right Snug**: If the Emoji is immediately to the left of closing punctuation (`"`, `'`, `]`, `}`, `>`, `.`, `,`, `。`, `，`, `！`, etc.), or is at the end of a line, the space after the Emoji is removed (e.g., `"User 🤖"`).
-- **Normal Spacing**: If the above conditions are not met, and the left/right side is plain text or Markdown control characters (`#`, `-`, `*`, etc.), exactly one space is strictly kept on the left/right side of the Emoji (e.g., `Hello 🤖 `, `# 🤖 Title`).
+- **Left Snug**: If the Emoji is immediately to the right of quotes (`"`, `'`), brackets/tags (`[`, `]`, `(`, `{`, `<`),
+  or is at the beginning of a line, the space before the Emoji is removed (e.g., `"[bold red]⚠️"`, `"[📦 Releases]"`).
+- **Right Snug**: If the Emoji is immediately to the left of closing punctuation (`"`, `'`, `]`, `}`, `>`, `.`, `,`,`。`,
+  `，`, `！`, etc.), or is at the end of a line, the space after the Emoji is removed (e.g., `"User 🤖"`).
+- **Normal Spacing**: If the above conditions are not met, and the left/right side is plain text or Markdown control
+  characters (`#`, `-`, `*`, etc.), exactly one space is strictly kept on the left/right side of the Emoji (e.g.,
+  `Hello 🤖 `, `# 🤖 Title`).
 
 > All `.py` source files and `.md` documents strictly adhere to this formatting strategy.
 
@@ -509,7 +583,8 @@ If startup fails, check:
 
 ### 9.2 Path escapes workspace
 
-`RunRead`, `RunWrite`, `RunEdit`, and `RunGrep` all enforce workspace boundaries. Paths outside the workspace are rejected.
+`RunRead`, `RunWrite`, `RunEdit`, and `RunGrep` all enforce workspace boundaries. Paths outside the workspace are
+rejected.
 
 ### 9.3 Terminal command failures
 

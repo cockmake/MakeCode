@@ -1,13 +1,14 @@
-import threading
 import asyncio
+import threading
 from contextvars import ContextVar
+
+from prompt_toolkit import prompt
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.styles import Style
-from prompt_toolkit import prompt
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -23,6 +24,7 @@ current_agent_role = ContextVar("current_agent_role", default="#0 - Orchestrator
 
 console = Console()
 
+
 def interactive_hitl_prompt() -> str:
     """交互式拦截选项面板"""
     options = [
@@ -30,7 +32,7 @@ def interactive_hitl_prompt() -> str:
         ("2", "允许本次会话期间执行 (Allow for session)"),
         ("3", "拒绝执行，并反馈原因 (Deny & Feedback)"),
     ]
-    
+
     selected_index = [0]
     kb = KeyBindings()
 
@@ -74,17 +76,18 @@ def interactive_hitl_prompt() -> str:
     app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
     return app.run()
 
+
 def check_permission(action_type: str, action_name: str, details: str) -> tuple[bool, str]:
     action_key = f"{action_type}:{action_name}"
-    
+
     if action_key in SESSION_WHITELIST:
         return True, ""
-        
+
     with hitl_lock:
         # Double check in case another thread added it while waiting
         if action_key in SESSION_WHITELIST:
             return True, ""
-            
+
         # Ensure the current thread has an event loop for prompt_toolkit
         try:
             loop = asyncio.get_event_loop()
@@ -93,9 +96,9 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
         agent_name = current_agent_role.get()
-        
+
         # Render UI
         panel_text = Text()
         panel_text.append(f"🤖 Agent: ", style="bold cyan")
@@ -104,7 +107,7 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
         panel_text.append(f"{action_key}\n")
         panel_text.append(f"🎯 Details: ", style="bold green")
         panel_text.append(f"{details}")
-        
+
         panel = Panel(
             panel_text,
             title="⚠️ Sensitive Operation Intercepted",
@@ -112,9 +115,9 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
             expand=False
         )
         console.print(panel)
-        
+
         choice = interactive_hitl_prompt()
-            
+
         if choice == '1':
             return True, ""
         elif choice == '2':
@@ -130,5 +133,5 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
             return False, reason or "User denied without providing a specific reason."
         elif choice == 'abort':
             return False, "User aborted the prompt via Ctrl+C."
-    
+
     return False, "Unknown error"

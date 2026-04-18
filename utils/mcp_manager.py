@@ -256,8 +256,8 @@ class GlobalMCPManager:
 
                 server_tools.append(t_dict)
                 desc = (
-                    t_dict.get("description")
-                    or f"MCP Tool: {t.name} from {server_name}"
+                        t_dict.get("description")
+                        or f"MCP Tool: {t.name} from {server_name}"
                 )
                 server_status_tools.append(
                     {
