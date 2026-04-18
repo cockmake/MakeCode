@@ -88,7 +88,7 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
     仅在成功解析出语法树且包含明确的 has_error 时，才拦截写入，并提取精准报错。
     """
     if not get_parser or not detect_language_from_path:
-        print("[ts_validator] ⚠️ 解析器模块未成功导入，所有校验将被绕过。")
+        print("[ts_validator]⚠️ 解析器模块未成功导入，所有校验将被绕过。")
         return True, ""
 
     try:
@@ -146,5 +146,5 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
         return True, ""
     except Exception as e:
         # 任何异常都放行，但在控制台打印警告以便排查环境问题（例如缺少 VC++ 运行库）
-        print(f"[ts_validator] ⚠️ 语法校验被环境异常绕过 (Bypassed): {e}")
+        print(f"[ts_validator]⚠️ 语法校验被环境异常绕过 (Bypassed): {e}")
         return True, ""
