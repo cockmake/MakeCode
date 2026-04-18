@@ -450,12 +450,12 @@ class TaskManager:
         return task
 
     def delete_all_tasks(self, confirm: bool = False, **kwargs) -> dict[str, Any]:
+        if not confirm:
+            raise ValueError("DANGER: Deletion aborted. You must explicitly pass confirm=True to delete all tasks.")
+
         allowed, reason = check_permission("tool", "DeleteAllTasks", "WARNING: Attempting to delete ALL tasks in the topology plan.")
         if not allowed:
             return {"status": "error", "message": f"User Denied Execution. Reason: {reason}"}
-            
-        if not confirm:
-            raise ValueError("DANGER: Deletion aborted. You must explicitly pass confirm=True to delete all tasks.")
             
         self._data["tasks"] = {}
         self._data["next_id"] = 1

@@ -51,8 +51,7 @@ from utils.commands import (
     COMMAND_DESCRIPTIONS,
     SlashCommandCompleter,
     CommandHandler,
-    interactive_choose_checkpoint,
-    interactive_switch_mcp_servers,
+    CommandAction,
 )
 
 console = Console(force_terminal=True)
@@ -531,7 +530,7 @@ if __name__ == "__main__":
                 continue
 
             # 处理命令
-            should_continue, result = command_handler.process_command(
+            command_result = command_handler.process_command(
                 query=query,
                 history=history,
                 current_checkpoint=CURRENT_CHECKPOINT,
@@ -540,29 +539,20 @@ if __name__ == "__main__":
                 render_history_fn=_render_history,
             )
 
-            if not should_continue:
+            if command_result.action == CommandAction.EXIT:
                 break
-
-            if result == "AGENT_LOOP":
-                # 普通用户输入，直接调用 agent_loop
-                history.append({"role": "user", "content": query})
+            elif command_result.action == CommandAction.CONTINUE:
+                continue
+            elif command_result.action == CommandAction.RUN_AGENT:
+                history.append({"role": "user", "content": command_result.payload})
                 agent_loop(history)
-            elif result == "RESET_CHECKPOINT":
-                # /clear 或 /reset：重置 checkpoint（history 已在 handler 中清空）
+            elif command_result.action == CommandAction.RESET_CHECKPOINT:
                 CURRENT_CHECKPOINT = None
-            elif isinstance(result, tuple) and len(result) == 2:
-                # /load 返回的 (new_history, new_checkpoint)：重新绑定 history
-                history, CURRENT_CHECKPOINT = result
-            elif isinstance(result, Path):
-                # result 是新的 checkpoint 路径
-                CURRENT_CHECKPOINT = result
-            elif isinstance(result, str):
-                if result.startswith("/"):
-                    # 来自 COMMAND_DESCRIPTIONS 的命令+描述，调用 agent_loop
-                    history.append({"role": "user", "content": result})
-                    agent_loop(history)
-                else:
-                    # result 是新的 system prompt（来自 /skills-switch）
-                    history[0] = {"role": "system", "content": result}
+            elif command_result.action == CommandAction.LOAD_HISTORY:
+                history, CURRENT_CHECKPOINT = command_result.payload
+            elif command_result.action == CommandAction.UPDATE_CHECKPOINT:
+                CURRENT_CHECKPOINT = command_result.payload
+            elif command_result.action == CommandAction.UPDATE_SYSTEM_PROMPT:
+                history[0] = {"role": "system", "content": command_result.payload}
     finally:
         GLOBAL_MCP_MANAGER.stop()

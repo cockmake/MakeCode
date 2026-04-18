@@ -48,7 +48,7 @@ def interactive_hitl_prompt() -> str:
 
     @kb.add("c-c")
     def _cancel(event):
-        event.app.exit(result="3")  # Ctrl+C 默认视为拒绝
+        event.app.exit(result="abort")  # Ctrl+C 直接中断，不询问原因
 
     def get_formatted_text():
         result = [("class:title", "\n请使用 ↑/↓ 选择操作，Enter 确认:\n")]
@@ -128,5 +128,7 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
             except EOFError:
                 reason = "User aborted the prompt via EOF."
             return False, reason or "User denied without providing a specific reason."
+        elif choice == 'abort':
+            return False, "User aborted the prompt via Ctrl+C."
     
     return False, "Unknown error"

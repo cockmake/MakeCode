@@ -226,11 +226,18 @@ class RunWrite(BaseModel):
 
 
 def run_write(path: str, content: str, agent_access=None) -> str:
-    allowed, reason = check_permission("tool", "RunWrite", path)
-    if not allowed:
-        return f"User Denied Execution. Reason: {reason}"
-
     try:
+        try:
+            validated = RunWrite.model_validate({"path": path, "content": content})
+            path = validated.path
+            content = validated.content
+        except Exception as exc:
+            return f"Error: Invalid arguments provided to RunWrite. {exc}"
+
+        allowed, reason = check_permission("tool", "RunWrite", path)
+        if not allowed:
+            return f"User Denied Execution. Reason: {reason}"
+
         fp = safe_path(path)
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
@@ -324,10 +331,6 @@ class RunEdit(BaseModel):
 
 
 def run_edit(path: str, edits: Any, agent_access=None) -> str:
-    allowed, reason = check_permission("tool", "RunEdit", path)
-    if not allowed:
-        return f"User Denied Execution. Reason: {reason}"
-
     try:
         try:
             validated = RunEdit.model_validate({"path": path, "edits": edits})
@@ -335,6 +338,10 @@ def run_edit(path: str, edits: Any, agent_access=None) -> str:
             parsed_blocks = validated.edits
         except Exception as exc:
             return f"Error: Invalid arguments provided to RunEdit. {exc}"
+
+        allowed, reason = check_permission("tool", "RunEdit", path)
+        if not allowed:
+            return f"User Denied Execution. Reason: {reason}"
 
         fp = safe_path(path)
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)

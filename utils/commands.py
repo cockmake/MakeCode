@@ -2,8 +2,10 @@
 斜杠命令模块 - 负责处理所有内置命令和交互式界面
 """
 import time
+from enum import Enum, auto
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer, Completion
@@ -23,6 +25,21 @@ from init import log_error_traceback
 from utils.memory import list_checkpoints
 from utils.tasks import list_task_plans, load_task_plan
 from utils.teams import list_team_histories, load_team_history
+
+
+class CommandAction(Enum):
+    EXIT = auto()
+    CONTINUE = auto()
+    RUN_AGENT = auto()
+    RESET_CHECKPOINT = auto()
+    UPDATE_CHECKPOINT = auto()
+    LOAD_HISTORY = auto()
+    UPDATE_SYSTEM_PROMPT = auto()
+
+@dataclass
+class CommandResult:
+    action: CommandAction
+    payload: Any = None
 
 
 # ============================================================================
@@ -480,6 +497,9 @@ class CommandHandler:
 
     def handle_clear_reset(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
         """处理 /clear 和 /reset 命令，返回 (should_continue, new_checkpoint)"""
+        from utils.hitl import SESSION_WHITELIST
+        SESSION_WHITELIST.clear()
+        
         history.clear()
         history.append({"role": "system", "content": self.get_system_prompt_fn()})
         self.console.print(
@@ -618,58 +638,53 @@ class CommandHandler:
         render_banner_fn,
         render_hint_fn,
         render_history_fn,
-    ) -> tuple:
+    ) -> CommandResult:
         """
-        处理命令入口，返回 (should_continue, new_checkpoint_or_system_prompt)
-        - should_continue: 是否继续主循环
-        - 返回值: 
-          - 对于退出命令，返回 (False, None)
-          - 对于其他命令，返回 (True, current_checkpoint 或新的 system_prompt)
-          - 对于需要 agent_loop 处理的命令，返回 (True, "AGENT_LOOP")
+        处理命令入口，返回结构化的 CommandResult
         """
         # /quit, /exit - 退出程序
         if query in ["/quit", "/exit"]:
             self.console.print(
                 "\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
             )
-            return False, None
+            return CommandResult(action=CommandAction.EXIT)
 
         # MCP 相关命令
         if query == "/mcp-view":
             self.handle_mcp_view()
-            return True, None
+            return CommandResult(action=CommandAction.CONTINUE)
 
         if query == "/mcp-restart":
             self.handle_mcp_restart()
-            return True, None
+            return CommandResult(action=CommandAction.CONTINUE)
 
         if query == "/mcp-switch":
             self.handle_mcp_switch()
-            return True, None
+            return CommandResult(action=CommandAction.CONTINUE)
 
         # /cmds - 列出命令
         if query == "/cmds":
             self.handle_cmds()
-            return True, None
+            return CommandResult(action=CommandAction.CONTINUE)
 
         # /skills 相关命令
         if query == "/skills-switch":
             new_system = self.handle_skills_switch()
-            return True, new_system
+            return CommandResult(action=CommandAction.UPDATE_SYSTEM_PROMPT, payload=new_system)
 
         if query == "/skills-list":
             self.handle_skills_list()
-            return True, None
+            return CommandResult(action=CommandAction.CONTINUE)
 
         # /clear, /reset - 清空历史
         if query in ["/clear", "/reset"]:
             self.handle_clear_reset(history, current_checkpoint)
-            return True, "RESET_CHECKPOINT"
+            return CommandResult(action=CommandAction.RESET_CHECKPOINT)
 
         # /compact - 压缩上下文
         if query == "/compact":
             _, new_checkpoint = self.handle_compact(history, current_checkpoint)
-            return True, new_checkpoint
+            return CommandResult(action=CommandAction.UPDATE_CHECKPOINT, payload=new_checkpoint)
 
         # /load - 加载历史
         if query == "/load":
@@ -680,10 +695,10 @@ class CommandHandler:
                 render_hint_fn,
                 render_history_fn,
             )
-            return True, (new_history, new_checkpoint)
+            return CommandResult(action=CommandAction.LOAD_HISTORY, payload=(new_history, new_checkpoint))
 
         # 其他命令 - 让 LLM 处理
         # 对于在 COMMAND_DESCRIPTIONS 中的命令，附加描述（与原始逻辑一致）
         if query in COMMAND_DESCRIPTIONS:
-            return True, f"{query} {COMMAND_DESCRIPTIONS[query]}"
-        return True, "AGENT_LOOP"
+            return CommandResult(action=CommandAction.RUN_AGENT, payload=f"{query} {COMMAND_DESCRIPTIONS[query]}")
+        return CommandResult(action=CommandAction.RUN_AGENT, payload=query)
