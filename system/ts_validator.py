@@ -24,7 +24,7 @@ def init_ts_cache():
     提取 .zst 压缩包中的预编译解析器，并设置环境变量强制离线模式。
     """
     is_frozen = getattr(sys, 'frozen', False)
-    
+
     # 1. 定位源目录 (Source)
     if is_frozen:
         src_cache_dir = Path(sys._MEIPASS) / "ts_cache"
@@ -39,7 +39,7 @@ def init_ts_cache():
         dst_cache_dir = Path(sys.executable).parent / "ts_cache"
     else:
         dst_cache_dir = src_cache_dir
-        
+
     dst_cache_dir.mkdir(parents=True, exist_ok=True)
     libs_dir = dst_cache_dir / "libs"
     libs_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +61,7 @@ def init_ts_cache():
         # 忽略已经标记的占位文件，防止死循环解压占位文件自己
         if zst_file.name.startswith(".extracted_"):
             continue
-            
+
         marker = dst_cache_dir / f".extracted_{zst_file.name}"
         if marker.exists():
             continue
@@ -97,7 +97,7 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
         tree = parser.parse(content.encode("utf-8", errors="replace"))
         if tree.root_node.has_error:
             error_msg = f"文件修改后存在语法错误(Syntax error)，已被拦截。检测到语言: {lang}"
-            
+
             # 尝试利用官方 process API 提取详细的诊断报错
             if process and ProcessConfig:
                 try:
@@ -110,28 +110,29 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
                     )
                     result = process(content, config)
                     diagnostics = result.get("diagnostics", [])
-                    
+
                     if diagnostics:
                         error_msg += "\n\n详细错误信息："
                         # 限制最多显示前 5 个核心错误，避免撑爆大模型上下文
                         for diag in diagnostics[:5]:
                             msg = diag.get("message", "Unknown error")
                             span = diag.get("span", {})
-                            
-                            # 兼容不同版本的 span 格式返回
-                            start = span.get("start", {}) if isinstance(span.get("start"), dict) else span
+
+                            # 兼容不同版本的 span 格式返回 (利用 dict 强制转换消除 TypedDict 类型警告)
+                            span_dict = dict(span)
+                            start = span_dict.get("start", {}) if isinstance(span_dict.get("start"), dict) else span_dict
                             line = start.get("line", start.get("start_line", "?"))
                             col = start.get("column", start.get("start_column", "?"))
-                            
+
                             # 注意: tree-sitter 通常从 0 开始索引行号，为模型友好展示建议 +1
                             line_disp = int(line) + 1 if isinstance(line, (int, str)) and str(line).isdigit() else line
-                            
+
                             error_msg += f"\n- 行 {line_disp}, 列 {col}: {msg}"
-                            
+
                         if len(diagnostics) > 5:
                             error_msg += f"\n... (还有 {len(diagnostics) - 5} 个错误未显示)"
                 except Exception:
-                    pass # 提取详细诊断失败不影响拦截，直接返回基础报错
+                    pass  # 提取详细诊断失败不影响拦截，直接返回基础报错
 
             return False, error_msg
 
