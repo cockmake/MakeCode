@@ -8,3 +8,5 @@ Requests
 rich
 tiktoken
 aiofiles
+tree_sitter_language_pack
+pyzstd

@@ -96,7 +96,7 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
 
         tree = parser.parse(content.encode("utf-8", errors="replace"))
         if tree.root_node.has_error:
-            error_msg = f"文件修改后存在语法错误(Syntax error)，已被拦截。检测到语言: {lang}"
+            error_msg = f"检测到语言: {lang}"
 
             # 尝试利用官方 process API 提取详细的诊断报错
             if process and ProcessConfig:
@@ -120,7 +120,8 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
 
                             # 兼容不同版本的 span 格式返回 (利用 dict 强制转换消除 TypedDict 类型警告)
                             span_dict = dict(span)
-                            start = span_dict.get("start", {}) if isinstance(span_dict.get("start"), dict) else span_dict
+                            start = span_dict.get("start", {}) if isinstance(span_dict.get("start"),
+                                                                             dict) else span_dict
                             line = start.get("line", start.get("start_line", "?"))
                             col = start.get("column", start.get("start_column", "?"))
 

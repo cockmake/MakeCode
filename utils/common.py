@@ -260,7 +260,7 @@ def run_write(path: str, content: str, agent_access=None) -> str:
 
             is_valid, err_msg = validate_code(path, content)
             if not is_valid:
-                return f"Success with Warning: 文件已写入，但检测到语法错误，请检查: {err_msg}"
+                return f"Success with Warning: 文件已写入，但检测到语法错误(Syntax error)\n\n{err_msg}"
 
             mtime = GLOBAL_FILE_CONTROLLER.get_real_mtime(fp)
             if agent_access:
@@ -418,7 +418,7 @@ def run_edit(path: str, edits: Any, agent_access=None) -> str:
 
             is_valid, err_msg = validate_code(path, final_text)
             if not is_valid:
-                return f"Edited {path}: 成功应用 {len(parsed_edits)} 个编辑块，但检测到语法错误，请检查: {err_msg}"
+                return f"Edited {path}: 成功应用 {len(parsed_edits)} 个编辑块，但检测到语法错误(Syntax error)\n\n{err_msg}"
 
         return f"Edited {path}: Successfully applied {len(parsed_edits)} edit block(s)."
 
