@@ -128,11 +128,10 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
 
                     if diagnostics:
                         error_msg += "\n\n详细错误信息："
-                        # 限制最多显示前 5 个核心错误，避免撑爆大模型上下文
-                        for diag in diagnostics[:5]:
+                        # 限制最多显示前 3 个核心错误，避免撑爆大模型上下文
+                        for diag in diagnostics[:3]:
                             msg = diag.get("message", "Unknown error")
                             span = diag.get("span", {})
-
                             # 兼容不同版本的 span 格式返回 (利用 dict 强制转换消除 TypedDict 类型警告)
                             span_dict = dict(span)
                             start = span_dict.get("start", {}) if isinstance(span_dict.get("start"),
@@ -145,8 +144,8 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
 
                             error_msg += f"\n- 行 {line_disp}, 列 {col}: {msg}"
 
-                        if len(diagnostics) > 5:
-                            error_msg += f"\n... (还有 {len(diagnostics) - 5} 个错误未显示)"
+                        if len(diagnostics) > 3:
+                            error_msg += f"\n... (还有 {len(diagnostics) - 3} 个错误未显示)"
                 except Exception:
                     pass  # 提取详细诊断失败不影响拦截，直接返回基础报错
 
