@@ -91,7 +91,7 @@ Implementation details:
 - POSIX priority: `bash` / `zsh` / `sh`
 - Terminal command timeout defaults to 120 seconds.
 
-#### 🔒 File Access Control Mechanism (New)
+### 2.4 File Access Control Mechanism (`utils/file_access.py`)
 
 - **Mandatory Read-Before-Edit**: Agents must use `RunRead` before editing a file, otherwise the edit is blocked.
 - **Modification Time Lock Validation**: If a file is modified by another program or agent after being read, `RunEdit` is blocked and prompts for re-reading.
@@ -99,13 +99,24 @@ Implementation details:
 - **Timestamp Diagnostics**: Block error messages include precise millisecond-level UTC timestamps (Last modification / Last read) for easier conflict troubleshooting.
 - **Transactional Dependency Rollback**: `UpdateTaskDependencies` automatically rolls back the dependency list on topology validation failure, maintaining data consistency.
 
-### 2.4 Task Management (`utils/tasks.py`)
+### 2.5 Human-In-The-Loop (HITL) Interceptor 🆕
+
+To guarantee agent execution safety in real engineering environments, the system introduces a Human-In-The-Loop (HITL) interception mechanism:
+
+- **Sensitive Operation Blocks**: By default, file modification actions (`RunEdit`, `RunWrite`) and critical terminal commands (e.g. `npm`, `git`, `rm`, gated by an exclusion whitelist) are intercepted.
+- **TUI Interactive Panel**: A terminal visual intercept panel built with `prompt_toolkit`, allowing the user to use arrow keys to choose either "Allow" or "Reject with feedback".
+- **Concurrency-Safe Queuing**: During multi-sub-agent concurrent execution, the underlying system uses `ContextVar` to trace the identity of the agent triggering the block (e.g. `0:Orchestrator` or `1:Frontend Developer`) across coroutines and threads. A global `threading.Lock` enforces safe rendering of interception requests to avoid UI layout mess.
+- **Sandbox Escape Protection**: Comprehensively catches `Ctrl+C` (`KeyboardInterrupt`) and `EOFError` within the interception panel. When a user forcefully interrupts an interaction, it won't crash the sub-agent to death. Instead, it converts the interruption into a string feedback rejecting the LLM request, letting the agent self-correct properly.
+
+### 2.6 Task Management (`utils/tasks.py`)
 
 TaskManager provides:
 
 - `CreateTask`
 - `UpdateTaskStatus`
 - `UpdateTaskDependencies`
+- `UpdateTaskContent` **(New)**
+- `DeleteAllTasks` **(New, with forced safety confirmation)**
 - `GetTask`
 - `GetRunnableTasks`
 - `GetTaskTable`
@@ -116,8 +127,9 @@ Key characteristics:
 - DAG validation for active tasks to prevent dependency cycles
 - A task is runnable when it is `pending` and all dependencies are completed
 - Each run writes a task-plan file under `.makecode/tasks/`
+- `DeleteAllTasks` provides a one-click topology reset capability, making it easy to start a fresh plan on complex failures.
 
-### 2.5 Concurrent Sub-Agents (`utils/teams.py`)
+### 2.7 Concurrent Sub-Agents (`utils/teams.py`)
 
 The Team module supports:
 
@@ -139,7 +151,7 @@ Runtime artifacts include:
 - Failure records (including LLM output, tool calls, arguments, results, etc.) are formatted and injected into the retry task's context.
 - The new sub-agent can resume from where the previous one left off, avoiding repeated errors.
 
-### 2.6 Skill System (`utils/skills.py`)
+### 2.8 Skill System (`utils/skills.py`)
 
 Supports:
 
@@ -151,16 +163,17 @@ Skill location: `skills/<name>/SKILL.md`. Place your custom skills in this direc
 
 Default behavior: the skills summary injection is enabled by default. When disabled, the UI shows `skills已关闭`, and the skills catalog is no longer appended to orchestrator/sub-agent system prompts.
 
-### 2.7 Conversation Compaction (`utils/memory.py`)
+### 2.9 Conversation Compaction (`utils/memory.py`)
 
 - Provides the `Compact` tool for history compaction.
 - Saves pre-compaction transcripts into `.makecode/transcripts/`.
 - Performs lightweight cleanup of older tool outputs via `micro_compact`.
 - Uses the model to summarize past history and rebuild context.
 
-### 2.8 Centralized Prompt Management (`prompts.py`) (New)
+### 2.10 Centralized Prompt Management (`prompts.py`) (New)
 
-- All LLM prompts are centrally managed in `prompts.py` for easier maintenance and parameterization.
+- **Unified Prompt File**: All LLM system prompts, summarization prompts, and user-guided texts are maintained in a single `prompts.py`.
+- **HITL Defense Cognitive Implant**: Built-in specialized system instructions (for both Sub-Agent and Orchestrator) after interception failures, educating the LLM to understand why "Human-In-The-Loop" rejected its request, prompting the LLM to autonomously adapt rather than retrying blindly.
 - Includes the following prompt generator functions:
   - `get_orchestrator_system_prompt()`: Orchestrator system prompt
   - `get_sub_agent_system_prompt()`: Sub-agent system prompt
@@ -169,18 +182,18 @@ Default behavior: the skills summary injection is enabled by default. When disab
   - `get_summary_system_prompt()` / `get_summary_user_prompt()`: Conversation compaction prompts
   - `get_skill_system_note()`: System note for skill loading
 
-### 2.9 Conversation History and Loading (`/load`)
+### 2.11 Conversation History and Loading (`/load`)
 
 - The `/load` command supports restoring any historical session from a Checkpoint, including the main agent conversation chain and sub-agent execution histories.
 - **Full UI Re-rendering**: After loading a history record, the system automatically clears the screen (`console.clear()`) and re-renders every message (including User inputs, AI text, Tool call intents, and Tool execution results) according to the latest terminal UI styling.
 - **Configuration Anti-Pollution**: When loading a historical Checkpoint, the system automatically syncs the latest System Prompt and global configurations (such as the current date, MCP/Skills toggle status) to prevent them from being overwritten by old data.
 - For sub-agent histories, the system only prompts for loading after the task plan is successfully loaded. If all tasks in the plan are already completed, it automatically skips the prompt.
 
-### 2.10 Sub-Agent Todo Tool (`tools/todo.py`)
+### 2.12 Sub-Agent Todo Tool (`tools/todo.py`)
 
 Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for multi-step task tracking.
 
-### 2.11 MCP Service Integration (`utils/mcp_manager.py`)🆕
+### 2.13 MCP Service Integration (`utils/mcp_manager.py`)🆕
 
 MakeCode supports integrating external tools and services via the **Model Context Protocol (MCP)**, extending the agent's capability boundary.
 
@@ -244,6 +257,7 @@ Agent/
 │  └─ todo.py               # internal todo manager for sub-agents
 ├─ utils/
 │  ├─ llm_client.py         # LLM standard adapter (Chat vs Response API)
+│  ├─ hitl.py               # Human-In-The-Loop interceptor and UI (🆕)
 │  ├─ common.py             # file / terminal / grep primitives
 │  ├─ file_access.py        # file access control and fine-grained concurrency locks
 │  ├─ mcp_manager.py        # MCP service manager, config loading & tool registration 🆕
@@ -275,12 +289,15 @@ flowchart TD
     O --> I["Initialization & Environment\ninit.py"]
 
     O --> C["File / Terminal Tools\nutils/common.py"]
+    O --> H["HITL UI Interceptor\nutils/hitl.py [NEW]"]
     O --> TM["TaskManager\nutils/tasks.py"]
     O --> S["Skills\nutils/skills.py"]
     O --> MM["Memory\nutils/memory.py"]
     O --> T["Team Delegation\nutils/teams.py"]
     O --> MCP["MCP Manager\nutils/mcp_manager.py [NEW]"]
 
+    I --> H
+    H --> C
     C --> W["Workspace Files"]
     C --> X["Terminal Command Execution"]
 
@@ -319,6 +336,7 @@ flowchart TD
 - `init.py` provides workspace selection, environment variable loading, and OpenAI client initialization.
 - `prompts.py` centrally manages all LLM prompts for easier maintenance and parameterization.
 - `utils/common.py` provides file read/write, line-based editing, text search, and terminal command execution.
+- `utils/hitl.py` 🆕 manages secure interception of high-risk commands and destructive operations through a globally queued TUI, complete with trace context for concurrency safety.
 - `utils/file_access.py` implements file access control: mandatory read-before-edit, mtime-lock validation, and fine-grained file-level concurrency locks.
 - `utils/tasks.py` maintains task DAG, state transitions, and runnable frontier.
 - `utils/teams.py` delegates the latest runnable tasks to sub-agents concurrently, collects results, and supports failure context recovery.
