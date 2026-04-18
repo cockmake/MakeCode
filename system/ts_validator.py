@@ -92,6 +92,15 @@ def validate_code(path: str, content: str) -> tuple[bool, str]:
         return True, ""
 
     try:
+        # Ignore plain text / documentation formats to prevent false positive syntax errors
+        IGNORED_EXTS = {
+            ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".adoc",
+            ".gitignore", ".dockerignore", ".eslintignore", ".prettierignore",
+            ".env", ".ini", ".cfg", ".conf"
+        }
+        if Path(path).suffix.lower() in IGNORED_EXTS:
+            return True, ""
+
         lang = detect_language_from_path(path)
         if not lang:
             return True, ""
