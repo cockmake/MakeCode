@@ -34,3 +34,5 @@ dist/
 # Playwright MCP
 .playwright-mcp/
 t.py
+ts_cache/libs
+*.dll

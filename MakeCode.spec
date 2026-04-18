@@ -8,8 +8,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     # 2. 将原来的 datas 列表与 copy_metadata 的结果相加
-    datas=[('tiktoken_cache', 'tiktoken_cache')] + copy_metadata('fastmcp'),
-    hiddenimports=['tiktoken_ext.openai_public', 'tiktoken_ext', 'prompt_toolkit', 'rich'],
+    datas=[('tiktoken_cache', 'tiktoken_cache'), ('ts_cache', 'ts_cache')] + copy_metadata('fastmcp'),
+    hiddenimports=['tiktoken_ext.openai_public', 'tiktoken_ext', 'prompt_toolkit', 'rich', 'pyzstd'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

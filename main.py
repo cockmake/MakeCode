@@ -20,7 +20,7 @@ from rich.text import Text
 from init import WORKDIR, log_error_traceback
 from prompts import get_orchestrator_system_prompt
 # 导入命令模块
-from utils.commands import (
+from system.commands import (
     COMMAND_DESCRIPTIONS,
     SlashCommandCompleter,
     CommandHandler,
@@ -50,6 +50,7 @@ from utils.memory import (
 from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS, TEAM_TOOLS_HANDLERS
+from system.ts_validator import init_ts_cache
 
 console = Console(force_terminal=True)
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -395,6 +396,14 @@ def _render_env_customization_hint():
     )
 
 
+def _init_tree_sitter_cache(console: Console):
+    """初始化 tree-sitter 语言包缓存"""
+    try:
+        init_ts_cache()
+    except Exception as e:
+        console.print(f"[red]⚠️ 语法解析器初始化失败: {e}[/red]")
+
+
 command_completer = SlashCommandCompleter()
 
 
@@ -494,6 +503,9 @@ CURRENT_CHECKPOINT = None
 if __name__ == "__main__":
     _render_startup_banner()
     _render_env_customization_hint()
+
+    # 初始化 tree-sitter 语言包缓存
+    _init_tree_sitter_cache(console)
 
     GLOBAL_MCP_MANAGER.initialize(console=console)
     GLOBAL_MCP_MANAGER.start_background()
