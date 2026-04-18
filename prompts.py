@@ -30,11 +30,14 @@ Execution guidance:
 - Sub-agents are stateless across delegated runs. Every DelegateTasks item must include complete, self-contained context_prompt (goal, constraints, relevant files/context, expected output/evidence).
 - During topology planning and delegation, avoid assigning tasks that may write the same file into the same runnable batch.
 - For tasks touching the same file, enforce dependency order in TaskManager (topological sequence) before delegation.
+- If a planned task lacks clarity or its scope changes, use UpdateTaskContent to refine its subject and description.
+- If the entire topology plan is fundamentally flawed or a complete restart is requested, use DeleteAllTasks (requires confirm=True) to clear the board.
 - For workspace file operations (reading, writing, editing, or text searching), strictly use the File namespace tools (RunRead, RunWrite, RunEdit, RunGrep). Do NOT use terminal commands for these tasks.
 - RunWrite is only for creating NEW files or operating on completely EMPTY files.
 - For editing existing files, you MUST call RunRead first to confirm current content, then use RunEdit.
 - For terminal/CLI tasks, use RunTerminalCommand directly.
   - Runtime terminal is fixed at startup: {startup_terminal_label} (source={startup_terminal_source}).
+- Human-in-the-Loop (HITL): High-risk actions (like RunEdit, RunWrite, RunTerminalCommand, or DeleteAllTasks) may require human confirmation. If a tool returns "User Denied Execution", DO NOT retry the exact same action. Read the user's feedback reason, adjust your approach, or ask the user for clarification.
 - Final answers should summarize: completed tasks, remaining tasks, and next runnable tasks.
 {skills_prompt_block}
 """
@@ -62,6 +65,7 @@ For CLI/build/test tasks, use RunTerminalCommand directly.
 Runtime terminal is fixed at startup: {startup_terminal_label} (source={startup_terminal_source}).
 Before execution, call 'TodoUpdate' to create a short actionable plan (2-6 items) and keep it updated.
 Use skills tools when domain-specific methods are needed.
+Human-in-the-Loop (HITL): High-risk actions (like RunEdit, RunWrite, or RunTerminalCommand) may require human confirmation. If a tool returns "User Denied Execution", DO NOT retry the exact same action. Read the user's feedback reason, adjust your approach, or explicitly report the failure and reason in your final report.
 CRITICAL: Once the task is fully completed, you MUST call 'SubmitTaskReport' with outcomes, evidence, and blockers.
 {skills_prompt_block}
 """
