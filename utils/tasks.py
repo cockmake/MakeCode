@@ -160,6 +160,32 @@ class GetTask(BaseModel):
     task_id: str = Field(..., min_length=1, description="Target task ID.")
 
 
+class UpdateTaskContent(BaseModel):
+    """
+    Update one task's subject and description.
+    Use this when you need to refine the scope or details of an existing task
+    without changing its dependencies or status.
+    Constraints:
+    - task must exist
+    - subject cannot be empty
+    """
+    task_id: str = Field(..., min_length=1, description="Target task ID.")
+    subject: str = Field(..., min_length=1, description="New task title, concise and action-oriented.")
+    description: str = Field(default="", description="New detailed description for the task.")
+
+
+class DeleteAllTasks(BaseModel):
+    """
+    DANGER: Delete ALL tasks in the current topology plan.
+    Use this ONLY when you need to completely restart the planning phase from scratch.
+    You MUST provide confirm=True to execute this action.
+    """
+    confirm: bool = Field(
+        ..., 
+        description="Must be set to True to confirm the deletion of all tasks."
+    )
+
+
 class GetRunnableTasks(BaseModel):
     """
     Get current runnable frontier tasks.
@@ -410,6 +436,35 @@ class TaskManager:
     def get_task(self, task_id: str | int, **kwargs) -> dict[str, Any]:
         return self._task(task_id)
 
+    def update_task_content(self, task_id: str | int, subject: str, description: str = "", **kwargs) -> dict[str, Any]:
+        tid = self._ensure_task_exists(task_id)
+        if not subject.strip():
+            raise ValueError("Task subject cannot be empty.")
+            
+        task = self._data["tasks"][tid]
+        task["subject"] = subject.strip()
+        task["description"] = description
+        self._touch_task(task)
+        self._save()
+        return task
+
+    def delete_all_tasks(self, confirm: bool = False, **kwargs) -> dict[str, Any]:
+        from utils.hitl import check_permission
+        allowed, reason = check_permission("tool", "DeleteAllTasks", "WARNING: Attempting to delete ALL tasks in the topology plan.")
+        if not allowed:
+            return {"status": "error", "message": f"User Denied Execution. Reason: {reason}"}
+            
+        if not confirm:
+            raise ValueError("DANGER: Deletion aborted. You must explicitly pass confirm=True to delete all tasks.")
+            
+        self._data["tasks"] = {}
+        self._data["next_id"] = 1
+        self._data["epic_subject"] = "Main Project Task (Reset)" 
+        self._data["updated_at"] = _now_iso()
+        
+        self._save()
+        return {"status": "success", "message": "All tasks have been permanently deleted."}
+
     # -------- Manager APIs --------
     def get_runnable_tasks(self, **kwargs) -> list[dict[str, Any]]:
         tasks = self._data["tasks"]
@@ -474,8 +529,10 @@ TASK_MANAGER = TaskManager()
 
 TOOLS = [
     pydantic_function_tool(CreateTask),
+    pydantic_function_tool(UpdateTaskContent),
     pydantic_function_tool(UpdateTaskStatus),
     pydantic_function_tool(UpdateTaskDependencies),
+    pydantic_function_tool(DeleteAllTasks),
     pydantic_function_tool(GetTask),
     pydantic_function_tool(GetRunnableTasks),
     pydantic_function_tool(GetTaskTable),
@@ -499,8 +556,10 @@ TASK_MANAGER_TOOLS = [
 
 TASK_MANAGER_TOOLS_HANDLERS = {
     "CreateTask": TASK_MANAGER.create_task,
+    "UpdateTaskContent": TASK_MANAGER.update_task_content,
     "UpdateTaskStatus": TASK_MANAGER.update_task_status,
     "UpdateTaskDependencies": TASK_MANAGER.update_task_dependencies,
+    "DeleteAllTasks": TASK_MANAGER.delete_all_tasks,
     "GetTask": TASK_MANAGER.get_task,
     "GetRunnableTasks": TASK_MANAGER.get_runnable_tasks,
     "GetTaskTable": TASK_MANAGER.get_task_table,
