@@ -1,0 +1,277 @@
+"""
+控制台渲染模块：提供所有与控制台输出相关的渲染函数。
+"""
+import json
+from typing import Any, List
+from init import log_error_traceback
+from rich import box
+from rich.console import Console, Group
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.text import Text
+
+# 创建控制台实例，与 main.py 中的配置保持一致
+console = Console(force_terminal=True)
+
+
+def _stringify_output(output: Any) -> str:
+    """将输出转换为字符串，如果是可序列化的对象则格式化为 JSON"""
+    if isinstance(output, str):
+        return output
+    return json.dumps(output, ensure_ascii=False, indent=2)
+
+
+def _extract_message_text(msg: dict) -> str:
+    """从消息字典中提取文本内容"""
+    content = msg.get("content")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    chunks = [
+        part["text"] for part in content if isinstance(part, dict) and part.get("text")
+    ]
+    return "\n\n".join(chunks).strip()
+
+
+def _format_readable_ui(data: Any, indent_level: int = 0) -> List[Text]:
+    """递归解析结构化数据，将其转换为符合人类直觉的 Rich 组件列表"""
+    renderables = []
+    indent = "  " * indent_level
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, str) and '\n' in value:
+                renderables.append(Text(f"{indent}❖ {key}:", style="bold yellow"))
+                lines = value.split('\n')
+                # 构造类似引用的代码块
+                block_text = Text("\n".join(f"{indent}{line}" for line in lines), style="white")
+                renderables.append(block_text)
+
+            elif isinstance(value, (dict, list)):
+                # 遇到嵌套结构（如 edits 列表）：递归展开
+                renderables.append(Text(f"{indent}❖ {key}:", style="bold yellow"))
+                renderables.extend(_format_readable_ui(value, indent_level + 1))
+
+            else:
+                # 单行普通数值/字符串：直接键值对高亮显示
+                renderables.append(Text.assemble(
+                    (f"{indent}❖ {key}: ", "bold yellow"),
+                    (str(value), "default")
+                ))
+
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            if isinstance(item, (dict, list)):
+                renderables.append(Text(f"{indent}• [Item {i + 1}]", style="bold cyan"))
+                renderables.extend(_format_readable_ui(item, indent_level + 1))
+            else:
+                renderables.append(Text(f"{indent}• {item}", style="default"))
+
+    else:
+        renderables.append(Text(f"{indent}{data}", style="default"))
+
+    return renderables
+
+
+def _render_orchestrator_message(text: str):
+    """渲染 Orchestrator 的消息"""
+    if not text:
+        return
+    console.print(
+        Panel(
+            Markdown(text),
+            title="[bold magenta]🧠 Orchestrator[/bold magenta]",
+            border_style="magenta",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
+def _render_tool_call(name: str, arguments: Any):
+    """渲染工具调用"""
+    display_data = arguments
+    is_complex = False
+
+    # 1. 解析参数
+    if isinstance(arguments, str):
+        stripped = arguments.strip()
+        if stripped and (stripped.startswith('{') or stripped.startswith('[')):
+            try:
+                display_data = json.loads(stripped)
+                is_complex = True
+            except json.JSONDecodeError:
+                pass
+    elif isinstance(arguments, (dict, list)):
+        is_complex = True
+
+    # 2. 渲染 UI
+    if is_complex:
+        # 使用 Group 将列表里的多行元素组合在一起
+        ui_items = _format_readable_ui(display_data)
+        body = Group(*ui_items)
+    else:
+        body = Text(str(display_data))
+
+    # 3. 输出 Panel
+    console.print(
+        Panel(
+            body,
+            title=f"[bold cyan]🛠️ Action: {name}[/bold cyan]",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
+def _render_tool_output(name: str, output: Any):
+    """渲染工具输出"""
+    text = _stringify_output(output).strip()
+
+    is_complex = False
+    display_data = text
+
+    # 尝试判断并解析 JSON 结构
+    if text.startswith("{") or text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, (dict, list)):
+                display_data = parsed
+                is_complex = True
+        except json.JSONDecodeError as exc:
+            log_error_traceback("main render tool output json decode", exc)
+
+    # 渲染 UI
+    if is_complex:
+        # 复用之前写的结构化 UI 生成器
+        ui_items = _format_readable_ui(display_data)
+        body = Group(*ui_items)
+    else:
+        body = Text(text)
+
+    console.print(
+        Panel(
+            body,
+            title=f"[bold green]✅ Result: {name}[/bold green]",
+            border_style="green",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
+def _render_user_message(text: str):
+    """渲染用户消息"""
+    if not text:
+        return
+    console.print(
+        Panel(
+            Text(text),
+            title="[bold green]👤 User[/bold green]",
+            border_style="green",
+            box=box.ROUNDED,
+            padding=(0, 1),
+        )
+    )
+
+
+def _render_history(messages: list):
+    """渲染历史消息"""
+    for msg in messages:
+        role = msg.get("role")
+        if role == "system":
+            continue
+        elif role == "user":
+            _render_user_message(_extract_message_text(msg))
+        elif role == "assistant":
+            content = msg.get("content")
+            if content:
+                _render_orchestrator_message(content)
+
+            tool_calls = msg.get("tool_calls") or []
+            for tc in tool_calls:
+                tc_func = (
+                    tc.get("function", {})
+                    if isinstance(tc, dict)
+                    else getattr(tc, "function", {})
+                )
+                if tc_func:
+                    tc_name = (
+                        tc_func.get("name")
+                        if isinstance(tc_func, dict)
+                        else getattr(tc_func, "name", "")
+                    )
+                    tc_args = (
+                        tc_func.get("arguments")
+                        if isinstance(tc_func, dict)
+                        else getattr(tc_func, "arguments", "")
+                    )
+                    if tc_name:
+                        _render_tool_call(tc_name, tc_args)
+        elif role == "tool" or role == "function":
+            content = msg.get("content") or msg.get("output")
+            name = msg.get("name") or "Tool"
+            if content:
+                _render_tool_output(name, content)
+
+
+def _render_token_usage(
+    messages: list,
+    tools_definition: Any = None,
+    system_prompt: str = "",
+    threshold: int = 80000,
+    estimate_tokens_fn: callable = None,
+):
+    """
+    渲染 token 使用情况。
+    注意：此函数需要外部提供 estimate_tokens 函数，以避免循环导入。
+    如果未提供 estimate_tokens_fn，则无法显示 token 使用情况。
+    """
+    if estimate_tokens_fn is None:
+        # 如果没有提供估算函数，则跳过显示
+        return
+    
+    tokens = estimate_tokens_fn(
+        messages,
+        tools_definition=tools_definition,
+        system_prompt=system_prompt,
+    )
+    pct = (tokens / threshold) * 100
+    color = "green" if pct < 70 else "yellow" if pct < 90 else "red"
+    console.print(
+        f"[{color} dim]📈 Context: {tokens}/{threshold} Tokens ({pct:.1f}%)[/]"
+    )
+
+
+def _render_startup_banner(subtitle: str = ""):
+    """渲染启动横幅"""
+    console.print(
+        Panel(
+            Text("MakeCode Agent", style="bold bright_blue"),  # 简化，原 MAKECODE_ASCII 较长
+            title="[bold white]MakeCode Agent[/bold white]",
+            border_style="bright_blue",
+            box=box.DOUBLE_EDGE,
+            subtitle=subtitle,
+            subtitle_align="center",
+            padding=(1, 4),
+        )
+    )
+
+
+def _render_env_customization_hint():
+    """渲染环境变量自定义提示"""
+    hint_text = (
+        "💡 下次启动前可通过环境变量自定义模型：\n"
+        "MODEL_ID=xxx\nOPENAI_BASE_URL=xxx\nOPENAI_API_KEY=xxx"
+    )
+    console.print(
+        Panel(
+            Text(hint_text, style="bold yellow"),
+            title="[bold yellow]环境变量提示[/bold yellow]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )

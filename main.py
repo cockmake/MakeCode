@@ -51,7 +51,20 @@ from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS, TEAM_TOOLS_HANDLERS
 
-console = Console(force_terminal=True)
+from system.console_render import (
+    _stringify_output,
+    _extract_message_text,
+    _format_readable_ui,
+    _render_orchestrator_message,
+    _render_tool_call,
+    _render_tool_output,
+    _render_user_message,
+    _render_history,
+    _render_token_usage,
+    _render_startup_banner,
+    _render_env_customization_hint,
+    console,
+)
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
 MAKECODE_ASCII = r"""
@@ -108,17 +121,6 @@ BASE_SUPER_TOOLS_HANDLERS = {
 }
 
 
-def _extract_message_text(msg: dict) -> str:
-    content = msg.get("content")
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-    chunks = [
-        part["text"] for part in content if isinstance(part, dict) and part.get("text")
-    ]
-    return "\n\n".join(chunks).strip()
-
 
 def _parse_arguments(arguments: Any) -> dict:
     if isinstance(arguments, dict):
@@ -138,200 +140,6 @@ def _parse_arguments(arguments: Any) -> dict:
     return {}
 
 
-def _stringify_output(output: Any) -> str:
-    if isinstance(output, str):
-        return output
-    return json.dumps(output, ensure_ascii=False, indent=2)
-
-
-def _render_orchestrator_message(text: str):
-    if not text:
-        return
-    console.print(
-        Panel(
-            Markdown(text),
-            title="[bold magenta]🧠 Orchestrator[/bold magenta]",
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-    )
-
-
-def _format_readable_ui(data: Any, indent_level: int = 0) -> list:
-    """递归解析结构化数据，将其转换为符合人类直觉的 Rich 组件列表"""
-    renderables = []
-    indent = "  " * indent_level
-
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if isinstance(value, str) and '\n' in value:
-                renderables.append(Text(f"{indent}❖ {key}:", style="bold yellow"))
-                lines = value.split('\n')
-                # 构造类似引用的代码块
-                block_text = Text("\n".join(f"{indent}{line}" for line in lines), style="white")
-                renderables.append(block_text)
-
-            elif isinstance(value, (dict, list)):
-                # 遇到嵌套结构（如 edits 列表）：递归展开
-                renderables.append(Text(f"{indent}❖ {key}:", style="bold yellow"))
-                renderables.extend(_format_readable_ui(value, indent_level + 1))
-
-            else:
-                # 单行普通数值/字符串：直接键值对高亮显示
-                renderables.append(Text.assemble(
-                    (f"{indent}❖ {key}: ", "bold yellow"),
-                    (str(value), "default")
-                ))
-
-    elif isinstance(data, list):
-        for i, item in enumerate(data):
-            if isinstance(item, (dict, list)):
-                renderables.append(Text(f"{indent}• [Item {i + 1}]", style="bold cyan"))
-                renderables.extend(_format_readable_ui(item, indent_level + 1))
-            else:
-                renderables.append(Text(f"{indent}• {item}", style="default"))
-
-    else:
-        renderables.append(Text(f"{indent}{data}", style="default"))
-
-    return renderables
-
-
-def _render_tool_call(name: str, arguments: Any):
-    display_data = arguments
-    is_complex = False
-
-    # 1. 解析参数
-    if isinstance(arguments, str):
-        stripped = arguments.strip()
-        if stripped and (stripped.startswith('{') or stripped.startswith('[')):
-            try:
-                display_data = json.loads(stripped)
-                is_complex = True
-            except json.JSONDecodeError:
-                pass
-    elif isinstance(arguments, (dict, list)):
-        is_complex = True
-
-    # 2. 渲染 UI
-    if is_complex:
-        # 使用 Group 将列表里的多行元素组合在一起
-        ui_items = _format_readable_ui(display_data)
-        body = Group(*ui_items)
-    else:
-        body = Text(str(display_data))
-
-    # 3. 输出 Panel
-    console.print(
-        Panel(
-            body,
-            title=f"[bold cyan]🛠️ Action: {name}[/bold cyan]",
-            border_style="cyan",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-    )
-
-
-def _render_tool_output(name: str, output: Any):
-    text = _stringify_output(output).strip()
-
-    is_complex = False
-    display_data = text
-
-    # 尝试判断并解析 JSON 结构
-    if text.startswith("{") or text.startswith("["):
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, (dict, list)):
-                display_data = parsed
-                is_complex = True
-        except json.JSONDecodeError as exc:
-            # 保持原有的异常捕获逻辑
-            log_error_traceback("main render tool output json decode", exc)
-
-    # 渲染 UI
-    if is_complex:
-        # 复用之前写的结构化 UI 生成器
-        ui_items = _format_readable_ui(display_data)
-        body = Group(*ui_items)
-    else:
-        body = Text(text)
-
-    console.print(
-        Panel(
-            body,
-            title=f"[bold green]✅ Result: {name}[/bold green]",
-            border_style="green",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-    )
-
-
-def _render_user_message(text: str):
-    if not text:
-        return
-    console.print(
-        Panel(
-            Text(text),
-            title="[bold green]👤 User[/bold green]",
-            border_style="green",
-            box=box.ROUNDED,
-            padding=(0, 1),
-        )
-    )
-
-
-def _render_history(messages: list):
-    for msg in messages:
-        role = msg.get("role")
-        if role == "system":
-            continue
-        elif role == "user":
-            _render_user_message(_extract_message_text(msg))
-        elif role == "assistant":
-            content = msg.get("content")
-            if content:
-                _render_orchestrator_message(content)
-
-            tool_calls = msg.get("tool_calls") or []
-            for tc in tool_calls:
-                tc_func = (
-                    tc.get("function", {})
-                    if isinstance(tc, dict)
-                    else getattr(tc, "function", {})
-                )
-                if tc_func:
-                    tc_name = (
-                        tc_func.get("name")
-                        if isinstance(tc_func, dict)
-                        else getattr(tc_func, "name", "")
-                    )
-                    tc_args = (
-                        tc_func.get("arguments")
-                        if isinstance(tc_func, dict)
-                        else getattr(tc_func, "arguments", "")
-                    )
-                    if tc_name:
-                        _render_tool_call(tc_name, tc_args)
-        elif role == "tool" or role == "function":
-            content = msg.get("content") or msg.get("output")
-            name = msg.get("name") or "Tool"
-            if content:
-                _render_tool_output(name, content)
-
-
-def _render_token_usage(messages: list):
-    tokens = estimate_tokens(
-        messages, tools_definition=get_current_tools_definition(), system_prompt=get_dynamic_system_prompt()
-    )
-    pct = (tokens / THRESHOLD) * 100
-    color = "green" if pct < 70 else "yellow" if pct < 90 else "red"
-    console.print(
-        f"[{color} dim]📈 Context: {tokens}/{THRESHOLD} Tokens ({pct:.1f}%)[/]"
-    )
 
 
 def _request_with_progress(messages: list, current_tools: list):
@@ -363,7 +171,13 @@ def agent_loop(messages: list):
     }
 
     while True:
-        _render_token_usage(messages)
+        _render_token_usage(
+            messages,
+            tools_definition=get_current_tools_definition(),
+            system_prompt=get_dynamic_system_prompt(),
+            threshold=THRESHOLD,
+            estimate_tokens_fn=estimate_tokens,
+        )
 
         try:
             response = _request_with_progress(messages, current_super_tools)
@@ -427,36 +241,6 @@ def agent_loop(messages: list):
             error_msg = f"Error executing auto_compact: {e}."
             console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
 
-
-def _render_startup_banner():
-    subtitle = f"Terminal Environment: [bold]{STARTUP_TERMINAL_LABEL}[/bold] (source={STARTUP_TERMINAL_SOURCE})"
-    console.print(
-        Panel(
-            Text(MAKECODE_ASCII.strip("\n"), style="bold bright_blue"),
-            title="[bold white]MakeCode Agent[/bold white]",
-            border_style="bright_blue",
-            box=box.DOUBLE_EDGE,
-            subtitle=subtitle,
-            subtitle_align="center",
-            padding=(1, 4),
-        )
-    )
-
-
-def _render_env_customization_hint():
-    hint_text = (
-        "💡 下次启动前可通过环境变量自定义模型：\n"
-        "MODEL_ID=xxx\nOPENAI_BASE_URL=xxx\nOPENAI_API_KEY=xxx"
-    )
-    console.print(
-        Panel(
-            Text(hint_text, style="bold yellow"),
-            title="[bold yellow]环境变量提示[/bold yellow]",
-            border_style="yellow",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-    )
 
 
 def _init_tree_sitter_cache(console: Console):
@@ -567,7 +351,8 @@ def _read_user_query(messages: list = None) -> str:
 CURRENT_CHECKPOINT = None
 
 if __name__ == "__main__":
-    _render_startup_banner()
+    subtitle = f"Terminal Environment: [bold]{STARTUP_TERMINAL_LABEL}[/bold] (source={STARTUP_TERMINAL_SOURCE})"
+    _render_startup_banner(subtitle)
     _render_env_customization_hint()
 
     # 初始化 tree-sitter 语言包缓存
