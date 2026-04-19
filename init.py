@@ -328,3 +328,40 @@ except KeyError as exc:
     )
     input("\nPress Enter to exit... (按回车键退出...)")
     sys.exit(1)
+
+import sys
+from shutil import which
+
+SUPPORTED_TERMINAL_TYPES = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
+
+
+def _terminal_exists(terminal: str) -> bool:
+    if terminal == "cmd":
+        return sys.platform == "win32" and bool(which("cmd") or os.getenv("ComSpec"))
+    return which(terminal) is not None
+
+
+def _detect_startup_terminal_type() -> tuple[str | None, str]:
+    """
+    通过硬编码优先级寻找可用的终端环境。
+    返回: (终端名称, 来源标识)
+    """
+    if sys.platform == "win32":
+        # Windows: 优先使用较新的 PowerShell Core，其次 Windows PowerShell，最后 cmd
+        candidates = ["pwsh", "powershell", "cmd"]
+    elif sys.platform == "darwin":
+        # macOS: 从 macOS Catalina 开始，默认终端是 zsh
+        candidates = ["zsh", "bash", "sh"]
+    else:
+        # Linux / 其他 POSIX: 默认 bash 为主
+        candidates = ["bash", "zsh", "sh"]
+
+    for terminal in candidates:
+        if _terminal_exists(terminal):
+            # 因为是硬编码优先级，source 统一标记为 platform-fallback
+            return terminal, "platform-fallback"
+
+    return None, "unavailable"
+
+
+STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE = _detect_startup_terminal_type()

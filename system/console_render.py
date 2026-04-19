@@ -3,15 +3,26 @@
 """
 import json
 from typing import Any, List
-from init import log_error_traceback
+
 from rich import box
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from init import log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
+
 # 创建控制台实例，与 main.py 中的配置保持一致
 console = Console(force_terminal=True)
+
+MAKECODE_ASCII = r"""
+███╗   ███╗ █████╗ ██╗  ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+████╗ ████║██╔══██╗██║ ██╔╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██╔████╔██║███████║█████╔╝ █████╗  ██║     ██║   ██║██║  ██║█████╗
+██║╚██╔╝██║██╔══██║██╔═██╗ ██╔══╝  ██║     ██║   ██║██║  ██║██╔══╝
+██║ ╚═╝ ██║██║  ██║██║  ██╗███████╗╚██████╗╚██████╔╝██████╔╝███████╗
+╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
+"""
 
 
 def _stringify_output(output: Any) -> str:
@@ -218,11 +229,11 @@ def _render_history(messages: list):
 
 
 def _render_token_usage(
-    messages: list,
-    tools_definition: Any = None,
-    system_prompt: str = "",
-    threshold: int = 80000,
-    estimate_tokens_fn: callable = None,
+        messages: list,
+        tools_definition: Any = None,
+        system_prompt: str = "",
+        threshold: int = 80000,
+        estimate_tokens_fn: callable = None,
 ):
     """
     渲染 token 使用情况。
@@ -232,7 +243,7 @@ def _render_token_usage(
     if estimate_tokens_fn is None:
         # 如果没有提供估算函数，则跳过显示
         return
-    
+
     tokens = estimate_tokens_fn(
         messages,
         tools_definition=tools_definition,
@@ -245,12 +256,14 @@ def _render_token_usage(
     )
 
 
-def _render_startup_banner(subtitle: str = ""):
+def _render_startup_banner():
     """渲染启动横幅"""
+    STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
+    subtitle = f"Terminal Environment: [bold]{STARTUP_TERMINAL_LABEL}[/bold] (source={STARTUP_TERMINAL_SOURCE})"
     console.print(
         Panel(
-            Text("MakeCode Agent", style="bold bright_blue"),  # 简化，原 MAKECODE_ASCII 较长
-            title="[bold white]MakeCode Agent[/bold white]",
+            Text(MAKECODE_ASCII.strip("\n"), style="bold bright_blue"),
+            title="[bold white]MakeCode CLI[/bold white]",
             border_style="bright_blue",
             box=box.DOUBLE_EDGE,
             subtitle=subtitle,

@@ -122,7 +122,6 @@ class DelegateTasks(BaseModel):
         return v
 
 
-
 class TeammateManager:
     def __init__(self, team_dir: Path):
         self.dir = team_dir
@@ -287,8 +286,8 @@ class TeammateManager:
                 f"  Task #{t['task_id']} → Role: {t['role_name']}"
             )
         delegation_details = (
-            f"即将并发委派 {len(tasks)} 个子智能体任务:\n"
-            + "\n".join(delegation_summary_lines)
+                f"即将并发委派 {len(tasks)} 个子智能体任务:\n"
+                + "\n".join(delegation_summary_lines)
         )
         allowed, reason = check_permission("tool", "DelegateTasks", delegation_details)
         if not allowed:
@@ -370,7 +369,7 @@ class TeammateManager:
                         plan_task_id, role, prompt, log_file_path, local_async_llm_client
                     )
                     report = sub_result["report"]
-                    
+
                     # 从 report 中解析 COMPLETION_STATUS
                     succeeded = False
                     if "COMPLETION_STATUS: completed" in report:
@@ -380,7 +379,7 @@ class TeammateManager:
                     else:
                         # 如果没有明确的状态，默认为未完成
                         succeeded = False
-                    
+
                     final_plan_status = "completed" if succeeded else "pending"
                     await self._set_plan_task_status(
                         plan_task_id, final_plan_status, lock

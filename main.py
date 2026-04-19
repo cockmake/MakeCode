@@ -9,14 +9,10 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
-from rich import box
-from rich.console import Console, Group
-from rich.markdown import Markdown
-from rich.panel import Panel
+from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn
-from rich.text import Text
 
-from init import WORKDIR, log_error_traceback
+from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_SOURCE, STARTUP_TERMINAL_TYPE
 from prompts import get_orchestrator_system_prompt
 # 导入命令模块
 from system.commands import (
@@ -25,12 +21,20 @@ from system.commands import (
     CommandHandler,
     CommandAction,
 )
+from system.console_render import (
+    _render_orchestrator_message,
+    _render_tool_call,
+    _render_tool_output,
+    _render_history,
+    _render_token_usage,
+    _render_startup_banner,
+    _render_env_customization_hint,
+    console,
+)
 from system.ts_validator import init_ts_cache
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
-    STARTUP_TERMINAL_SOURCE,
-    STARTUP_TERMINAL_TYPE,
     run_edit,
     run_read,
     run_write,
@@ -51,30 +55,7 @@ from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS, TEAM_TOOLS_HANDLERS
 
-from system.console_render import (
-    _stringify_output,
-    _extract_message_text,
-    _format_readable_ui,
-    _render_orchestrator_message,
-    _render_tool_call,
-    _render_tool_output,
-    _render_user_message,
-    _render_history,
-    _render_token_usage,
-    _render_startup_banner,
-    _render_env_customization_hint,
-    console,
-)
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
-
-MAKECODE_ASCII = r"""
-███╗   ███╗ █████╗ ██╗  ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗
-████╗ ████║██╔══██╗██║ ██╔╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
-██╔████╔██║███████║█████╔╝ █████╗  ██║     ██║   ██║██║  ██║█████╗
-██║╚██╔╝██║██╔══██║██╔═██╗ ██╔══╝  ██║     ██║   ██║██║  ██║██╔══╝
-██║ ╚═╝ ██║██║  ██║██║  ██╗███████╗╚██████╗╚██████╔╝██████╔╝███████╗
-╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
-"""
 
 USER_SESSION = None
 
@@ -121,7 +102,6 @@ BASE_SUPER_TOOLS_HANDLERS = {
 }
 
 
-
 def _parse_arguments(arguments: Any) -> dict:
     if isinstance(arguments, dict):
         return arguments
@@ -138,8 +118,6 @@ def _parse_arguments(arguments: Any) -> dict:
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}
-
-
 
 
 def _request_with_progress(messages: list, current_tools: list):
@@ -240,7 +218,6 @@ def agent_loop(messages: list):
             log_error_traceback("Orchestrator auto-compact error", e)
             error_msg = f"Error executing auto_compact: {e}."
             console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
-
 
 
 def _init_tree_sitter_cache(console: Console):
@@ -351,8 +328,7 @@ def _read_user_query(messages: list = None) -> str:
 CURRENT_CHECKPOINT = None
 
 if __name__ == "__main__":
-    subtitle = f"Terminal Environment: [bold]{STARTUP_TERMINAL_LABEL}[/bold] (source={STARTUP_TERMINAL_SOURCE})"
-    _render_startup_banner(subtitle)
+    _render_startup_banner()
     _render_env_customization_hint()
 
     # 初始化 tree-sitter 语言包缓存
@@ -381,7 +357,7 @@ if __name__ == "__main__":
             except (EOFError, KeyboardInterrupt) as exc:
                 log_error_traceback("main user input interrupted", exc)
                 console.print(
-                    "\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
+                    "\n[bold yellow]👋 Exiting MakeCode CLI. Goodbye![/bold yellow]"
                 )
                 break
 

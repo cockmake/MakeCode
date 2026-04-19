@@ -645,7 +645,7 @@ class CommandHandler:
         # /quit, /exit - 退出程序
         if query in ["/quit", "/exit"]:
             self.console.print(
-                "\n[bold yellow]👋 Exiting MakeCode Agent. Goodbye![/bold yellow]"
+                "\n[bold yellow]👋 Exiting MakeCode CLI. Goodbye![/bold yellow]"
             )
             return CommandResult(action=CommandAction.EXIT)
 
