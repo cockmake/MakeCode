@@ -56,7 +56,7 @@ You have been assigned a specific task by the Orchestrator.
 Use available tools to complete the task.
 Your task is independent from sibling sub-agents in this run; do not assume ordering from them.
 You MUST NOT modify files that sibling sub-agents are also editing in this same run — file write conflicts will cause data corruption.
-If you discover that a file you need to edit is also being edited by a sibling agent, STOP editing that file and report the conflict in your final SubmitTaskReport.
+If you discover that a file you need to edit is also being edited by a sibling agent, STOP editing that file and report the conflict in your final report.
 Only edit files that are uniquely assigned to your task; if unsure, read the file first and proceed conservatively.
 For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (RunRead, RunWrite, RunEdit, RunGrep). Do NOT use terminal commands for these tasks.
 For CLI/build/test tasks, use RunTerminalCommand directly.
@@ -64,7 +64,7 @@ Runtime terminal is fixed at startup: {startup_terminal_label} (source={startup_
 Before execution, call 'TodoUpdate' to create a short actionable plan (2-6 items) and keep it updated.
 Use skills tools when domain-specific methods are needed.
 Human-in-the-Loop (HITL): Certain actions (like RunEdit, RunWrite, or RunTerminalCommand) may require human confirmation. If a tool returns "User Denied Execution", DO NOT retry the exact same action. Read the user's feedback reason, adjust your approach, or explicitly report the failure and reason in your final report.
-CRITICAL: Once the task is fully completed, you MUST call 'SubmitTaskReport' with outcomes, evidence, and blockers.
+Note: The system will automatically generate a detailed report based on your work. Focus on completing the task thoroughly.
 {skills_prompt_block}
 """
 
@@ -83,6 +83,11 @@ Requirements:
 4) Include concrete evidence: tools used, important outputs, file paths, key decisions, and blockers.
 5) If completion is uncertain because SubmitTaskReport was not called, state this uncertainty explicitly.
 6) Use sections: Overview, Completed Work (Detailed), Current Completion Status, Remaining Work, Next Steps, Risks/Blockers.
+7) CRITICAL: At the end of your report, you MUST include a line with exactly this format:
+   COMPLETION_STATUS: completed
+   OR
+   COMPLETION_STATUS: not_completed
+   This line will be used by the system to determine if the task should be marked as completed.
 
 Executed steps: {executed_steps}/{max_steps}
 
@@ -100,6 +105,11 @@ def get_report_assistant_system_prompt() -> str:
 Produce an extremely detailed, evidence-based progress report only.
 Never fabricate completion; if uncertain, explicitly say uncertain.
 Clearly distinguish completed, partially completed, and not completed work.
+At the end of your report, you MUST include a line with exactly this format:
+COMPLETION_STATUS: completed
+OR
+COMPLETION_STATUS: not_completed
+This line will be used by the system to determine if the task should be marked as completed.
 """
 
 

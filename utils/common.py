@@ -200,9 +200,14 @@ class RunRead(BaseModel):
     
     Each region in 'regions' should be a dict with 'start' and 'end' keys.
     
-    IMPORTANT: While 'regions' can be None, you should ALWAYS provide specific regions when possible.
-    Reading the entire file is inefficient and may cause context overflow for large files.
-    Estimate the relevant line ranges and provide them in the 'regions' parameter for optimal performance.
+    IMPORTANT PERFORMANCE GUIDELINES:
+    1. Provide specific regions when possible to improve efficiency and reduce context usage.
+    2. PREFER providing MULTIPLE regions in a SINGLE call rather than making multiple separate calls.
+       Example: regions=[{"start":1,"end":100},{"start":200,"end":300},{"start":500,"end":600}]
+    3. Overlapping or adjacent regions will be automatically merged for efficiency.
+    4. This reduces API calls, saves tokens, and improves response time.
+    
+    WORKFLOW: Before calling RunRead, estimate all line ranges you need, then provide them all at once.
     """
 
     path: str = Field(
@@ -210,7 +215,7 @@ class RunRead(BaseModel):
     )
     regions: list[ReadBlock] | None = Field(
         None,
-        description="List of line ranges to read. If None, reads the entire file. IMPORTANT: Always provide specific regions when possible for optimal performance."
+        description="List of line ranges to read. If None, reads the entire file. PREFER: Provide MULTIPLE regions in a SINGLE call rather than multiple separate calls. Example: regions=[{start:1,end:100},{start:200,end:300}]"
     )
 
     @field_validator("regions", mode="before")

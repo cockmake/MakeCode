@@ -122,14 +122,6 @@ class DelegateTasks(BaseModel):
         return v
 
 
-class SubmitTaskReport(BaseModel):
-    """Submit the final detailed report of your work back to the Orchestrator."""
-
-    report: str = Field(
-        ...,
-        description="Detailed explanation of what was accomplished, including findings or blockers.",
-    )
-
 
 class TeammateManager:
     def __init__(self, team_dir: Path):
@@ -275,7 +267,7 @@ class TeammateManager:
 
         formatted_log.append("### END OF PREVIOUS ATTEMPT LOG ###")
         formatted_log.append(
-            "Please resume the task from where it left off, avoiding the errors that caused the previous failure.\n"
+            "Please review the previous agent's work, continue from where it left off, and complete the task.\n"
         )
         return "\n".join(formatted_log)
 
@@ -378,7 +370,17 @@ class TeammateManager:
                         plan_task_id, role, prompt, log_file_path, local_async_llm_client
                     )
                     report = sub_result["report"]
-                    succeeded = sub_result["status"] == "completed"
+                    
+                    # 从 report 中解析 COMPLETION_STATUS
+                    succeeded = False
+                    if "COMPLETION_STATUS: completed" in report:
+                        succeeded = True
+                    elif "COMPLETION_STATUS: not_completed" in report:
+                        succeeded = False
+                    else:
+                        # 如果没有明确的状态，默认为未完成
+                        succeeded = False
+                    
                     final_plan_status = "completed" if succeeded else "pending"
                     await self._set_plan_task_status(
                         plan_task_id, final_plan_status, lock
@@ -408,7 +410,6 @@ class TeammateManager:
                     "task_id": plan_task_id,
                     "role": role,
                     "report": report,
-                    "status": "completed" if succeeded else "failed",
                 }
 
             try:
@@ -430,7 +431,6 @@ class TeammateManager:
                         "task_id": task_id,
                         "role": tasks[idx]["role_name"],
                         "report": f"Error: Sub-agent unhandled exception - {res}.",
-                        "status": "failed",
                     }
                 )
             else:
@@ -452,7 +452,7 @@ class TeammateManager:
                 ),
         ):
             final_combined_report += (
-                f"==== Task #{item['task_id']} | Role: {item['role']} | Status: {item['status']} ====\n"
+                f"==== Task #{item['task_id']} | Role: {item['role']} ====\n"
                 f"{item['report']}\n\n"
             )
 
@@ -499,7 +499,6 @@ class TeammateManager:
             COMMON_TOOLS
             + SKILL_TOOLS
             + TODO_TOOLS
-            + [pydantic_function_tool(SubmitTaskReport)]
             + GLOBAL_MCP_MANAGER.get_tools()
         )
         agent_access = AgentFileAccess()
@@ -521,9 +520,10 @@ class TeammateManager:
         }
         max_steps = 40
 
-        async def _build_incomplete_report(
+        async def _build_completion_report(
                 stop_reason: str, executed_steps: int
         ) -> str:
+            """生成详细的完成报告，并判断是否应该标记为 completed"""
             todo_snapshot = local_todo.render()
             messages_text = json.dumps(
                 messages, ensure_ascii=False, default=str, indent=2
@@ -554,14 +554,14 @@ class TeammateManager:
                 )
 
             return (
-                "Sub-agent stopped before formal completion and fallback summary generation failed.\n\n"
+                "Sub-agent stopped and fallback summary generation failed.\n\n"
                 f"Stop reason: {stop_reason}\n"
                 f"Executed steps: {executed_steps}/{max_steps}\n\n"
-                "The task is not complete. Continue from existing todo states and submit a final report."
+                "COMPLETION_STATUS: not_completed\n"
+                "The task is not complete. Continue from existing todo states."
             )
 
-        final_report = "Error: Sub-agent terminated without submitting a report."
-        stop_reason = "step_limit_exhausted_without_submit"
+        stop_reason = "step_limit_exhausted"
 
         for step in range(max_steps):  # 最大 max_steps 步限制
             try:
@@ -572,10 +572,12 @@ class TeammateManager:
             except Exception as e:
                 log_error_traceback(f"Sub-agent API generation error (Role: {role})", e)
                 await append_trace("api_error", str(e))
-                return {
-                    "status": "failed",
-                    "report": f"API Error in sub-agent: {e}.",
-                }
+                # API 错误也走兜底总结
+                final_report = await _build_completion_report(
+                    stop_reason=f"api_error: {e}", executed_steps=step
+                )
+                await append_trace("task_error", final_report)
+                return {"report": final_report}
 
             text_content, tool_calls, raw_message = (
                 local_async_llm_client.parse_response(response)
@@ -590,28 +592,12 @@ class TeammateManager:
             )
 
             has_tool_call = len(tool_calls) > 0
-            task_completed = False
 
+            # 处理工具调用
             for tc in tool_calls:
                 tool_name = tc["name"]
                 tool_id = tc["id"]
                 tool_args = tc["arguments"]
-
-                if tool_name == "SubmitTaskReport":
-                    if isinstance(tool_args, str):
-                        args = json.loads(tool_args) if tool_args.strip() else {}
-                    else:
-                        args = tool_args or {}
-                    final_report = args.get("report", "No report provided.")
-                    await append_trace("task_completed", final_report)
-                    task_completed = True
-                    # Need to append the tool result to close the tool call loop even if breaking
-                    messages.append(
-                        local_async_llm_client.format_tool_result(
-                            tool_id, tool_name, "Task submitted"
-                        )
-                    )
-                    break
 
                 try:
                     handler = sub_handlers.get(tool_name)
@@ -647,18 +633,22 @@ class TeammateManager:
                     )
                 )
 
-            if task_completed or not has_tool_call:
-                if not task_completed and not has_tool_call:
-                    stop_reason = "model_returned_no_tool_call_before_submit"
+            # 检查是否应该跳出循环
+            if not has_tool_call:
+                stop_reason = "model_returned_no_tool_call"
                 break
 
-        if final_report.startswith("Error:"):
-            final_report = await _build_incomplete_report(
-                stop_reason=stop_reason, executed_steps=max_steps
-            )
-            await append_trace("task_incomplete", final_report)
-            return {"status": "failed", "report": final_report}
-        return {"status": "completed", "report": final_report}
+            # 如果达到最大步数
+            if step == max_steps - 1:
+                stop_reason = "step_limit_exhausted"
+                break
+
+        # 所有情况都走兜底总结机制
+        final_report = await _build_completion_report(
+            stop_reason=stop_reason, executed_steps=step + 1
+        )
+        await append_trace("task_completed", final_report)
+        return {"report": final_report}
 
 
 TEAM = TeammateManager(TEAM_DIR)
