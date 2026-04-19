@@ -13,9 +13,9 @@ from openai import pydantic_function_tool
 from pydantic import BaseModel, Field, model_validator, field_validator
 
 from init import WORKDIR, log_error_traceback
+from system.ts_validator import validate_code
 from utils.file_access import GLOBAL_FILE_CONTROLLER
 from utils.hitl import check_permission
-from system.ts_validator import validate_code
 
 
 def safe_path(p: str) -> Path:
@@ -165,7 +165,6 @@ def run_terminal_command(command: str) -> str:
         return f"Error executing command: {e}"
 
 
-
 class ReadBlock(BaseModel):
     """A block specifying a line range to read from a file."""
     start: int = Field(
@@ -210,18 +209,23 @@ class RunRead(BaseModel):
         ..., description="Path to the file to read, relative to workspace."
     )
     regions: list[ReadBlock] | None = Field(
-        None, description="List of line ranges to read. If None, reads the entire file. IMPORTANT: Always provide specific regions when possible for optimal performance."
+        None,
+        description="List of line ranges to read. If None, reads the entire file. IMPORTANT: Always provide specific regions when possible for optimal performance."
     )
 
     @field_validator("regions", mode="before")
     @classmethod
     def parse_stringified_regions(cls, v: Any) -> Any:
         if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+            if v.lower() in {"none", "null"}:
+                return None
             try:
-                v = v.strip()
-                if not v:
-                    return v
                 parsed = json.loads(v)
+                if parsed is None:
+                    return None
                 if isinstance(parsed, list):
                     return parsed
             except json.JSONDecodeError:
@@ -245,10 +249,10 @@ def merge_intervals(intervals: list[list[int]]) -> list[list[int]]:
     """
     if not intervals:
         return []
-    
+
     # 按起始位置排序
     intervals.sort(key=lambda x: x[0])
-    
+
     # 合并重叠/相邻区间
     merged = [intervals[0]]
     for curr in intervals[1:]:
@@ -257,15 +261,15 @@ def merge_intervals(intervals: list[list[int]]) -> list[list[int]]:
             prev[1] = max(prev[1], curr[1])
         else:
             merged.append(curr)
-    
+
     return merged
+
+
 def run_read(
         path: str, regions: list[dict] | None = None, agent_access=None
 ) -> str:
     try:
         try:
-            if regions == "None":
-                regions = None
             validated = RunRead.model_validate({"path": path, "regions": regions})
             path = validated.path
             regions = validated.regions
@@ -299,31 +303,31 @@ def run_read(
             for region in regions:
                 s = region.start
                 e = region.end
-                
+
                 # 边界约束
                 s = max(1, s)
                 e = min(total_lines, e)
-                
+
                 if s <= e:
                     intervals.append([s, e])
-            
+
             if not intervals:
                 return f"File: {path}, Total lines: {total_lines}\n(No valid lines to read)"
-            
+
             # 合并区间
             merged = merge_intervals(intervals)
-            
+
             # 收集行号
             line_numbers = []
             for s, e in merged:
                 line_numbers.extend(range(s, e + 1))
-            
+
             if not line_numbers:
                 return f"File: {path}, Total lines: {total_lines}\n(No valid lines to read)"
-            
+
             # 格式化输出
             formatted_lines = [f"{n}: {lines[n - 1]}" for n in line_numbers]
-            
+
             return f"File: {path}, Total lines: {total_lines}\n" + "\n".join(formatted_lines)
         else:
             # 读取整个文件
@@ -392,8 +396,6 @@ def run_write(path: str, content: str, agent_access=None) -> str:
     except Exception as e:
         log_error_traceback("RunWrite execution", e)
         return f"Error: {e}"
-
-
 
 
 class EditBlock(BaseModel):
