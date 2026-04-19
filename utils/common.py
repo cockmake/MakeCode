@@ -25,6 +25,19 @@ def safe_path(p: str) -> Path:
     return path
 
 
+def _is_binary_file(filepath: Path) -> bool:
+    """Check if a file is likely binary by inspecting its first 1024 bytes for a null byte."""
+    try:
+        with open(filepath, "rb") as f:
+            chunk = f.read(1024)
+            if b"\0" in chunk:
+                return True
+        return False
+    except Exception as exc:
+        log_error_traceback("RunGrep binary file check", exc)
+        return True
+
+
 SUPPORTED_TERMINAL_TYPES = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
 
 
@@ -187,13 +200,17 @@ class RunRead(BaseModel):
     - If 'regions' is provided, reads only the specified line ranges.
     
     Each region in 'regions' should be a dict with 'start' and 'end' keys.
+    
+    IMPORTANT: While 'regions' can be None, you should ALWAYS provide specific regions when possible.
+    Reading the entire file is inefficient and may cause context overflow for large files.
+    Estimate the relevant line ranges and provide them in the 'regions' parameter for optimal performance.
     """
 
     path: str = Field(
         ..., description="Path to the file to read, relative to workspace."
     )
     regions: list[ReadBlock] | None = Field(
-        None, description="List of line ranges to read. If None, reads the entire file."
+        None, description="List of line ranges to read. If None, reads the entire file. IMPORTANT: Always provide specific regions when possible for optimal performance."
     )
 
     @field_validator("regions", mode="before")
@@ -247,6 +264,8 @@ def run_read(
 ) -> str:
     try:
         try:
+            if regions == "None":
+                regions = None
             validated = RunRead.model_validate({"path": path, "regions": regions})
             path = validated.path
             regions = validated.regions
@@ -258,6 +277,10 @@ def run_read(
         with file_lock:
             if not fp.exists():
                 return f"Error: File {path} not found."
+
+            # 检查是否为二进制文件，防止读取二进制文件
+            if _is_binary_file(fp):
+                return f"Error: File {path} appears to be a binary file and cannot be read as text."
 
             # 显式指定 utf-8 编码，并使用 replace 处理无法解码的字节，防止读取崩溃
             text = fp.read_text(encoding="utf-8", errors="replace")
@@ -285,7 +308,7 @@ def run_read(
                     intervals.append([s, e])
             
             if not intervals:
-                return f"Total lines: {total_lines}\n(No valid lines to read)"
+                return f"File: {path}, Total lines: {total_lines}\n(No valid lines to read)"
             
             # 合并区间
             merged = merge_intervals(intervals)
@@ -296,16 +319,16 @@ def run_read(
                 line_numbers.extend(range(s, e + 1))
             
             if not line_numbers:
-                return f"Total lines: {total_lines}\n(No valid lines to read)"
+                return f"File: {path}, Total lines: {total_lines}\n(No valid lines to read)"
             
             # 格式化输出
             formatted_lines = [f"{n}: {lines[n - 1]}" for n in line_numbers]
             
-            return f"Total lines: {total_lines}\n" + "\n".join(formatted_lines)
+            return f"File: {path}, Total lines: {total_lines}\n" + "\n".join(formatted_lines)
         else:
             # 读取整个文件
             formatted_lines = [f"{i + 1}: {line}" for i, line in enumerate(lines)]
-            return f"Total lines: {total_lines}\n" + "\n".join(formatted_lines)
+            return f"File: {path}, Total lines: {total_lines}\n" + "\n".join(formatted_lines)
     except Exception as e:
         log_error_traceback("RunRead execution", e)
         return f"Error: {e}"
@@ -546,19 +569,6 @@ class RunGrep(BaseModel):
         default="*",
         description="File name pattern to filter files. Supports glob patterns with pipe separation for multiple patterns, e.g., '*.py', '*.py|*.js|*.vue'. Defaults to '*' (all text files).",
     )
-
-
-def _is_binary_file(filepath: Path) -> bool:
-    """Check if a file is likely binary by inspecting its first 1024 bytes for a null byte."""
-    try:
-        with open(filepath, "rb") as f:
-            chunk = f.read(1024)
-            if b"\0" in chunk:
-                return True
-        return False
-    except Exception as exc:
-        log_error_traceback("RunGrep binary file check", exc)
-        return True
 
 
 def run_grep(

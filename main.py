@@ -10,11 +10,10 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich import box
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn
-from rich.syntax import Syntax
 from rich.text import Text
 
 from init import WORKDIR, log_error_traceback
@@ -26,6 +25,7 @@ from system.commands import (
     CommandHandler,
     CommandAction,
 )
+from system.ts_validator import init_ts_cache
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
@@ -50,7 +50,6 @@ from utils.memory import (
 from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM_TOOLS, TEAM_TOOLS_HANDLERS
-from system.ts_validator import init_ts_cache
 
 console = Console(force_terminal=True)
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -159,62 +158,112 @@ def _render_orchestrator_message(text: str):
     )
 
 
+def _format_readable_ui(data: Any, indent_level: int = 0) -> list:
+    """递归解析结构化数据，将其转换为符合人类直觉的 Rich 组件列表"""
+    renderables = []
+    indent = "  " * indent_level
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, str) and '\n' in value:
+                renderables.append(Text(f"{indent}❖ {key}:", style="bold yellow"))
+                lines = value.split('\n')
+                # 构造类似引用的代码块
+                block_text = Text("\n".join(f"{indent}{line}" for line in lines), style="white")
+                renderables.append(block_text)
+
+            elif isinstance(value, (dict, list)):
+                # 遇到嵌套结构（如 edits 列表）：递归展开
+                renderables.append(Text(f"{indent}❖ {key}:", style="bold yellow"))
+                renderables.extend(_format_readable_ui(value, indent_level + 1))
+
+            else:
+                # 单行普通数值/字符串：直接键值对高亮显示
+                renderables.append(Text.assemble(
+                    (f"{indent}❖ {key}: ", "bold yellow"),
+                    (str(value), "default")
+                ))
+
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            if isinstance(item, (dict, list)):
+                renderables.append(Text(f"{indent}• [Item {i + 1}]", style="bold cyan"))
+                renderables.extend(_format_readable_ui(item, indent_level + 1))
+            else:
+                renderables.append(Text(f"{indent}• {item}", style="default"))
+
+    else:
+        renderables.append(Text(f"{indent}{data}", style="default"))
+
+    return renderables
+
+
 def _render_tool_call(name: str, arguments: Any):
-    # 美化参数显示，但不改变原始参数
-    display_args = arguments
+    display_data = arguments
+    is_complex = False
+
+    # 1. 解析参数
     if isinstance(arguments, str):
-        # 尝试解析字符串参数以便格式化显示
         stripped = arguments.strip()
         if stripped and (stripped.startswith('{') or stripped.startswith('[')):
             try:
-                parsed = json.loads(stripped)
-                # 解析成功，使用解析后的数据进行格式化显示
-                display_args = parsed
+                display_data = json.loads(stripped)
+                is_complex = True
             except json.JSONDecodeError:
-                # 解析失败，保持原样
                 pass
-    
-    body = (
-        Syntax(
-            json.dumps(display_args, ensure_ascii=False, indent=2),
-            "json",
-            word_wrap=True,
-            theme="monokai",
-        )
-        if isinstance(display_args, (dict, list))
-        else Text(str(display_args))
-    )
+    elif isinstance(arguments, (dict, list)):
+        is_complex = True
+
+    # 2. 渲染 UI
+    if is_complex:
+        # 使用 Group 将列表里的多行元素组合在一起
+        ui_items = _format_readable_ui(display_data)
+        body = Group(*ui_items)
+    else:
+        body = Text(str(display_data))
+
+    # 3. 输出 Panel
     console.print(
         Panel(
             body,
             title=f"[bold cyan]🛠️ Action: {name}[/bold cyan]",
             border_style="cyan",
-            box=box.ROUNDED,
+            box=box.ROUNDED
         )
     )
 
+
 def _render_tool_output(name: str, output: Any):
     text = _stringify_output(output).strip()
+
+    is_complex = False
+    display_data = text
+
+    # 尝试判断并解析 JSON 结构
     if text.startswith("{") or text.startswith("["):
         try:
             parsed = json.loads(text)
-            body = Syntax(
-                json.dumps(parsed, ensure_ascii=False, indent=2),
-                "json",
-                word_wrap=True,
-                theme="monokai",
-            )
+            if isinstance(parsed, (dict, list)):
+                display_data = parsed
+                is_complex = True
         except json.JSONDecodeError as exc:
+            # 保持原有的异常捕获逻辑
             log_error_traceback("main render tool output json decode", exc)
-            body = Text(text)
+
+    # 渲染 UI
+    if is_complex:
+        # 复用之前写的结构化 UI 生成器
+        ui_items = _format_readable_ui(display_data)
+        body = Group(*ui_items)
     else:
-        body = Text(text, style="dim")
+        body = Text(text)
+
     console.print(
         Panel(
             body,
             title=f"[bold green]✅ Result: {name}[/bold green]",
             border_style="green",
-            box=box.ROUNDED,
+            box=box.ROUNDED
         )
     )
 
@@ -485,7 +534,8 @@ def _read_user_query(messages: list = None) -> str:
         "\n[dim]💡 Tip: Press [bold]Enter[/bold] to send, [bold]Ctrl+N[/bold] for newline.[/dim]"
     )
 
-    rprompt = []
+    # 将 rprompt 变量名改为 bottom_toolbar
+    bottom_toolbar_content = None
     if messages is not None:
         tokens = estimate_tokens(
             messages,
@@ -494,7 +544,8 @@ def _read_user_query(messages: list = None) -> str:
         )
         pct = (tokens / THRESHOLD) * 100
         color = "ansigreen" if pct < 70 else "ansiyellow" if pct < 90 else "ansired"
-        rprompt = [(f"fg:{color}", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) ")]
+        # 组装 toolbar 内容
+        bottom_toolbar_content = [(f"fg:{color}", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) ")]
 
     try:
         with patch_stdout():
@@ -503,7 +554,8 @@ def _read_user_query(messages: list = None) -> str:
                     ("class:prompt", "🤖 User "),
                     ("class:arrow", "❯❯ "),
                 ],
-                rprompt=rprompt,
+                # 原来的 rprompt=rprompt 替换为 bottom_toolbar
+                bottom_toolbar=bottom_toolbar_content,
             )
     except Exception as exc:
         log_error_traceback("main user input prompt failure", exc)
