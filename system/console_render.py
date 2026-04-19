@@ -33,6 +33,12 @@ def toggle_sub_agent_console() -> bool:
     SHOW_SUB_AGENT_CONSOLE = not SHOW_SUB_AGENT_CONSOLE
     return SHOW_SUB_AGENT_CONSOLE
 
+
+def get_sub_agent_console():
+    """获取当前 Sub-Agent 控制台输出状态"""
+    return SHOW_SUB_AGENT_CONSOLE
+
+
 MAKECODE_ASCII = r"""
 ███╗   ███╗ █████╗ ██╗  ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗
 ████╗ ████║██╔══██╗██║ ██╔╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝

@@ -29,7 +29,7 @@ from system.console_render import (
     _render_agent_response_message,
     _render_tool_call,
     _render_tool_output,
-    SHOW_SUB_AGENT_CONSOLE,
+    get_sub_agent_console,
 )
 from tools.todo import TodoManager, TODO_TOOLS
 from utils.common import (
@@ -603,8 +603,7 @@ class TeammateManager:
             )
 
             # 回显子智能体的文本回复到主控制台（如果启用）
-
-            if text_content and SHOW_SUB_AGENT_CONSOLE:
+            if get_sub_agent_console():
                 kw_args = {
                     'identity': f"Sub-Agent - #{plan_task_id} - {role}",
                     'text': text_content,
@@ -621,7 +620,7 @@ class TeammateManager:
                 tool_id = tc["id"]
                 tool_args = tc["arguments"]
                 # 回显工具调用参数到主控制台（如果启用）
-                if SHOW_SUB_AGENT_CONSOLE:
+                if get_sub_agent_console():
                     kw_args = {
                         'identity': f"Sub-Agent - #{plan_task_id} - {role}",
                         'name': tool_name,
@@ -651,7 +650,7 @@ class TeammateManager:
                     )
                     output = f"Error: {e}."
                 # 回显工具输出结果到主控制台（如果启用）
-                if SHOW_SUB_AGENT_CONSOLE:
+                if get_sub_agent_console():
                     kw_args = {
                         'identity': f"Sub-Agent - #{plan_task_id} - {role}",
                         'name': tool_name,
