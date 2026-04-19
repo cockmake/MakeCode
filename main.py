@@ -228,7 +228,8 @@ def _render_tool_call(name: str, arguments: Any):
             body,
             title=f"[bold cyan]🛠️ Action: {name}[/bold cyan]",
             border_style="cyan",
-            box=box.ROUNDED
+            box=box.ROUNDED,
+            padding=(1, 2),
         )
     )
 
@@ -263,7 +264,8 @@ def _render_tool_output(name: str, output: Any):
             body,
             title=f"[bold green]✅ Result: {name}[/bold green]",
             border_style="green",
-            box=box.ROUNDED
+            box=box.ROUNDED,
+            padding=(1, 2),
         )
     )
 
