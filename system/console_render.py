@@ -120,7 +120,7 @@ def _render_agent_response_message(text: str, identity: str = "🧠 Orchestrator
     else:
         time_str = ""
     
-    title = f"[bold magenta] {identity}{time_str} [/bold magenta] "
+    title = f"[bold magenta] {identity} {time_str} [/bold magenta] "
     
     console.print(
         Panel(
