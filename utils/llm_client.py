@@ -153,23 +153,10 @@ class ResponseAPIClient(BaseLLMClient):
         # Response API expects each output item to be appended directly
         for item in raw_message:
             msg_dict = (
-                item.model_dump(exclude_none=True)
+                item.model_dump(exclude_none=False)
                 if hasattr(item, "model_dump")
                 else dict(item)
             )
-
-            # Defend against LLM generating malformed JSON arguments
-            if msg_dict.get("type") == "function_call" and "arguments" in msg_dict:
-                args = msg_dict["arguments"]
-                if isinstance(args, str):
-                    try:
-                        json.loads(args)
-                    except json.JSONDecodeError as exc:
-                        log_error_traceback(
-                            "ResponseAPI malformed function arguments", exc
-                        )
-                        msg_dict["arguments"] = "{}"
-
             messages.append(msg_dict)
 
     def format_tools(self, pydantic_tools: list) -> list:
@@ -243,27 +230,10 @@ class ChatAPIClient(BaseLLMClient):
     def append_assistant_message(self, messages: list, raw_message: any):
         # Standard Chat API requires the assistant message to be appended exactly as it is (including tool_calls)
         msg_dict = (
-            raw_message.model_dump(exclude_none=True)
+            raw_message.model_dump(exclude_none=False)
             if hasattr(raw_message, "model_dump")
             else dict(raw_message)
         )
-
-        # Defend against LLM generating malformed JSON in tool call arguments.
-        # If we send malformed JSON back in the history, many backends (e.g. vLLM, Ollama) will crash with a 400 Bad Request ("Extra data").
-        if msg_dict.get("tool_calls"):
-            for tc in msg_dict["tool_calls"]:
-                if tc.get("type") == "function" and "function" in tc:
-                    args = tc["function"].get("arguments")
-                    if isinstance(args, str):
-                        try:
-                            json.loads(args)
-                        except json.JSONDecodeError as exc:
-                            log_error_traceback(
-                                "ChatAPI malformed function arguments", exc
-                            )
-                            # Replace malformed arguments with empty JSON to prevent backend crash on next turn
-                            tc["function"]["arguments"] = "{}"
-
         messages.append(msg_dict)
 
     def format_tools(self, pydantic_tools: list) -> list:
