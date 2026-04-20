@@ -107,8 +107,17 @@ def run_terminal_command(command: str) -> str:
             log_error_traceback("RunTerminalCommand utf8 decode fallback", exc)
             sys_encoding = locale.getpreferredencoding()
             out = raw_output.decode(sys_encoding, errors="replace").strip()
-        MAX_LINES = 300
-        out = "\n".join(out.splitlines()[-MAX_LINES:])
+        # 智能截断：保留开头50行 + 结尾250行，避免丢失关键信息
+        HEAD_LINES = 50
+        TAIL_LINES = 250
+        lines = out.splitlines()
+        if len(lines) > HEAD_LINES + TAIL_LINES:
+            omitted = len(lines) - HEAD_LINES - TAIL_LINES
+            out = (
+                "\n".join(lines[:HEAD_LINES])
+                + f"\n\n... (省略 {omitted} 行) ...\n\n"
+                + "\n".join(lines[-TAIL_LINES:])
+            )
         terminal_meta = f"{resolved_terminal}, source={STARTUP_TERMINAL_SOURCE}"
         return (
             out
