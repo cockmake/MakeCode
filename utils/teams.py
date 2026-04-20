@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -576,10 +577,12 @@ class TeammateManager:
 
         for step in range(max_steps):  # 最大 max_steps 步限制
             try:
+                start_time = time.perf_counter()
                 response = await local_async_llm_client.generate(
                     messages=messages,
                     tools=sub_agent_tools,
                 )
+                response_time = time.perf_counter() - start_time
             except Exception as e:
                 log_error_traceback(f"Sub-agent API generation error (Role: {role})", e)
                 await append_trace("api_error", str(e))
@@ -607,6 +610,7 @@ class TeammateManager:
                 kw_args = {
                     'identity': f"Sub-Agent - #{plan_task_id} - {role}",
                     'text': text_content,
+                    'response_time': response_time,
                 }
                 await asyncio.to_thread(
                     _safe_render, _render_agent_response_message, **kw_args

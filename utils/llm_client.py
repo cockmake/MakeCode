@@ -158,7 +158,7 @@ class ResponseAPIClient(BaseLLMClient):
         # Response API expects each output item to be appended directly
         for item in raw_message:
             msg_dict = (
-                item.model_dump(exclude_none=True)
+                item.model_dump()
                 if hasattr(item, "model_dump")
                 else dict(item)
             )
@@ -246,7 +246,7 @@ class ChatAPIClient(BaseLLMClient):
     def append_assistant_message(self, messages: list, raw_message: any):
         # Standard Chat API requires the assistant message to be appended exactly as it is (including tool_calls)
         msg_dict = (
-            raw_message.model_dump(exclude_none=True)
+            raw_message.model_dump()
             if hasattr(raw_message, "model_dump")
             else dict(raw_message)
         )

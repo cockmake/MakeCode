@@ -109,14 +109,23 @@ def _format_readable_ui(data: Any, indent_level: int = 0) -> List[Text]:
     return renderables
 
 
-def _render_agent_response_message(text: str, identity: str = "🧠 Orchestrator"):
+def _render_agent_response_message(text: str, identity: str = "🧠 Orchestrator", response_time: float = None):
     """渲染 Orchestrator 的消息"""
     if not text:
         return
+    
+    # 构建标题，包含响应时间（如果提供）
+    if response_time is not None:
+        time_str = f"({response_time:.2f}s)"
+    else:
+        time_str = ""
+    
+    title = f"[bold magenta] {identity}{time_str} [/bold magenta] "
+    
     console.print(
         Panel(
             Markdown(text),
-            title=f"[bold magenta] {identity} [/bold magenta]",
+            title=title,
             border_style="magenta",
             box=box.ROUNDED,
             padding=(1, 2),

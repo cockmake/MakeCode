@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import sys
+import time
 from typing import Any
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -158,7 +159,9 @@ def agent_loop(messages: list):
         )
 
         try:
+            start_time = time.perf_counter()
             response = _request_with_progress(messages, current_super_tools)
+            response_time = time.perf_counter() - start_time
         except Exception as e:
             log_error_traceback("Orchestrator generation error", e)
             error_msg = f"Error during agent execution: {e}."
@@ -170,7 +173,7 @@ def agent_loop(messages: list):
         has_tool_call = len(tool_calls) > 0
 
         if text_content:
-            _render_agent_response_message(text_content)
+            _render_agent_response_message(text_content, response_time=response_time)
 
         for tc in tool_calls:
             tool_name = tc["name"]
