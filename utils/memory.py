@@ -6,10 +6,13 @@ from pathlib import Path
 
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
-
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.live import Live
 from init import WORKDIR
 from utils.llm_client import llm_client
 
+_compact_console = Console()
 THRESHOLD = 1024 * 128
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
@@ -170,23 +173,42 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
         HTML(f"<ansiyellow>[Transcript saved to: {transcript_path}]</ansiyellow>")
     )
 
-    # Ask LLM to summarize via Responses API
-    print_formatted_text(
-        HTML(
-            f"<ansiyellow>[Compacting conversation context... reason: {reason}]</ansiyellow>"
-        )
-    )
-
     # Filter out original system messages to prevent system instructions clash
     filtered_messages = [m for m in messages if m.get("role") != "system"]
-
-    # Dump the filtered conversation history into a single string
     conversation_text = json.dumps(filtered_messages, default=str, ensure_ascii=False)
 
-    summary = llm_client.get_summary(conversation_text, reason)
+    _compact_console.print(
+        f"\n[bold yellow]⚡️ Compacting context...[/bold yellow]  "
+        f"[dim]{reason}[/dim]"
+    )
+    _compact_console.rule("[bold cyan]📝 Summary", style="cyan")
+
+    chunks: list[str] = []
+    try:
+        # 使用 Live 创建一个可实时刷新的上下文
+        # refresh_per_second 可以控制刷新帧率，太高耗费性能，一般 10-15 足够流畅
+        with Live(Markdown(""), console=_compact_console, refresh_per_second=15) as live:
+            for chunk in llm_client.get_summary_stream(conversation_text, reason):
+                chunks.append(chunk)
+                current_text = "".join(chunks)
+                # 每次收到新内容，重新解析并更新 Live 视图
+                live.update(Markdown(current_text))
+
+    except Exception as e:
+        # 打印红色的错误提示，比原生的 print 更友好
+        _compact_console.print(f"\n[bold red]Stream Error: {e}[/bold red]")
+
+        # 流式失败时回退到普通调用
+        fallback = llm_client.get_summary(conversation_text, reason)
+        # 回退时也同样使用 Markdown 渲染
+        _compact_console.print(Markdown(fallback))
+        chunks = [fallback]
+
+    # 不需要再单独 _compact_console.print() 换行，因为 Live 结束后自带换行效果
+    _compact_console.rule(style="cyan")
+    summary = "".join(chunks)
 
     system_msgs = [m for m in messages if m.get("role") == "system"]
-
     summary_msgs = [
         {
             "role": "user",

@@ -1,6 +1,6 @@
 import json
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Union, Generator, AsyncGenerator
 
 from openai import OpenAI, AsyncOpenAI
 
@@ -81,6 +81,11 @@ class BaseLLMClient(ABC):
         """Generates a summary of the conversation."""
         pass
 
+    @abstractmethod
+    def get_summary_stream(self, conversation_text: str, reason: str) -> Generator[str, None, None]:
+        """Generates a streaming summary of the conversation, yielding text chunks."""
+        pass
+
 
 class AsyncBaseLLMClient(ABC):
     @abstractmethod
@@ -153,7 +158,7 @@ class ResponseAPIClient(BaseLLMClient):
         # Response API expects each output item to be appended directly
         for item in raw_message:
             msg_dict = (
-                item.model_dump(exclude_none=False)
+                item.model_dump(exclude_none=True)
                 if hasattr(item, "model_dump")
                 else dict(item)
             )
@@ -187,6 +192,17 @@ class ResponseAPIClient(BaseLLMClient):
                     (c.text for c in item.content if c.type == "output_text"), ""
                 )
         return ""
+
+    def get_summary_stream(self, conversation_text: str, reason: str) -> Generator[str, None, None]:
+        summary_request = [
+            {"role": "system", "content": get_summary_system_prompt()},
+            {"role": "user", "content": conversation_text},
+            {"role": "user", "content": get_summary_user_prompt(reason)},
+        ]
+        with self.client.responses.stream(model=self.model, input=summary_request) as stream:
+            for event in stream:
+                if event.type == "response.output_text.delta":
+                    yield event.delta
 
 
 class ChatAPIClient(BaseLLMClient):
@@ -230,7 +246,7 @@ class ChatAPIClient(BaseLLMClient):
     def append_assistant_message(self, messages: list, raw_message: any):
         # Standard Chat API requires the assistant message to be appended exactly as it is (including tool_calls)
         msg_dict = (
-            raw_message.model_dump(exclude_none=False)
+            raw_message.model_dump(exclude_none=True)
             if hasattr(raw_message, "model_dump")
             else dict(raw_message)
         )
@@ -272,6 +288,28 @@ class ChatAPIClient(BaseLLMClient):
         ]
         res = self.client.chat.completions.create(model=self.model, messages=messages)
         return res.choices[0].message.content or ""
+
+    def get_summary_stream(self, conversation_text: str, reason: str) -> Generator[str, None, None]:
+        messages = [
+            {"role": "system", "content": get_summary_system_prompt()},
+            {"role": "user", "content": conversation_text},
+            {"role": "user", "content": get_summary_user_prompt(reason)},
+        ]
+
+        # 使用标准的 create 方法，开启 stream=True
+        response_stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            stream=True
+        )
+
+        # 直接遍历返回的 stream 对象
+        for chunk in response_stream:
+            if chunk.choices:
+                # 获取 delta content
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
 
 
 class AsyncResponseAPIClient(ResponseAPIClient, AsyncBaseLLMClient):
