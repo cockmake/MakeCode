@@ -51,6 +51,14 @@ class BaseLLMClient(ABC):
         pass
 
     @abstractmethod
+    def generate_stream(self, messages: list, tools: list = None):
+        """Streaming generation. Yields event dicts:
+        {type: 'text', content: str}       - text delta
+        {type: 'done', content: (text, tool_calls, raw_message)}  - stream finished
+        """
+        pass
+
+    @abstractmethod
     def parse_response(self, response) -> tuple[str, list, any]:
         """
         Parses the API response.
@@ -122,6 +130,9 @@ class ResponseAPIClient(BaseLLMClient):
         return self.client.responses.create(
             model=self.model, input=messages, tools=tools or []
         )
+
+    def generate_stream(self, messages: list, tools: list = None):
+        raise NotImplementedError("generate_stream is not supported for Response API")
 
     def parse_response(self, response) -> tuple[str, list, any]:
         text_content = ""
@@ -213,6 +224,79 @@ class ChatAPIClient(BaseLLMClient):
         if tools:
             kwargs["tools"] = tools
         return self.client.chat.completions.create(**kwargs)
+
+    def generate_stream(self, messages: list, tools: list = None):
+        kwargs = {"model": self.model, "messages": messages, "stream": True}
+        if tools:
+            kwargs["tools"] = tools
+
+        stream = self.client.chat.completions.create(**kwargs)
+
+        text_chunks = []
+        tool_calls_buffer = {}
+
+        def _build_done_event():
+            """根据累积的数据构建 done 事件"""
+            text = "".join(text_chunks)
+            tool_calls = []
+            for idx in sorted(tool_calls_buffer.keys()):
+                tc = tool_calls_buffer[idx]
+                tool_calls.append({
+                    "id": tc["id"],
+                    "name": tc["name"],
+                    "arguments": tc["arguments"],
+                    "raw": tc,
+                })
+
+            # 构建 raw_message dict（兼容 append_assistant_message）
+            raw_message = {"role": "assistant", "content": text or None}
+            if tool_calls:
+                raw_message["tool_calls"] = []
+                for tc in tool_calls:
+                    raw_message["tool_calls"].append({
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"],
+                        },
+                    })
+
+            return {"type": "done", "content": (text, tool_calls, raw_message)}
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            # 1. 文本片段
+            if delta.content:
+                text_chunks.append(delta.content)
+                yield {"type": "text", "content": delta.content}
+
+            # 2. 工具调用片段 (delta)
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_buffer:
+                        tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc.id:
+                        tool_calls_buffer[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_buffer[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_buffer[idx]["arguments"] += tc.function.arguments
+
+            # 3. 流结束
+            if choice.finish_reason in ("tool_calls", "stop"):
+                yield _build_done_event()
+                return
+
+        # 安全兜底：流 EOF 但未收到 finish_reason（如 finish_reason='length'）
+        # 此时用已累积的数据构建 done 事件，避免 raw_message=None 崩溃
+        yield _build_done_event()
 
     def parse_response(self, response) -> tuple[str, list, any]:
         message = response.choices[0].message

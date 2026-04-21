@@ -1,4 +1,3 @@
-import concurrent.futures
 import json
 import sys
 import time
@@ -11,7 +10,10 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console
-from rich.progress import BarColumn, Progress, TextColumn
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.spinner import Spinner
+from rich.text import Text
 
 from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_SOURCE, STARTUP_TERMINAL_TYPE
 from prompts import get_orchestrator_system_prompt
@@ -23,7 +25,6 @@ from system.commands import (
     CommandAction,
 )
 from system.console_render import (
-    _render_agent_response_message,
     _render_tool_call,
     _render_tool_output,
     _render_history,
@@ -134,22 +135,48 @@ def _parse_arguments(arguments: Any) -> dict:
     return {}
 
 
-def _request_with_progress(messages: list, current_tools: list):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(
-            llm_client.generate,
-            messages=messages,
-            tools=current_tools,
-        )
+def _stream_with_render(messages: list, current_tools: list):
+    """
+    流式请求 + Rich.Live 实时渲染文本。
+    起步展示 Spinner 加载动画，首词到达时无缝切换为 Markdown 流式渲染。
+    工具调用在流结束后返回，不在流式过程中显示。
+    Returns: (text_content, tool_calls, raw_message)
+    """
+    text_content = ""
+    tool_calls = []
+    raw_message = None
+    chunks = []
 
-        with Progress(
-                BarColumn(bar_width=30),
-                TextColumn("[bold cyan]✨ Orchestrator is thinking..."),
-                transient=True,
-                console=console,
-        ) as progress:
-            progress.add_task("", total=None)
-            return future.result()
+    # 头部标识（类似 Panel 标题），前方空行分隔上下文
+    console.print()
+    console.rule("[bold magenta] 🧠 Orchestrator [/bold magenta]", style="magenta")
+
+    # 初始：Spinner 加载动画
+    spinner = Spinner(
+        "dots",
+        Text("✨ Orchestrator is thinking...", style="bold cyan"),
+    )
+
+    start_time = time.perf_counter()
+
+    with Live(spinner, console=console, refresh_per_second=15) as live:
+        for event in llm_client.generate_stream(messages, current_tools):
+            if event["type"] == "text":
+                chunks.append(event["content"])
+                # 首词到达，从 Spinner 无缝切换为 Markdown
+                live.update(Markdown("".join(chunks)))
+            elif event["type"] == "done":
+                text_content, tool_calls, raw_message = event["content"]
+                # 最终渲染确保完整
+                if text_content:
+                    live.update(Markdown(text_content))
+
+    # 尾部标识 + 响应时间（stream 结束后 Live 自动换行），后方空行分隔上下文
+    elapsed = time.perf_counter() - start_time
+    console.rule(f"[bold magenta] 🧠 Orchestrator ({elapsed:.2f}s) [/bold magenta]", style="magenta")
+    console.print()
+
+    return text_content, tool_calls, raw_message
 
 
 def _is_no_model_configured_error(exc: Exception) -> bool:
@@ -185,9 +212,7 @@ def agent_loop(messages: list):
         )
 
         try:
-            start_time = time.perf_counter()
-            response = _request_with_progress(messages, current_super_tools)
-            response_time = time.perf_counter() - start_time
+            text_content, tool_calls, raw_message = _stream_with_render(messages, current_super_tools)
         except Exception as e:
             if _is_no_model_configured_error(e):
                 console.print(
@@ -199,12 +224,8 @@ def agent_loop(messages: list):
             console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             break
 
-        text_content, tool_calls, raw_message = llm_client.parse_response(response)
         llm_client.append_assistant_message(messages, raw_message)
         has_tool_call = len(tool_calls) > 0
-
-        if text_content:
-            _render_agent_response_message(text_content, response_time=response_time)
 
         for tc in tool_calls:
             tool_name = tc["name"]
