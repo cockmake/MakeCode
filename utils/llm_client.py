@@ -232,35 +232,79 @@ class ChatAPIClient(BaseLLMClient):
 
         stream = self.client.chat.completions.create(**kwargs)
 
-        text_chunks = []
-        tool_calls_buffer = {}
+        # 累积所有 delta，最终拼合为完整的 raw_message
+        # 原理：stream 返回的每个 chunk.choices[0].delta 是 message 的一个片段，
+        # 将所有 delta 的有效字段逐步合并，即可重建与非流式 message 一致的结构，
+        # 确保任何出现的字段都不会丢失。
+        # 只有文本片段需要实时 yield（用于流式渲染），工具调用等其余字段全部留到最后统一解析。
+        response_deltas = []  # 保存所有 delta，最终拼合为 raw_message
 
         def _build_done_event():
-            """根据累积的数据构建 done 事件"""
-            text = "".join(text_chunks)
+            """根据累积的 delta 列表构建 done 事件"""
+            # 拼合所有 delta 为完整的 raw_message
+            # 纯文本类字段（增量字符串，需要拼接）
+            _TEXT_FIELDS = ("content", "reasoning_content", "reasoning")
+
+            raw_message = {}
+            merged_text_parts = {field: [] for field in _TEXT_FIELDS}
+            merged_tool_calls = {}  # idx -> {id, type, function: {name, arguments}}
+            for delta in response_deltas:
+                for key, value in delta:
+                    if value is None:
+                        continue
+                    if key in _TEXT_FIELDS:
+                        merged_text_parts[key].append(value)
+                    elif key == "tool_calls":
+                        for tc in value:
+                            idx = tc.index
+                            if idx not in merged_tool_calls:
+                                merged_tool_calls[idx] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+                            if tc.id:
+                                merged_tool_calls[idx]["id"] = tc.id
+                            if hasattr(tc, "type") and tc.type:
+                                merged_tool_calls[idx]["type"] = tc.type
+                            if tc.function:
+                                if tc.function.name:
+                                    merged_tool_calls[idx]["function"]["name"] = tc.function.name
+                                if tc.function.arguments:
+                                    merged_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                    else:
+                        # 标量字段直接覆盖（如 role, refusal 等）
+                        raw_message[key] = value
+
+            # 组装 raw_message：所有文本字段统一拼合写入
+            for field in _TEXT_FIELDS:
+                parts = merged_text_parts[field]
+                raw_message[field] = "".join(parts) if parts else None
+            raw_message["role"] = "assistant"
+            # 移除 content 以外值为 None 的字段，保持消息干净
+            for k in list(raw_message.keys()):
+                if k != "content" and raw_message[k] is None:
+                    del raw_message[k]
+            # text 仍取 content 作为主文本返回
+            text = raw_message.get("content") or ""
+
+            # 过滤无效的 tool_calls（id 或 name 为空则丢弃）
+            valid_tool_calls = {
+                idx: tc for idx, tc in merged_tool_calls.items()
+                if tc["id"] and tc["function"]["name"]
+            }
+            if valid_tool_calls:
+                raw_message["tool_calls"] = [
+                    valid_tool_calls[idx]
+                    for idx in sorted(valid_tool_calls.keys())
+                ]
+
+            # 构建 tool_calls 列表（给调用方使用）
             tool_calls = []
-            for idx in sorted(tool_calls_buffer.keys()):
-                tc = tool_calls_buffer[idx]
+            for idx in sorted(valid_tool_calls.keys()):
+                tc = valid_tool_calls[idx]
                 tool_calls.append({
                     "id": tc["id"],
-                    "name": tc["name"],
-                    "arguments": tc["arguments"],
+                    "name": tc["function"]["name"],
+                    "arguments": tc["function"]["arguments"],
                     "raw": tc,
                 })
-
-            # 构建 raw_message dict（兼容 append_assistant_message）
-            raw_message = {"role": "assistant", "content": text or None}
-            if tool_calls:
-                raw_message["tool_calls"] = []
-                for tc in tool_calls:
-                    raw_message["tool_calls"].append({
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["name"],
-                            "arguments": tc["arguments"],
-                        },
-                    })
 
             return {"type": "done", "content": (text, tool_calls, raw_message)}
 
@@ -270,26 +314,19 @@ class ChatAPIClient(BaseLLMClient):
             choice = chunk.choices[0]
             delta = choice.delta
 
-            # 1. 文本片段
+            # 保存 delta 用于最终拼合
+            response_deltas.append(delta)
+
+            # 实时 yield 文本片段（用于流式渲染）
             if delta.content:
-                text_chunks.append(delta.content)
                 yield {"type": "text", "content": delta.content}
 
-            # 2. 工具调用片段 (delta)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_buffer:
-                        tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": ""}
-                    if tc.id:
-                        tool_calls_buffer[idx]["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_buffer[idx]["name"] = tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_buffer[idx]["arguments"] += tc.function.arguments
+            # 实时 yield reasoning 片段（用于思考过程流式渲染）
+            reasoning_val = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if reasoning_val:
+                yield {"type": "reasoning", "content": reasoning_val}
 
-            # 3. 流结束
+            # 流结束：统一解析所有累积的 delta，构建 done 事件
             if choice.finish_reason in ("tool_calls", "stop"):
                 yield _build_done_event()
                 return

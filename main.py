@@ -12,8 +12,8 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.spinner import Spinner
-from rich.text import Text
+from rich.padding import Padding
+from rich.rule import Rule
 
 from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_SOURCE, STARTUP_TERMINAL_TYPE
 from prompts import get_orchestrator_system_prompt
@@ -33,6 +33,7 @@ from system.console_render import (
     _render_env_customization_hint,
     console,
 )
+from system.stream_render import StreamRenderer
 from system.ts_validator import init_ts_cache
 from utils.common import (
     COMMON_TOOLS,
@@ -137,45 +138,13 @@ def _parse_arguments(arguments: Any) -> dict:
 
 def _stream_with_render(messages: list, current_tools: list):
     """
-    流式请求 + Rich.Live 实时渲染文本。
-    起步展示 Spinner 加载动画，首词到达时无缝切换为 Markdown 流式渲染。
-    工具调用在流结束后返回，不在流式过程中显示。
-    Returns: (text_content, tool_calls, raw_message)
+    优化的流式请求渲染：
+    1. 思考阶段：使用原生 append 模式流式输出，配合 dim 样式，极致性能无闪烁。
+    2. 正文阶段：采用带『节流 (Throttle)』的 Live + Markdown 实时渲染。
     """
-    text_content = ""
-    tool_calls = []
-    raw_message = None
-    chunks = []
-
-    # 头部标识（类似 Panel 标题），前方空行分隔上下文
-    console.print()
-    console.rule("[bold magenta] 🧠 Orchestrator [/bold magenta]", style="magenta")
-
-    # 初始：Spinner 加载动画
-    spinner = Spinner(
-        "dots",
-        Text("✨ Orchestrator is thinking...", style="bold cyan"),
-    )
-
-    start_time = time.perf_counter()
-
-    with Live(spinner, console=console, refresh_per_second=15) as live:
-        for event in llm_client.generate_stream(messages, current_tools):
-            if event["type"] == "text":
-                chunks.append(event["content"])
-                # 首词到达，从 Spinner 无缝切换为 Markdown
-                live.update(Markdown("".join(chunks)))
-            elif event["type"] == "done":
-                text_content, tool_calls, raw_message = event["content"]
-                # 最终渲染确保完整
-                if text_content:
-                    live.update(Markdown(text_content))
-    if not text_content:
-        console.print()
-    # 尾部标识 + 响应时间（stream 结束后 Live 自动换行），后方空行分隔上下文
-    elapsed = time.perf_counter() - start_time
-    console.rule(f"[bold magenta] 🧠 Orchestrator ({elapsed:.2f}s) [/bold magenta]", style="magenta")
-    console.print()
+    renderer = StreamRenderer(console=console, update_interval=0.1)
+    stream = llm_client.generate_stream(messages, current_tools)
+    text_content, tool_calls, raw_message = renderer.render(stream, agent_name="Orchestrator")
 
     return text_content, tool_calls, raw_message
 
