@@ -48,11 +48,19 @@ _STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
 class RunTerminalCommand(BaseModel):
     """
-    IMPORTANT:
-    - Strictly prohibit interactive, destructive (e.g., file deletion), privilege-escalating,
-      or network-attacking dangerous commands.
-    - For workspace file operations (read/write/edit), prefer File tools (RunRead/RunWrite/RunEdit).
-      Do NOT use this tool for routine file manipulation when File tools can handle the task.
+    Execute a terminal command in non-interactive mode.
+
+    PROHIBITED COMMANDS:
+    - Interactive: vim, nano, top, ssh, ftp
+    - Destructive: rm -rf, format, del /f
+    - Privilege escalation: sudo, runas
+    - Network attacks: nmap, sqlmap
+
+    PREFERRED APPROACH:
+    - For file read/write/edit: Use File tools (RunRead/RunWrite/RunEdit)
+    - Use this tool ONLY for: builds, tests, git, package management, system info
+
+    TIMEOUT: 120 seconds hard limit.
     """
 
     command: str = Field(
@@ -168,17 +176,19 @@ class ReadBlock(BaseModel):
 
 
 class RunRead(BaseModel):
-    """Read contents of a file. Reads only the specified line ranges.
-    
-    'regions' must be a non-empty list. Each region should be a dict with 'start' and 'end' keys.
-    
-    IMPORTANT PERFORMANCE GUIDELINES:
-    1. Provide specific regions when possible to improve efficiency and reduce context usage.
-    2. PREFER providing MULTIPLE regions in a SINGLE call rather than making multiple separate calls.
-       Example: regions=[{"start":1,"end":100},{"start":200,"end":300},{"start":500,"end":600}]
+    """
+    Read contents of a file. Reads only the specified line ranges.
+
+    LINE NUMBERING:
+    - Line numbers are 1-indexed (first line is 1, not 0)
+    - 'end' is INCLUSIVE (e.g., {start:1, end:100} reads lines 1-100)
+
+    PERFORMANCE GUIDELINES:
+    1. Provide specific regions when possible to reduce context usage.
+    2. PREFER providing MULTIPLE regions in a SINGLE call rather than multiple separate calls.
+       Example: regions=[{"start":1,"end":150},{"start":300,"end":450}]
     3. Overlapping or adjacent regions will be automatically merged for efficiency.
-    4. This reduces API calls, saves tokens, and improves response time.
-    
+
     WORKFLOW: Before calling RunRead, estimate all line ranges you need, then provide them all at once.
     """
 
@@ -313,10 +323,14 @@ def run_read(
 
 class RunWrite(BaseModel):
     """
-    Create and write a NEW file, or overwrite an completely empty file.
+    Create and write a NEW file, or overwrite a completely empty file.
+
     CRITICAL REQUIREMENTS:
-    1. Use this tool only when the target file does NOT exist yet, or is empty.
+    1. Use this tool ONLY when the target file does NOT exist yet, or is empty.
     2. If the file already exists and has content, use RunRead first, then RunEdit.
+    3. Parent directories will be automatically created if they don't exist.
+
+    ENCODING: Files are written in UTF-8 encoding.
     """
 
     path: str = Field(
@@ -416,16 +430,24 @@ class RunEdit(BaseModel):
     """
     Replace specific text blocks in a file with new content.
 
+    PREREQUISITE: You MUST call RunRead first to get the current file content.
+
     HOW TO USE PERFECTLY:
     1. Read the file first using `RunRead`.
     2. Identify the exact lines you want to change.
     3. Copy those lines into `search_content`, adding 2-3 lines of unchanged code above and below as context.
     4. Write the modified version into `replace_content`, making sure to KEEP the unchanged context lines!
 
+    MATCHING RULES (in order):
+    1. Exact match tried first
+    2. If no exact match, whitespace-tolerant matching attempted
+    3. Fuzzy matching (95% similarity) as last resort
+    - If multiple matches found, the edit is REJECTED
+
     WARNINGS:
     - Never invent code or guess indentation.
     - Never use `...` to skip code.
-    - If your search block is not unique, the system will reject it.
+    - If your search block is not unique, include more context lines.
     """
 
     path: str = Field(
@@ -434,7 +456,7 @@ class RunEdit(BaseModel):
     )
     edits: list[EditBlock] = Field(
         ...,
-        description="A list of edits. Processed sequentially. Do not overlap target regions."
+        description="A list of edits. Each edit has: search_content (exact text to find) and replace_content (new text). Processed sequentially. Do not overlap target regions."
     )
 
     @field_validator("edits", mode="before")
@@ -584,7 +606,15 @@ def run_edit(path: str, edits: Any, agent_access=None) -> str:
 class RunGrep(BaseModel):
     """
     Search for a regex pattern in text files within a specific directory.
-    Automatically ignores binary files and hidden directories (starting with '.').
+
+    AUTO-EXCLUDED:
+    - Binary files (detected by null bytes)
+    - Hidden directories (starting with '.')
+    - Build/dependency dirs: build, dist, __pycache__, node_modules, target, venv, site-packages, htmlcov
+
+    LIMITS:
+    - Maximum 500 matches returned (truncated if exceeded)
+    - For large codebases, use specific target_dir to narrow scope
     """
 
     keyword_pattern: str = Field(
@@ -701,7 +731,16 @@ def run_grep(
 
 
 class GetSystemTime(BaseModel):
-    """Get the exact current system time (precise to the second)."""
+    """
+    Get the exact current system time.
+
+    USE CASES:
+    - Timestamping operations or logging
+    - Calculating elapsed time between operations
+    - Recording when tasks were started/completed
+
+    RETURNS: Datetime string in format "YYYY-MM-DD HH:MM:SS"
+    """
 
     pass
 

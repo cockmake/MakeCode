@@ -25,11 +25,24 @@ def get_skill_system_note(skill_dir: str, meta_json: str) -> str:
 
 
 class LoadSkill(BaseModel):
-    """Load a specialized skill module by name."""
+    """
+    Load a specialized skill module by name to get its full instructions and context.
+
+    WHEN TO USE:
+    - When a task requires domain-specific knowledge or methodology
+    - When the system prompt lists available skills relevant to the current task
+
+    WORKFLOW:
+    1. Check system prompt's "Skills Catalog" section for available skills
+    2. Call LoadSkill with the exact skill name
+    3. Follow the returned instructions to complete the task
+
+    RETURNS: Full skill content including instructions, metadata, and file paths.
+    """
 
     name: str = Field(
         ...,
-        description="The exact name of the skill to load. Must match one of the injected available skills.",
+        description="Exact skill name (case-sensitive). Available skills are listed in the system prompt under 'Skills Catalog'.",
     )
 
 

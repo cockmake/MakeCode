@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 class TaskItem(BaseModel):
-    """A single task item with text and status."""
+    """A single task item with description and status."""
     id: str = Field(..., description="Unique identifier for the task.")
-    text: str = Field(default="", description="Description of the task.")
+    description: str = Field(default="", description="Brief description of the task.")
     status: Literal["pending", "in_progress", "completed"] = Field(
         ...,
         description="Status of the task."
@@ -28,26 +28,43 @@ class TaskItem(BaseModel):
             except json.JSONDecodeError:
                 pass
         
-        # handle cases where LLM hallucinated 'content' instead of 'text'
+        # handle legacy field names: text/content -> description
         if isinstance(data, dict):
-            if "content" in data and "text" not in data:
-                data["text"] = data.pop("content")
+            if "text" in data and "description" not in data:
+                data["description"] = data.pop("text")
+            elif "content" in data and "description" not in data:
+                data["description"] = data.pop("content")
                 
         return data
 
 
 class TodoUpdate(BaseModel):
     """
-        Update the todo list with items. Update task list. Track progress on multi-step tasks.
+    Update the todo list to track progress on multi-step tasks.
+
+    PURPOSE:
+    - Create a short actionable plan (2-6 items) at task start
+    - Keep status updated as work progresses
+    - Mark items completed when done
+
+    CONSTRAINTS:
+    - Maximum 20 tasks
+    - Only ONE task can be "in_progress" at a time
+    - Each task requires: id, description, status
+
+    USAGE PATTERN:
+    1. At task start: Create initial todo list
+    2. During work: Update status as you progress
+    3. At completion: Mark all items completed
     """
-    items: list[TaskItem] = Field(
+    tasks: list[TaskItem] = Field(
         ...,
-        description="List of todo items."
+        description="List of todo tasks, each with: id (string), description (task description), status (pending/in_progress/completed).",
     )
 
-    @field_validator("items", mode="before")
+    @field_validator("tasks", mode="before")
     @classmethod
-    def parse_stringified_items(cls, v: Any) -> Any:
+    def parse_stringified_tasks(cls, v: Any) -> Any:
         if isinstance(v, str):
             try:
                 v = v.strip()
@@ -65,10 +82,10 @@ class TodoManager:
     def __init__(self):
         self.items: list[TaskItem] = []
 
-    def update(self, items: Any):
+    def update(self, tasks: Any):
         try:
-            validated_model = TodoUpdate.model_validate({"items": items})
-            spec_list = validated_model.items
+            validated_model = TodoUpdate.model_validate({"tasks": tasks})
+            spec_list = validated_model.tasks
         except Exception as exc:
             from init import log_error_traceback
             log_error_traceback("TodoManager update validation", exc)
@@ -80,11 +97,11 @@ class TodoManager:
         validated = []
         in_progress_count = 0
         for task_obj in spec_list:
-            text = task_obj.text
+            desc = task_obj.description
             status = task_obj.status
             item_id = task_obj.id
-            if not text:
-                raise ValueError(f"Item {item_id}: text required")
+            if not desc:
+                raise ValueError(f"Task {item_id}: description required")
             if status not in ("pending", "in_progress", "completed"):
                 raise ValueError(f"Item {item_id}: invalid status '{status}'")
             if status == "in_progress":
@@ -102,7 +119,7 @@ class TodoManager:
         lines = []
         marker = {"pending": "[ ]", "in_progress": "[>]", "completed": "[Y]"}
         for item in self.items:
-            lines.append(f"{marker[item.status]} #{item.id}: {item.text}")
+            lines.append(f"{marker[item.status]} #{item.id}: {item.description}")
             done += item.status == "completed"
         lines.append(f"\n({done}/{len(self.items)} completed)")
         return '\n'.join(lines)
