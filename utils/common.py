@@ -631,9 +631,14 @@ def run_grep(
         log_error_traceback("RunGrep resolve target dir", e)
         return f"Error resolving target directory: {e}"
 
+    EXCLUDE_DIRS = {
+        "build", "dist", "__pycache__", "node_modules", "target",
+        "venv", "site-packages", "htmlcov"
+    }
+
     try:
         for root, dirs, files in os.walk(base_dir):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in EXCLUDE_DIRS]
 
             for file in files:
                 filepath = Path(root) / file

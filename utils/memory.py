@@ -170,7 +170,7 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
         for msg in messages:
             f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
     print_formatted_text(
-        HTML(f"<ansiyellow>[Transcript saved to: {transcript_path}]</ansiyellow>")
+        HTML(f"\n<ansiyellow>[Transcript saved to: {transcript_path}]</ansiyellow>")
     )
 
     # Filter out original system messages to prevent system instructions clash
