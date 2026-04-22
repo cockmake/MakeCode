@@ -13,7 +13,7 @@ from rich.spinner import Spinner
 class StreamRenderer:
     """
     负责处理 LLM 流式输出的终端渲染器。
-    采用『原生输出』渲染思考过程，采用『接力 Live (不使用 transient)』渲染 Markdown 正文。
+    思考过程与正文均采用『接力 Live (不使用 transient)』渲染 Markdown。
     """
 
     def __init__(self, console: Console = None, update_interval: float = 0.05):
@@ -34,6 +34,12 @@ class StreamRenderer:
         live = None
         last_update_time = 0
 
+        # reasoning 也采用 Markdown Live 渲染
+        reasoning_content = ""
+        reasoning_buffer = ""
+        reasoning_live = None
+        reasoning_last_update_time = 0
+
         # ================= 完美的居中加载动画 =================
         # 1. 创建 Spinner 动画对象
         spinner_obj = Spinner("bouncingBar", text=f"[bold yellow]Awakening {agent_name}...[/bold yellow]")
@@ -51,11 +57,17 @@ class StreamRenderer:
                 if event_type == "reasoning":
                     if not reasoning_started:
                         waiting_live.stop()  # 收到思考 token，立刻无痕擦除居中动画
-                    reasoning_started = self._handle_reasoning(event["content"], reasoning_started)
+                    reasoning_live, reasoning_content, reasoning_buffer, reasoning_last_update_time, reasoning_started = self._handle_reasoning(
+                        event["content"], reasoning_live, reasoning_content, reasoning_buffer, reasoning_last_update_time, reasoning_started
+                    )
 
                 elif event_type == "text":
                     if not text_started:
                         waiting_live.stop()  # 兜底擦除
+                        # 结束 reasoning 渲染，准备开始 text
+                        if reasoning_live is not None:
+                            self._safe_cleanup(reasoning_live, reasoning_buffer)
+                            reasoning_live = None
                         live = self._start_text_section(reasoning_started)
                         text_started = True
 
@@ -74,6 +86,7 @@ class StreamRenderer:
 
         finally:
             waiting_live.stop()  # 绝对兜底：防止流断开导致加载动画一直闪
+            self._safe_cleanup(reasoning_live, reasoning_buffer)
             self._safe_cleanup(live, live_buffer)
 
         self._handle_fallback(text_content, reasoning_started, text_started)
@@ -91,16 +104,24 @@ class StreamRenderer:
         self.console.rule(f"[bold magenta] 🧠 {name} ({elapsed:.2f}s) [/bold magenta]", style="magenta")
         self.console.print()
 
-    def _handle_reasoning(self, content: str, is_started: bool) -> bool:
+    def _handle_reasoning(self, content: str, reasoning_live, reasoning_content: str, reasoning_buffer: str, reasoning_last_update_time: float, is_started: bool):
         if not is_started:
-            self.console.print("[bold cyan]💭 Reasoning...[/bold cyan]")
-        self.console.print(content, end="", soft_wrap=True, style="dim")
-        return True
+            self.console.print("[bold cyan]💭 Reasoning...[/bold cyan]\n")
+            reasoning_live = Live(Markdown(""), console=self.console, auto_refresh=False)
+            reasoning_live.start()
+
+        reasoning_content += content
+        reasoning_buffer += content
+
+        reasoning_live, reasoning_buffer = self._process_block_commit(reasoning_live, reasoning_content, reasoning_buffer)
+        reasoning_last_update_time = self._throttled_update(reasoning_live, reasoning_buffer, reasoning_last_update_time)
+
+        return reasoning_live, reasoning_content, reasoning_buffer, reasoning_last_update_time, True
 
     def _start_text_section(self, reasoning_started: bool) -> Live:
         if reasoning_started:
             self.console.print()
-            self.console.print(Padding(Rule(style="dim"), (1, 0)))
+            self.console.print(Padding(Rule(style="dim")))
 
         self.console.print("[bold green]✍️ Content:[/bold green]\n")
 
