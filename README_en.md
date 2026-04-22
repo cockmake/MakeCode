@@ -38,10 +38,6 @@ and extensible**.
 <td align="center"><img src="images/3.png" width="300"/></td>
 <td align="center"><img src="images/4.png" width="300"/></td>
 </tr>
-<tr>
-<td align="center"><img src="images/5.png" width="300"/></td>
-<td align="center"><img src="images/6.png" width="300"/></td>
-</tr>
 </table>
 
 ---

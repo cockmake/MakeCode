@@ -35,10 +35,6 @@ MakeCode 是一个面向工程任务的 Agent CLI。它采用"编排器（Orches
 <td align="center"><img src="images/3.png" width="300"/></td>
 <td align="center"><img src="images/4.png" width="300"/></td>
 </tr>
-<tr>
-<td align="center"><img src="images/5.png" width="300"/></td>
-<td align="center"><img src="images/6.png" width="300"/></td>
-</tr>
 </table>
 
 ---
