@@ -13,11 +13,11 @@ from init import WORKDIR
 from utils.llm_client import llm_client
 
 _compact_console = Console()
-THRESHOLD = 1024 * 128
+THRESHOLD = 1024 * 144
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-KEEP_RECENT_TOOL_CALL = 64
+KEEP_RECENT_TOOL_CALL = 72
 
 
 def save_checkpoint(messages: list, filepath: Path = None) -> Path:
