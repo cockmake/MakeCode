@@ -71,7 +71,7 @@ except ImportError as exc:
     log_error_traceback("init prompt_toolkit import", exc)
     print_formatted_text(
         HTML(
-            "\n<ansired>Error: prompt_toolkit is required but not installed. Please install it using `pip install prompt_toolkit`.</ansired>"
+            "\n<ansired>错误：需要安装 prompt_toolkit 库。请运行 pip install prompt_toolkit 安装。</ansired>"
         )
     )
     sys.exit(1)
@@ -80,8 +80,8 @@ except ImportError as exc:
 def _interactive_choose_mode(cwd: Path) -> str:
     """使用 prompt_toolkit 构建内联的 ↑/↓ 选择菜单"""
     options = [
-        ("default", f"Current Directory ({cwd})"),
-        ("custom", "Enter a custom path..."),
+        ("default", f"当前目录 ({cwd})"),
+        ("custom", "输入自定义路径..."),
     ]
     selected_index = [0]  # 使用列表以在闭包中修改状态
 
@@ -107,7 +107,7 @@ def _interactive_choose_mode(cwd: Path) -> str:
         result = [
             (
                 "class:title",
-                "\n📂 Select Workspace Directory (Use ↑/↓ arrows, Enter to confirm):\n",
+                "\n📂 选择工作区目录（使用 ↑/↓ 方向键，Enter 确认）：\n",
             )
         ]
         for i, (key, text) in enumerate(options):
@@ -147,7 +147,7 @@ def _init_workdir() -> Path:
     if choice == "abort":
         print_formatted_text(
             HTML(
-                f"\n<ansiyellow>⚠️ Setup cancelled. Defaulting to: {cwd}</ansiyellow>\n"
+                f"\n<ansiyellow>⚠️ 设置已取消。使用默认目录: {cwd}</ansiyellow>\n"
             )
         )
         return cwd
@@ -160,23 +160,23 @@ def _init_workdir() -> Path:
 
     # 3. 用户选择了自定义输入路径
     try:
-        print_formatted_text("\n✏️ Enter custom workspace path:")
+        print_formatted_text("\n✏️ 输入自定义工作区路径：")
         user_input = prompt(
-            [("class:prompt", "📂 Target Directory ❯❯ ")],
+            [("class:prompt", "📂 目标目录 ❯❯ ")],
             style=Style.from_dict({"prompt": "bold #00ffff"}),
         )
     except (EOFError, KeyboardInterrupt) as exc:
         log_error_traceback("init custom workdir input interrupted", exc)
         print_formatted_text(
             HTML(
-                f"\n<ansiyellow>⚠️ Input cancelled. Defaulting to: {cwd}</ansiyellow>\n"
+                f"\n<ansiyellow>⚠️ 输入已取消。使用默认目录: {cwd}</ansiyellow>\n"
             )
         )
         return cwd
 
     if not user_input.strip():
         print_formatted_text(
-            HTML(f"<ansigreen>✅ Using default directory: {cwd}</ansigreen>\n")
+            HTML(f"<ansigreen>✅ 使用默认目录: {cwd}</ansigreen>\n")
         )
         return cwd
 
@@ -190,8 +190,8 @@ def _init_workdir() -> Path:
     else:
         print_formatted_text(
             HTML(
-                f"<ansiyellow>⚠️ Warning: Path '{target_path}' does not exist or is not a directory.\n"
-                f"   Falling back to default: {cwd}</ansiyellow>\n"
+                f"<ansiyellow>⚠️ 警告：路径 '{target_path}' 不存在或不是目录。\n"
+                f"   将使用默认目录: {cwd}</ansiyellow>\n"
             )
         )
         return cwd

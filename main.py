@@ -170,7 +170,7 @@ def agent_loop(messages: list):
         except RuntimeError as exc:
             if _is_no_model_configured_error(exc):
                 console.print(
-                    "[bold yellow]⚠️ No model configured. Please use /models to configure a model first.[/bold yellow]"
+                    "[bold yellow]⚠️ 未配置模型。请先使用 /models 命令配置模型。[/bold yellow]"
                 )
                 break
             raise
@@ -187,11 +187,11 @@ def agent_loop(messages: list):
         except Exception as e:
             if _is_no_model_configured_error(e):
                 console.print(
-                    "[bold yellow]⚠️ No model configured. Please use /models to configure a model first.[/bold yellow]"
+                    "[bold yellow]⚠️ 未配置模型。请先使用 /models 命令配置模型。[/bold yellow]"
                 )
                 break
             log_error_traceback("Orchestrator generation error", e)
-            error_msg = f"Error during agent execution: {e}."
+            error_msg = f"智能体执行出错: {e}."
             console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             break
 
@@ -312,7 +312,7 @@ def _init_user_session():
     except Exception as exc:
         log_error_traceback("main init user session", exc)
         print_formatted_text(
-            HTML(f"\n<ansired>Error initializing prompt session: {exc}</ansired>")
+            HTML(f"\n<ansired>初始化提示会话失败: {exc}</ansired>")
         )
         sys.exit(1)
 
@@ -321,7 +321,7 @@ def _read_user_query(messages: list = None) -> str:
     _init_user_session()
 
     console.print(
-        "\n[dim]💡 Tip: Press [bold]Enter[/bold] to send, [bold]Ctrl+N[/bold] for newline.[/dim]"
+        "\n[dim]💡 提示：按 [bold]Enter[/bold] 发送消息，按 [bold]Ctrl+N[/bold] 换行。[/dim]"
     )
 
     # 将 rprompt 变量名改为 bottom_toolbar
@@ -391,7 +391,7 @@ if __name__ == "__main__":
             except (EOFError, KeyboardInterrupt) as exc:
                 log_error_traceback("main user input interrupted", exc)
                 console.print(
-                    "\n[bold yellow]👋 Exiting MakeCode CLI. Goodbye![/bold yellow]"
+                    "\n[bold yellow]👋 正在退出 MakeCode CLI。再见！[/bold yellow]"
                 )
                 break
 
