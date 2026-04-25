@@ -184,8 +184,9 @@ def _render_tool_output(name: str, output: Any, identity: str = "🧠 Orchestrat
             if isinstance(parsed, (dict, list)):
                 display_data = parsed
                 is_complex = True
-        except json.JSONDecodeError as exc:
-            log_error_traceback("main render tool output json decode", exc)
+        except json.JSONDecodeError:
+            # 静默处理，非有效 JSON 直接作为普通文本渲染
+            pass
 
     # 渲染 UI
     if is_complex:
