@@ -889,7 +889,7 @@ class CommandHandler:
             try:
                 selected_task_path = interactive_choose_checkpoint(
                     task_plans,
-                    title="\n📌 Select a Task Plan to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                    title="\n📌 Select a Task Plan to Load (Use ⬆ / ⬇ arrows, Enter to confirm, Q to cancel):\n",
                 )
             except Exception as exc:
                 log_error_traceback("commands handle_load task plan", exc)
@@ -917,7 +917,7 @@ class CommandHandler:
                             try:
                                 selected_team_path = interactive_choose_checkpoint(
                                     team_histories,
-                                    title="\n📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm):\n",
+                                    title="\n📌 Select a Team History to Load (Use ⬆ / ⬇ arrows, Enter to confirm, Q to cancel):\n",
                                 )
                             except Exception as exc:
                                 log_error_traceback(
