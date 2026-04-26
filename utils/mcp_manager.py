@@ -223,72 +223,87 @@ class GlobalMCPManager:
         if server_name in self.clients:
             return True
 
-        client = Client({"mcpServers": {server_name: cfg}})
-        try:
-            # 独立管理连接生命周期
-            await client.__aenter__()
+        client = None
+        for attempt in range(2):
+            client = Client({"mcpServers": {server_name: cfg}})
+            try:
+                # 独立管理连接生命周期
+                await client.__aenter__()
 
-            raw_tools = await client.list_tools()
-            server_tools = []
-            server_status_tools = []
+                raw_tools = await client.list_tools()
+                server_tools = []
+                server_status_tools = []
 
-            if self.console:
-                print_formatted_text(
-                    HTML(
-                        f"<ansigreen>✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>"
+                if self.console:
+                    print_formatted_text(
+                        HTML(
+                            f"<ansigreen>✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>"
+                        )
                     )
-                )
 
-            for t in raw_tools:
-                tool_name = self._build_tool_name(server_name, t.name)
-                t_dict = (
-                    t.model_dump(exclude_none=True)
-                    if hasattr(t, "model_dump")
-                    else dict(t)
-                )
-                t_dict["name"] = tool_name
-
-                if not t_dict.get("inputSchema"):
-                    t_dict["inputSchema"] = {
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    }
-
-                server_tools.append(t_dict)
-                desc = (
-                        t_dict.get("description")
-                        or f"MCP Tool: {t.name} from {server_name}"
-                )
-                server_status_tools.append(
-                    {
-                        "name": tool_name,
-                        "description": desc,
-                        "provider": server_name,
-                        "original_name": t.name,
-                    }
-                )
-
-            with self._db_lock:
-                self.clients[server_name] = client
-                self._server_tools[server_name] = server_tools
-                self._server_status_tools[server_name] = server_status_tools
-                self._rebuild_global_registry_locked()
-            return True
-        except Exception as e:
-            with self._db_lock:
-                self.clients.pop(server_name, None)
-                self._server_tools.pop(server_name, None)
-                self._server_status_tools.pop(server_name, None)
-                self._rebuild_global_registry_locked()
-            log_error_traceback(f"MCP Server Load Error [{server_name}]", e)
-            if self.console:
-                print_formatted_text(
-                    HTML(
-                        f"\r<ansired><b>⚠️ 无法加载 MCP 服务 '{server_name}': {e}</b></ansired>"
+                for t in raw_tools:
+                    tool_name = self._build_tool_name(server_name, t.name)
+                    t_dict = (
+                        t.model_dump(exclude_none=True)
+                        if hasattr(t, "model_dump")
+                        else dict(t)
                     )
-                )
-            return False
+                    t_dict["name"] = tool_name
+
+                    if not t_dict.get("inputSchema"):
+                        t_dict["inputSchema"] = {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        }
+
+                    server_tools.append(t_dict)
+                    desc = (
+                            t_dict.get("description")
+                            or f"MCP Tool: {t.name} from {server_name}"
+                    )
+                    server_status_tools.append(
+                        {
+                            "name": tool_name,
+                            "description": desc,
+                            "provider": server_name,
+                            "original_name": t.name,
+                        }
+                    )
+
+                with self._db_lock:
+                    self.clients[server_name] = client
+                    self._server_tools[server_name] = server_tools
+                    self._server_status_tools[server_name] = server_status_tools
+                    self._rebuild_global_registry_locked()
+                return True
+            except Exception as e:
+                # 清理失败的 Client 资源
+                if client and hasattr(client, "__aexit__"):
+                    try:
+                        await client.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+                
+                with self._db_lock:
+                    self.clients.pop(server_name, None)
+                    self._server_tools.pop(server_name, None)
+                    self._server_status_tools.pop(server_name, None)
+                    self._rebuild_global_registry_locked()
+                
+                if attempt == 0:  # 第一次失败，重试
+                    continue
+                else:  # 第二次失败，抛出错误
+                    log_error_traceback(f"MCP Server Load Error [{server_name}]", e)
+                    if self.console:
+                        print_formatted_text(
+                            HTML(
+                                f"\r<ansired><b>⚠️ 无法加载 MCP 服务 '{server_name}': {e}</b></ansired>"
+                            )
+                        )
+                    raise
+        
+        return False
 
     async def _disconnect_server(self, server_name: str):
         client = None
@@ -307,8 +322,27 @@ class GlobalMCPManager:
 
     async def _async_lifecycle(self):
         try:
-            for server_name, cfg in self.server_configs.items():
-                await self._connect_server(server_name, cfg)
+            # 并行加载所有服务
+            async def _connect_with_error(server_name: str, cfg: dict):
+                try:
+                    await self._connect_server(server_name, cfg)
+                    return server_name, True, None
+                except Exception as e:
+                    log_error_traceback(f"MCP Server Connect Failed [{server_name}]", e)
+                    return server_name, False, e
+
+            tasks = [
+                _connect_with_error(name, cfg)
+                for name, cfg in self.server_configs.items()
+            ]
+            results = await asyncio.gather(*tasks)
+
+            # 打印失败的服务
+            for server_name, success, error in results:
+                if not success and self.console:
+                    print_formatted_text(
+                        HTML(f"<ansiyellow><b>⚠️ MCP 服务 '{server_name}' 连接失败，跳过: {error}</b></ansiyellow>")
+                    )
 
             with self._db_lock:
                 self._rebuild_global_registry_locked()
@@ -373,6 +407,35 @@ class GlobalMCPManager:
 
         self.start_background()
 
+    async def _enable_servers_parallel(self, enable_targets: list, servers: dict) -> list:
+        """并行启用多个 MCP 服务"""
+        failed = []
+        
+        async def _enable_one(server_name: str):
+            try:
+                ok = await self._connect_server(server_name, servers[server_name])
+                if ok and self.console:
+                    print_formatted_text(
+                        HTML(
+                            f"<ansigreen><b>✅ 已启用 MCP 服务: '{server_name}'</b></ansigreen>"
+                        )
+                    )
+                if not ok:
+                    return {"server": server_name, "action": "enable", "error": "连接失败"}
+                return None
+            except Exception as e:
+                log_error_traceback(f"MCP Enable Error [{server_name}]", e)
+                return {"server": server_name, "action": "enable", "error": str(e)}
+        
+        tasks = [_enable_one(name) for name in enable_targets]
+        results = await asyncio.gather(*tasks)
+        
+        for result in results:
+            if result:
+                failed.append(result)
+        
+        return failed
+
     def apply_switches(self, disabled_updates: dict) -> dict:
         if not disabled_updates:
             return {
@@ -436,6 +499,7 @@ class GlobalMCPManager:
 
         failed = []
 
+        # 串行禁用服务（快速操作）
         for server_name in disable_targets:
             try:
                 if self.loop:
@@ -464,29 +528,24 @@ class GlobalMCPManager:
                 )
                 log_error_traceback(f"MCP Disable Error [{server_name}]", e)
 
-        for server_name in enable_targets:
-            try:
-                if self.loop:
+        # 并行启用服务
+        if enable_targets:
+            if self.loop:
+                try:
                     future = asyncio.run_coroutine_threadsafe(
-                        self._connect_server(server_name, servers[server_name]),
+                        self._enable_servers_parallel(enable_targets, servers),
                         self.loop,
                     )
-                    ok = future.result(timeout=60)
-                    if ok and self.console:
-                        print_formatted_text(
-                            HTML(
-                                f"<ansigreen><b>✅ 已启用 MCP 服务: '{server_name}'</b></ansigreen>"
-                            )
-                        )
-                    if not ok:
+                    enable_failed = future.result(timeout=120)
+                    failed.extend(enable_failed)
+                except Exception as e:
+                    for server_name in enable_targets:
                         failed.append(
-                            {
-                                "server": server_name,
-                                "action": "enable",
-                                "error": "连接失败",
-                            }
+                            {"server": server_name, "action": "enable", "error": str(e)}
                         )
-                else:
+                    log_error_traceback("MCP Parallel Enable Error", e)
+            else:
+                for server_name in enable_targets:
                     failed.append(
                         {
                             "server": server_name,
@@ -494,11 +553,6 @@ class GlobalMCPManager:
                             "error": "MCP event loop 未运行",
                         }
                     )
-            except Exception as e:
-                failed.append(
-                    {"server": server_name, "action": "enable", "error": str(e)}
-                )
-                log_error_traceback(f"MCP Enable Error [{server_name}]", e)
 
         if failed:
             message = "MCP 开关已保存，但部分增量启停失败。你可以执行 /mcp-restart 进行完整重载。"
