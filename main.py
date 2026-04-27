@@ -428,10 +428,9 @@ def _read_user_query(messages: list = None) -> str:
         # 追加 Plan/Act 模式状态
         from utils.plan_mode import is_plan_mode as _is_plan_mode
         if _is_plan_mode():
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#ff8800 bold", " 📋 Plan "))
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#ff8800 bold", " 📋 Plan (Tab 切换) "))
         else:
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#aaaaaa", " 🎬 Act "))
-        bottom_toolbar_content.append((f"{_tb_bg} fg:#555555", " (Tab 切换) "))
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#aaaaaa", " 🎬 Act (Tab 切换) "))
 
     try:
         with patch_stdout():
