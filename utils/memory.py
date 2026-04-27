@@ -14,11 +14,11 @@ from utils.common import sanitize_title
 from utils.llm_client import llm_client
 
 _compact_console = Console()
-THRESHOLD = 1024 * 144
+THRESHOLD = 1024 * 160
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-KEEP_RECENT_TOOL_CALL = 64
+KEEP_RECENT_TOOL_CALL = 72
 
 
 def save_checkpoint(messages: list, filepath: Path = None, title: str = None) -> Path:
