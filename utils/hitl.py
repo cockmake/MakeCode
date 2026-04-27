@@ -200,7 +200,7 @@ def check_path_permission(resolved_path: Path, tool_name: str) -> tuple[bool, st
 
         agent_name = current_agent_role.get()
         path_str = resolved_path.as_posix()
-        parent_dir = resolved_path.parent.as_posix()
+        whitelist_dir = resolved_path.as_posix() if resolved_path.is_dir() else resolved_path.parent.as_posix()
 
         # Render UI
         panel_text = Text()
@@ -221,7 +221,7 @@ def check_path_permission(resolved_path: Path, tool_name: str) -> tuple[bool, st
 
         options = [
             ("1", "允许本次访问"),
-            ("2", f"允许整个会话期间（目录: {parent_dir}，含子目录）"),
+            ("2", f"允许整个会话期间（目录: {whitelist_dir}，含子目录）"),
             ("3", "拒绝"),
         ]
 
@@ -271,8 +271,7 @@ def check_path_permission(resolved_path: Path, tool_name: str) -> tuple[bool, st
         if choice == '1':
             return True, ""
         elif choice == '2':
-            parent_dir = resolved_path.parent.as_posix()
-            PATH_WHITELIST.add(parent_dir)
+            PATH_WHITELIST.add(whitelist_dir)
             return True, ""
         elif choice == '3':
             try:
