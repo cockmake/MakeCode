@@ -170,7 +170,7 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
 def _is_path_whitelisted(resolved_path: Path) -> bool:
     """Check if a resolved path is under any whitelisted directory prefix."""
     path_str = resolved_path.as_posix()
-    for prefix in PATH_WHITELIST:
+    for prefix in list(PATH_WHITELIST):
         if path_str == prefix or path_str.startswith(prefix + "/"):
             return True
     return False
@@ -200,7 +200,6 @@ def check_path_permission(resolved_path: Path, tool_name: str) -> tuple[bool, st
 
         agent_name = current_agent_role.get()
         path_str = resolved_path.as_posix()
-        action_key = f"{tool_name}:{path_str}"
         parent_dir = resolved_path.parent.as_posix()
 
         # Render UI
@@ -272,7 +271,7 @@ def check_path_permission(resolved_path: Path, tool_name: str) -> tuple[bool, st
         if choice == '1':
             return True, ""
         elif choice == '2':
-            parent_dir = str(resolved_path.parent.as_posix())
+            parent_dir = resolved_path.parent.as_posix()
             PATH_WHITELIST.add(parent_dir)
             return True, ""
         elif choice == '3':
