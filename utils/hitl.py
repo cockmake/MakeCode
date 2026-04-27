@@ -1,5 +1,6 @@
 import asyncio
 from contextvars import ContextVar
+from pathlib import Path
 
 from prompt_toolkit import prompt
 from prompt_toolkit.application import Application
@@ -16,6 +17,9 @@ from system.console_render import console_lock
 
 # Global Session Whitelist
 SESSION_WHITELIST = set()
+
+# Global Path Whitelist (stores allowed external directory prefixes)
+PATH_WHITELIST: set[str] = set()
 
 # Global HITL Switch (默认开启)
 HITL_ENABLED = True
@@ -38,6 +42,7 @@ def toggle_hitl(enabled: bool = None) -> bool:
     else:
         HITL_ENABLED = not HITL_ENABLED
     SESSION_WHITELIST.clear()  # 切换时清空白名单
+    PATH_WHITELIST.clear()  # 切换时清空路径白名单
     return HITL_ENABLED
 
 
@@ -147,6 +152,128 @@ def check_permission(action_type: str, action_name: str, details: str) -> tuple[
             return True, ""
         elif choice == '2':
             SESSION_WHITELIST.add(action_key)
+            return True, ""
+        elif choice == '3':
+            try:
+                reason = prompt("请输入拒绝原因（反馈给 Agent）: ").strip()
+            except KeyboardInterrupt:
+                reason = "用户通过 Ctrl+C 中断了操作。"
+            except EOFError:
+                reason = "用户通过 EOF 中断了操作。"
+            return False, reason or "用户拒绝执行，未提供具体原因。"
+        elif choice == 'abort':
+            return False, "用户通过 Ctrl+C 中断了操作。"
+
+    return False, "未知错误"
+
+
+def _is_path_whitelisted(resolved_path: Path) -> bool:
+    """Check if a resolved path is under any whitelisted directory prefix."""
+    path_str = resolved_path.as_posix()
+    for prefix in PATH_WHITELIST:
+        if path_str == prefix or path_str.startswith(prefix + "/"):
+            return True
+    return False
+
+
+def check_path_permission(resolved_path: Path, tool_name: str) -> tuple[bool, str]:
+    """Check if an out-of-workspace path access is allowed via HITL."""
+    if not HITL_ENABLED:
+        return True, ""
+
+    if _is_path_whitelisted(resolved_path):
+        return True, ""
+
+    with console_lock:
+        # Double check in case another thread added it while waiting
+        if _is_path_whitelisted(resolved_path):
+            return True, ""
+
+        # Ensure the current thread has an event loop for prompt_toolkit
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("Event loop is closed")
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        agent_name = current_agent_role.get()
+        path_str = resolved_path.as_posix()
+        action_key = f"{tool_name}:{path_str}"
+        parent_dir = resolved_path.parent.as_posix()
+
+        # Render UI
+        panel_text = Text()
+        panel_text.append(f"🤖 Agent: ", style="bold cyan")
+        panel_text.append(f"{agent_name}\n")
+        panel_text.append(f"🛠️ Tool: ", style="bold yellow")
+        panel_text.append(f"{tool_name}\n")
+        panel_text.append(f"📁 Path: ", style="bold green")
+        panel_text.append(f"{path_str}")
+
+        panel = Panel(
+            panel_text,
+            title="⚠️ 工作区外路径访问拦截",
+            border_style="red",
+            expand=False
+        )
+        console.print(panel)
+
+        options = [
+            ("1", "允许本次访问"),
+            ("2", f"允许整个会话期间（目录: {parent_dir}，含子目录）"),
+            ("3", "拒绝"),
+        ]
+
+        selected_index = [0]
+        kb = KeyBindings()
+
+        @kb.add("up")
+        def _go_up(event):
+            selected_index[0] = max(0, selected_index[0] - 1)
+
+        @kb.add("down")
+        def _go_down(event):
+            selected_index[0] = min(len(options) - 1, selected_index[0] + 1)
+
+        @kb.add("enter")
+        def _confirm(event):
+            event.app.exit(result=options[selected_index[0]][0])
+
+        @kb.add("c-c")
+        def _cancel(event):
+            event.app.exit(result="abort")
+
+        def get_formatted_text():
+            result = [("class:title", "\n请使用 ↑/↓ 选择操作，Enter 确认:\n")]
+            for i, (key, text) in enumerate(options):
+                if i == selected_index[0]:
+                    result.append(("class:selected", f"👉 [{key}] {text}\n"))
+                else:
+                    result.append(("class:unselected", f"   [{key}] {text}\n"))
+            return result
+
+        control = FormattedTextControl(get_formatted_text)
+        window = Window(content=control, height=len(options) + 2)
+        layout = Layout(window)
+
+        style = Style(
+            [
+                ("title", "fg:ansicyan bold"),
+                ("selected", "fg:ansigreen bold"),
+                ("unselected", "fg:ansigray"),
+            ]
+        )
+
+        app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
+        choice = app.run()
+
+        if choice == '1':
+            return True, ""
+        elif choice == '2':
+            parent_dir = str(resolved_path.parent.as_posix())
+            PATH_WHITELIST.add(parent_dir)
             return True, ""
         elif choice == '3':
             try:

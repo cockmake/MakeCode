@@ -14,13 +14,15 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
 from system.ts_validator import validate_code
 from utils.file_access import GLOBAL_FILE_CONTROLLER
-from utils.hitl import check_permission
+from utils.hitl import check_permission, check_path_permission
 
 
-def safe_path(p: str) -> Path:
+def safe_path(p: str, tool_name: str = "") -> Path:
     path = (WORKDIR / p).resolve()
     if not path.is_relative_to(WORKDIR):
-        raise ValueError(f"Path escapes workspace: {p}")
+        allowed, reason = check_path_permission(path, tool_name)
+        if not allowed:
+            raise ValueError(f"Path escapes workspace: {p}. {reason}")
     return path
 
 
@@ -304,7 +306,7 @@ def run_read(
         except Exception as exc:
             return f"Error: Invalid arguments provided to RunRead. {exc}"
 
-        fp = safe_path(path)
+        fp = safe_path(path, "RunRead")
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
             if not fp.exists():
@@ -392,7 +394,7 @@ def run_write(path: str, content: str, agent_access=None) -> str:
         if not allowed:
             return f"User Denied Execution. Reason: {reason}"
 
-        fp = safe_path(path)
+        fp = safe_path(path, "RunWrite")
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
             if fp.exists() and fp.stat().st_size > 0:
@@ -597,7 +599,7 @@ def run_edit(path: str, edits: Any, agent_access=None) -> str:
         if not allowed:
             return f"User Denied Execution. Reason: {reason}"
 
-        fp = safe_path(path)
+        fp = safe_path(path, "RunEdit")
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
             if not fp.exists():
@@ -694,7 +696,7 @@ def run_grep(
     MAX_MATCHES = 500
 
     try:
-        base_dir = safe_path(target_dir)
+        base_dir = safe_path(target_dir, "RunGrep")
         if not base_dir.is_dir():
             return f"Error: Target directory '{target_dir}' not found or is not a directory."
     except Exception as e:
@@ -832,7 +834,7 @@ def run_glob(
     type_label = {"file": "file(s)", "dir": "director(ies)", "all": "item(s)"}[type]
 
     try:
-        base_dir = safe_path(target_dir)
+        base_dir = safe_path(target_dir, "RunGlob")
         if not base_dir.is_dir():
             return f"Error: Target directory '{target_dir}' not found or is not a directory."
     except Exception as e:
