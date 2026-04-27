@@ -37,11 +37,13 @@ from system.console_render import (
 )
 from utils.hitl import get_hitl_status
 from system.models import get_current_model_config
+from utils.plan_mode import is_plan_mode, PLAN_TOOLS_WHITELIST
 from system.stream_render import StreamRenderer
 from system.ts_validator import init_ts_cache
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
+    RunGlob,
     run_edit,
     run_read,
     run_write,
@@ -79,6 +81,19 @@ def get_dynamic_system_prompt() -> str:
 
 def get_current_tools_definition():
     """获取当前可用的工具定义（包含动态加载的 MCP 工具）"""
+    all_tools = _get_all_tools_definition()
+    if is_plan_mode():
+        from openai import pydantic_function_tool
+        # Plan Mode: 白名单工具 + RunGlob（不在 COMMON_TOOLS 中，需单独添加）
+        filtered = [t for t in all_tools if t["function"]["name"] in PLAN_TOOLS_WHITELIST]
+        if not any(t["function"]["name"] == "RunGlob" for t in filtered):
+            filtered.append(pydantic_function_tool(RunGlob))
+        return filtered
+    return all_tools
+
+
+def _get_all_tools_definition():
+    """获取全部工具定义（不考虑 Plan Mode 过滤）"""
     try:
         return llm_client.format_tools(
             COMMON_TOOLS
@@ -201,6 +216,9 @@ def agent_loop(messages: list):
     }
     current_super_tools = []
 
+    # Update system prompt to reflect current plan mode state
+    messages[0] = {"role": "system", "content": get_dynamic_system_prompt()}
+
     while True:
         try:
             current_super_tools = get_current_tools_definition()
@@ -244,11 +262,18 @@ def agent_loop(messages: list):
 
             try:
                 arguments = _parse_arguments(tool_args)
-                handler = current_handlers.get(tool_name)
-                if handler:
-                    output = handler(**arguments)
+                # Plan Mode safety net: block execution tools
+                if is_plan_mode() and tool_name not in PLAN_TOOLS_WHITELIST:
+                    output = (
+                        f"⛔ Plan Mode active: '{tool_name}' is blocked. "
+                        f"Complete your plan first, then exit Plan Mode to execute."
+                    )
                 else:
-                    output = f"Unknown tool: {tool_name}"
+                    handler = current_handlers.get(tool_name)
+                    if handler:
+                        output = handler(**arguments)
+                    else:
+                        output = f"Unknown tool: {tool_name}"
             except Exception as e:
                 log_error_traceback(
                     f"Orchestrator tool execution error: {tool_name}", e
@@ -327,6 +352,18 @@ def _init_user_session():
         def _insert_newline(event):
             event.current_buffer.insert_text("\n")
 
+        @user_kb.add(Keys.Tab)
+        def _toggle_plan_mode(event):
+            # Only toggle when buffer is empty; otherwise fall through to completion
+            if event.current_buffer.text.strip():
+                return
+            from utils.plan_mode import toggle_plan_mode
+            new_state = toggle_plan_mode()
+            if new_state:
+                event.app.exit(result='__PLAN_MODE_ON__')
+            else:
+                event.app.exit(result='__PLAN_MODE_OFF__')
+
         def prompt_continuation(width, line_number, is_soft_wrap):
             return " " * (width - 4) + " ┃  "
 
@@ -359,7 +396,7 @@ def _read_user_query(messages: list = None) -> str:
     _init_user_session()
 
     console.print(
-        "\n[dim]💡 Tips：按 [bold]Enter[/bold] 发送消息，按 [bold]Ctrl+N[/bold] 换行。[/dim]"
+        "\n[dim]💡 Tips：按 [bold]Enter[/bold] 发送消息，按 [bold]Ctrl+N[/bold] 换行，按 [bold]Tab[/bold] 切换 Plan/Act 模式。[/dim]"
     )
 
     # 将 rprompt 变量名改为 bottom_toolbar
@@ -387,6 +424,13 @@ def _read_user_query(messages: list = None) -> str:
         hitl_color = "ansigreen" if hitl_on else "ansired"
         hitl_text = "ON" if hitl_on else "OFF"
         bottom_toolbar_content.append((f"{_tb_bg} fg:{hitl_color} bold", f" 🛡️ HITL: {hitl_text} "))
+
+        # 追加 Plan/Act 模式状态
+        from utils.plan_mode import is_plan_mode as _is_plan_mode
+        if _is_plan_mode():
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#ff8800 bold", " 📋 Plan "))
+        else:
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#666666", " 🎬 Act "))
 
     try:
         with patch_stdout():
@@ -463,6 +507,15 @@ if __name__ == "__main__":
                     "\n[bold yellow]👋 正在退出 MakeCode CLI。再见！[/bold yellow]"
                 )
                 break
+
+            # Handle Tab toggle for Plan Mode
+            if query == '__PLAN_MODE_ON__':
+                console.print("[bold cyan]📋 Plan Mode 已启用[/bold cyan]")
+                console.print("[dim]📋 只允许只读和规划工具。再次按 Tab 切回执行模式。[/dim]")
+                continue
+            elif query == '__PLAN_MODE_OFF__':
+                console.print("[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]")
+                continue
 
             query = query.strip()
             if not query:

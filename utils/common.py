@@ -770,6 +770,132 @@ def run_grep(
     return "\n".join(output_blocks).strip()
 
 
+class RunGlob(BaseModel):
+    """
+    Search for files and/or directories matching a glob pattern.
+    This is a read-only file discovery tool, ideal for Plan Mode.
+
+    AUTO-EXCLUDED:
+    - Hidden directories (starting with '.')
+    - Build/dependency dirs: build, dist, __pycache__, node_modules, target, venv, site-packages, htmlcov
+
+    LIMITS:
+    - Maximum 500 items returned (truncated if exceeded)
+    - For large codebases, use specific target_dir to narrow scope
+    """
+
+    pattern: str = Field(
+        ...,
+        description=(
+            "Glob pattern to match. Supports multiple patterns separated by '|'. "
+            "Examples: '*.py', '*.py|*.js|*.ts', 'src/**/*', 'tests/test_*'. "
+            "Use '**' for recursive matching through directories."
+        ),
+    )
+    target_dir: str = Field(
+        default=".",
+        description=(
+            "Directory to search in, relative to workspace. "
+            "Pinpoint specific source folders (e.g., 'src', 'app') to avoid scanning dependency directories."
+        ),
+    )
+    type: str = Field(
+        default="all",
+        description=(
+            "Type of items to return: 'file' for files only, 'dir' for directories only, "
+            "'all' for both files and directories. Defaults to 'all'."
+        ),
+    )
+
+
+def run_glob(
+        pattern: str,
+        target_dir: str = ".",
+        type: str = "all",
+) -> str:
+    EXCLUDE_DIRS = {
+        "build", "dist", "__pycache__", "node_modules", "target",
+        "venv", "site-packages", "htmlcov"
+    }
+    MAX_ITEMS = 500
+
+    # Validate type parameter
+    if type not in ("file", "dir", "all"):
+        return f"Error: Invalid type '{type}'. Must be 'file', 'dir', or 'all'."
+
+    # Split pipe-separated patterns, e.g., "*.py|*.js" -> ["*.py", "*.js"]
+    patterns = [p.strip() for p in pattern.split("|") if p.strip()]
+    if not patterns:
+        patterns = ["*"]
+
+    # Determine item type label for output
+    type_label = {"file": "file(s)", "dir": "director(ies)", "all": "item(s)"}[type]
+
+    try:
+        base_dir = safe_path(target_dir)
+        if not base_dir.is_dir():
+            return f"Error: Target directory '{target_dir}' not found or is not a directory."
+    except Exception as e:
+        log_error_traceback("RunGlob resolve target dir", e)
+        return f"Error resolving target directory: {e}"
+
+    try:
+        matched_files = set()
+        matched_dirs = set()
+        for p in patterns:
+            for item in base_dir.glob(p):
+                if len(matched_files) + len(matched_dirs) >= MAX_ITEMS:
+                    break
+
+                # Skip if any parent in the relative path is excluded
+                try:
+                    rel_path = item.relative_to(WORKDIR)
+                except ValueError:
+                    continue
+
+                parts = rel_path.parts
+                if any(part.startswith(".") for part in parts):
+                    continue
+                if any(part in EXCLUDE_DIRS for part in parts):
+                    continue
+
+                # Filter by type
+                if type == "file" and not item.is_file():
+                    continue
+                if type == "dir" and not item.is_dir():
+                    continue
+
+                rel_str = rel_path.as_posix()
+                if item.is_dir():
+                    matched_dirs.add(rel_str)
+                else:
+                    matched_files.add(rel_str)
+
+            if len(matched_files) + len(matched_dirs) >= MAX_ITEMS:
+                break
+
+        total_count = len(matched_files) + len(matched_dirs)
+        if total_count == 0:
+            return f"No {type_label} found matching pattern '{pattern}' in directory '{target_dir}'."
+
+        # Format output: directories always with [DIR] prefix and trailing /
+        sorted_files = sorted(matched_files)
+        sorted_dirs = sorted(matched_dirs)
+        lines = [f"[DIR] {d}/" for d in sorted_dirs] + list(sorted_files)
+
+        output = f"Found {total_count} {type_label} matching '{pattern}' in '{target_dir}':\n\n"
+        output += "\n".join(lines)
+
+        if total_count >= MAX_ITEMS:
+            output += f"\n\n[!] Notice: Output truncated to first {MAX_ITEMS} items."
+
+        return output
+
+    except Exception as e:
+        log_error_traceback("RunGlob execution", e)
+        return f"Error during glob search: {e}"
+
+
 class GetSystemTime(BaseModel):
     """
     Get the exact current system time.
@@ -828,6 +954,7 @@ COMMON_TOOLS_HANDLERS = {
     "RunRead": run_read,
     "RunWrite": run_write,
     "RunGrep": run_grep,
+    "RunGlob": run_glob,
     "RunEdit": run_edit,
     "GetSystemTime": get_system_time,
 }

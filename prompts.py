@@ -8,6 +8,7 @@ import platform
 from pathlib import Path
 
 from init import WORKDIR
+from utils.plan_mode import is_plan_mode
 from utils.skills import SKILL_LOADER
 
 
@@ -234,6 +235,25 @@ Use this context to provide more personalized and informed responses.
 {content}"""
 
 
+def _plan_mode_section() -> str:
+    """Inject Plan Mode constraints when active."""
+    if not is_plan_mode():
+        return ""
+    return """# PLAN MODE ACTIVE
+
+You are in Plan Mode. Focus on analyzing the codebase and creating an execution plan.
+
+Your available tools are limited to:
+ - RunRead, RunGrep, RunGlob — read, search, and discover files
+ - TaskManager tools — create and manage task topology
+ - GetSystemTime, LoadSkill — auxiliary
+
+Workflow:
+1. Use RunRead/RunGrep/RunGlob to understand the codebase
+2. Use TaskManager tools to create a complete task topology plan
+3. Inform the user when your plan is ready and they can exit Plan Mode to begin execution"""
+
+
 # ============================================================================
 # Prompt 1: Orchestrator (Super-Agent) System Prompt
 # ============================================================================
@@ -289,6 +309,7 @@ When providing your final answer, use this structure:
         _communication_style_section(),
         _error_recovery_section(),
         _hitl_section(is_orchestrator=True),
+        _plan_mode_section(),
         final_answer_format,
         _memory_section(),
         skills_prompt_block,

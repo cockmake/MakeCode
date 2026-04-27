@@ -29,6 +29,7 @@ from init import log_error_traceback
 from system.console_render import toggle_sub_agent_console
 from system.models import get_model_manager
 from utils import hitl as hitl_mod
+from utils.plan_mode import toggle_plan_mode, is_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
 from utils.teams import list_team_histories, load_team_history, get_history_title
 from utils.memory import get_checkpoint_title
@@ -66,7 +67,7 @@ COMMAND_DESCRIPTIONS = {
     "/compact": "压缩当前对话上下文",
     "/tools": "列出当前可用工具详细信息",
     "/tasks": "查看任务看板和当前执行进度",
-    "/plan": "查看任务看板和当前执行进度",
+    "/plan": "进入/退出 Plan Mode — 规划阶段只允许只读和任务规划工具",
     "/status": "汇报系统状态、已完成任务和下一步计划",
     "/sub-agent-console": "切换 Sub-Agent 的控制台输出状态，默认关闭",
     "/help": "显示使用帮助和自我介绍",
@@ -984,6 +985,41 @@ class CommandHandler:
 
         if query == "/models":
             self.handle_models()
+            return CommandResult(action=CommandAction.CONTINUE)
+
+        # /plan - 切换 Plan Mode
+        if query == "/plan":
+            new_state = toggle_plan_mode()
+            if new_state:
+                self.console.print(
+                    "\n[bold cyan]📋 Plan Mode 已启用[/bold cyan]"
+                )
+                self.console.print(
+                    "[dim]📋 只允许只读和规划工具。使用 /plan 或 Tab 切回执行模式。[/dim]"
+                )
+            else:
+                self.console.print(
+                    "\n[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]"
+                )
+                # Show current task plan on exit
+                from utils.tasks import TASK_MANAGER
+                from rich.table import Table as RichTable
+                task_table = TASK_MANAGER.get_task_table()
+                rows = task_table.get("rows", [])
+                if rows:
+                    tbl = RichTable(title="当前任务计划", show_lines=False)
+                    tbl.add_column("ID", style="cyan", width=4)
+                    tbl.add_column("Subject", style="white")
+                    tbl.add_column("Status", style="green")
+                    tbl.add_column("Runnable", style="yellow", width=8)
+                    for row in rows:
+                        tbl.add_row(
+                            str(row["id"]),
+                            row["subject"],
+                            row["status"],
+                            "✓" if row.get("is_runnable") else "",
+                        )
+                    self.console.print(tbl)
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /hitl - 切换 HITL 拦截状态
