@@ -360,6 +360,35 @@ MakeCode extracts rendering functions into a standalone `console_render.py` modu
 - `utils/teams.py`: Integrates console rendering, managing sub-agent execution logs
 - `main.py`: Initializes renderer and sets output strategy
 
+### 2.17 Plan Mode 🆕
+
+MakeCode supports Plan/Act mode switching, ensuring the agent focuses on analysis and task topology planning during the planning phase, rather than executing modifications prematurely.
+
+#### Core Concepts
+
+- **Plan Mode**: Only read-only and planning tools are allowed (e.g., `RunRead`, `RunGrep`, `TaskManager`, etc.), file writes, terminal execution, and task delegation are prohibited
+- **Act Mode**: Full execution mode where all tools are available
+
+#### Restricted Tools in Plan Mode
+
+The following tools are blocked in Plan Mode:
+- `RunWrite` / `RunEdit` — File write/edit
+- `RunTerminalCommand` — Terminal command execution
+- `DelegateTasks` — Task delegation
+
+#### Switching Methods
+
+| Method | Action |
+|--------|--------|
+| **Ctrl+P** | Switch Plan/Act mode anytime |
+| `/plan` | Switch via command line |
+
+#### Related Components
+
+- `utils/plan_mode.py`: Plan Mode state management and tool interception logic
+- `main.py`: Ctrl+P key binding and UI hints
+- `system/commands.py`: `/plan` command handler
+
 ---
 ---
 
@@ -381,6 +410,7 @@ Agent/
 │  ├─ common.py             # file / terminal / grep primitives
 │  ├─ file_access.py        # file access control and fine-grained concurrency locks
 │  ├─ mcp_manager.py        # MCP service manager, config loading & tool registration 🆕
+│  ├─ plan_mode.py          # Plan Mode state management and tool interception (🆕)
 │  ├─ tasks.py              # TaskManager topology and status logic
 │  ├─ teams.py              # concurrent delegation and execution logs
 │  └─ memory.py             # transcript saving and history compaction
@@ -473,6 +503,7 @@ flowchart TD
 - `utils/memory.py` handles long-session compaction and transcript saving.
 - `utils/mcp_manager.py` 🆕 manages MCP service configuration loading, client lifecycle, tool extraction and
   registration, with support for dynamic enable/disable.
+- `utils/plan_mode.py` 🆕 manages Plan/Act mode state and intercepts restricted tool calls in Plan Mode.
 - `system/ts_validator.py` 🆕 provides Tree-sitter syntax validation, automatically detecting code syntax errors before file writes.
 - `system/commands.py` 🆕 handles slash command definitions, completion, and interactive panel processing.
 - `system/console_render.py` 🆕 provides multi-thread-safe console rendering with streaming output and smart truncation (first 50 lines + last 250 lines).
