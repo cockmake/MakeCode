@@ -204,12 +204,22 @@ def _error_recovery_section() -> str:
  - Do not blindly retry the identical action, but don't abandon viable approaches after a single failure."""
 
 
-def _hitl_section() -> str:
-    """Human-in-the-Loop guidance."""
-    return """Human-in-the-Loop (HITL): Certain actions (like RunEdit, RunWrite, RunTerminalCommand,
-DeleteAllTasks, or DelegateTasks) may require human confirmation. If a tool returns
-"User Denied Execution", DO NOT retry the exact same action. Read the user's feedback
-reason, adjust your approach, or ask the user for clarification."""
+def _hitl_section(is_orchestrator: bool = True) -> str:
+    """Human-in-the-Loop guidance.
+
+    Orchestrator has additional HITL tools: DeleteAllTasks, DelegateTasks.
+    Sub-Agent only has: RunEdit, RunWrite, RunTerminalCommand.
+    """
+    if is_orchestrator:
+        tools = "RunEdit, RunWrite, RunTerminalCommand, DeleteAllTasks, or DelegateTasks"
+    else:
+        tools = "RunEdit, RunWrite, or RunTerminalCommand"
+    return (
+        f"Human-in-the-Loop (HITL): Certain actions (like {tools}) "
+        f"may require human confirmation. If a tool returns "
+        f'"User Denied Execution", DO NOT retry the exact same action. Read the user\'s feedback '
+        f"reason, adjust your approach, or ask the user for clarification."
+    )
 
 
 def _memory_section() -> str:
@@ -278,7 +288,7 @@ When providing your final answer, use this structure:
         _security_section(),
         _communication_style_section(),
         _error_recovery_section(),
-        _hitl_section(),
+        _hitl_section(is_orchestrator=True),
         final_answer_format,
         _memory_section(),
         skills_prompt_block,
@@ -335,7 +345,7 @@ Note: The system will automatically generate a detailed report based on your wor
         _tool_priority_section(startup_terminal_label, startup_terminal_source),
         _output_efficiency_section(),
         _security_section(),
-        _hitl_section(),
+        _hitl_section(is_orchestrator=False),
         _memory_section(),
         skills_prompt_block,
     ]
@@ -355,7 +365,7 @@ Requirements:
 2) Explicitly state the current completion status: completed / partially completed / not completed.
 3) If status is not completed, clearly list remaining work and exact next steps.
 4) Include concrete evidence: tools used, important outputs, file paths, key decisions, and blockers.
-5) If completion is uncertain because SubmitTaskReport was not called, state this uncertainty explicitly.
+5) If completion is uncertain because the sub-agent did not finish cleanly (e.g., hit step limit), state this uncertainty explicitly.
 6) Use sections: Overview, Completed Work (Detailed), Current Completion Status, Remaining Work, Next Steps, Risks/Blockers.
 7) CRITICAL: At the end of your report, you MUST include a line with exactly this format:
    COMPLETION_STATUS: completed
