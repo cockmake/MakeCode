@@ -5,7 +5,7 @@ Plan Mode restricts the agent to read-only and planning tools only.
 This ensures the LLM focuses on analysis and task topology planning
 before any file modifications or command execution.
 
-Toggle via Tab key or /plan command.
+Toggle via Ctrl+P key or /plan command.
 """
 
 # Tools blocked in Plan Mode: write/execute/delegate tools
