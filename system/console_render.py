@@ -265,7 +265,6 @@ def _render_history(messages: list):
 def _render_token_usage(
         messages: list,
         tools_definition: Any = None,
-        system_prompt: str = "",
         threshold: int = 80000,
         estimate_tokens_fn: callable = None,
 ):
@@ -281,7 +280,6 @@ def _render_token_usage(
     tokens = estimate_tokens_fn(
         messages,
         tools_definition=tools_definition,
-        system_prompt=system_prompt,
     )
     pct = (tokens / threshold) * 100
     color = "green" if pct < 70 else "yellow" if pct < 90 else "red"

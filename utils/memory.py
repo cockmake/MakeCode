@@ -144,26 +144,13 @@ except ImportError:
     _ENCODER = None
 
 
-def estimate_tokens(
-        messages: list, tools_definition: list = None, system_prompt: str = None
-):
-    # 计算基础文本的 token 数
+def estimate_tokens(messages: list, tools_definition: list = None):
+    # 计算基础文本的 token 数（messages 已包含系统提示词）
     text = json.dumps(messages, ensure_ascii=False)
     if _ENCODER:
         base_tokens = len(_ENCODER.encode(text, disallowed_special=()))
     else:
         base_tokens = len(text) // 2
-
-    # 加上系统提示词的 token 数
-    if system_prompt:
-        prompt_text = json.dumps(system_prompt, ensure_ascii=False)
-        if _ENCODER:
-            base_tokens += len(_ENCODER.encode(prompt_text, disallowed_special=()))
-        else:
-            base_tokens += len(prompt_text) // 2
-    else:
-        # 默认系统提示词开销
-        base_tokens += 3000
 
     # 加上工具定义的 token 数
     if tools_definition:

@@ -233,7 +233,6 @@ def agent_loop(messages: list):
         _render_token_usage(
             messages,
             tools_definition=current_super_tools,
-            system_prompt=get_dynamic_system_prompt(),
             threshold=THRESHOLD,
             estimate_tokens_fn=estimate_tokens,
         )
@@ -292,7 +291,7 @@ def agent_loop(messages: list):
             break
 
     current_context_tokens = estimate_tokens(
-        messages, tools_definition=current_super_tools, system_prompt=get_dynamic_system_prompt()
+        messages, tools_definition=current_super_tools
     )
     if current_context_tokens > THRESHOLD:
         compact_reason = (
@@ -403,7 +402,6 @@ def _read_user_query(messages: list = None) -> str:
         tokens = estimate_tokens(
             messages,
             tools_definition=get_current_tools_definition(),
-            system_prompt=get_dynamic_system_prompt(),
         )
         pct = (tokens / THRESHOLD) * 100
         color = "ansigreen" if pct < 70 else "ansiyellow" if pct < 90 else "ansired"
@@ -513,6 +511,25 @@ if __name__ == "__main__":
                 continue
             elif query == '__PLAN_MODE_OFF__':
                 console.print("[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]")
+                # Show current task plan on exit
+                from utils.tasks import TASK_MANAGER
+                from rich.table import Table as RichTable
+                task_table = TASK_MANAGER.get_task_table()
+                rows = task_table.get("rows", [])
+                if rows:
+                    tbl = RichTable(title="当前任务计划", show_lines=False)
+                    tbl.add_column("ID", style="cyan", width=4)
+                    tbl.add_column("Subject", style="white")
+                    tbl.add_column("Status", style="green")
+                    tbl.add_column("Runnable", style="yellow", width=8)
+                    for row in rows:
+                        tbl.add_row(
+                            str(row["id"]),
+                            row["subject"],
+                            row["status"],
+                            "✓" if row.get("is_runnable") else "",
+                        )
+                    console.print(tbl)
                 continue
 
             query = query.strip()
