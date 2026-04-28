@@ -204,6 +204,43 @@ def _error_recovery_section() -> str:
  - Do not blindly retry the identical action, but don't abandon viable approaches after a single failure."""
 
 
+def _mode_switch_section(plan_mode: bool = False) -> str:
+    """Guide the agent on how to handle mode switches."""
+    if plan_mode:
+        return """# Mode Switch Awareness
+
+IMPORTANT: You have just switched to PLAN MODE.
+ - You are now in a READ-ONLY planning phase
+ - Do NOT attempt to execute any modifications
+ - Focus on analyzing the codebase and creating an execution plan
+ - Use only read-only tools (RunRead, RunGrep, RunGlob, TaskManager)
+
+What you should do now:
+1. Acknowledge the mode change in your response
+2. Focus on understanding the user's request
+3. Analyze the codebase using read-only tools
+4. Create a detailed task plan with TaskManager
+5. Present the plan to the user for confirmation
+
+Remember: In Plan Mode, you CANNOT write files, execute commands, or delegate tasks."""
+    else:
+        return """# Mode Switch Awareness
+
+IMPORTANT: You have just switched to ACT MODE.
+ - You now have FULL ACCESS to all tools
+ - You can write files, execute commands, and delegate tasks
+ - Your goal is to plan AND execute tasks to completion
+
+What you should do now:
+1. Acknowledge the mode change in your response
+2. Review any existing task plan (if available)
+3. Use GetRunnableTasks to identify executable tasks
+4. Execute tasks using DelegateTasks or direct tool calls
+5. Verify execution results and update task status
+
+Remember: In Act Mode, you can use ALL tools including RunWrite, RunEdit, RunTerminalCommand, and DelegateTasks."""
+
+
 def _hitl_section(is_orchestrator: bool = True) -> str:
     """Human-in-the-Loop guidance.
 
@@ -254,18 +291,43 @@ def get_orchestrator_system_prompt(
     if plan_mode:
         orchestrator_policy = """You are in Plan Mode. Focus on analyzing the codebase and creating an execution plan.
 
-Blocked tools (do NOT use):
+MODE AWARENESS:
+ - You are currently in PLAN MODE - a read-only planning phase
+ - Your goal is to understand the codebase and create a detailed execution plan
+ - Do NOT attempt to execute any modifications until the user exits Plan Mode
+
+Blocked tools (DO NOT USE):
  - RunWrite, RunEdit — file write/edit operations
  - RunTerminalCommand — terminal execution
  - DelegateTasks — sub-agent delegation
 
+Allowed tools (USE THESE):
+ - RunRead, RunGrep, RunGlob — file reading and searching
+ - TaskManager tools (CreateTask, UpdateTaskContent, UpdateTaskDependencies, GetTask, GetRunnableTasks, GetTaskTable) — task planning
+ - LoadSkill — load domain-specific skills
+
 Core operating policy:
 1. Use RunRead/RunGrep/RunGlob to understand the codebase structure
-2. Use TaskManager tools to create task topology
+2. Use TaskManager tools to create task topology with clear dependencies
 3. Only plan — do not execute any modifications
-4. Inform the user when your plan is ready and they can exit Plan Mode to begin execution"""
+4. When your plan is ready, explicitly inform the user and suggest they exit Plan Mode
+5. If you need to make changes to the plan, use UpdateTaskContent or UpdateTaskDependencies
+
+Plan Mode workflow:
+ 1. Analyze the user's request and break it down into subtasks
+ 2. Use RunRead/RunGrep/RunGlob to understand the codebase
+ 3. Create tasks with CreateTask, establishing dependencies with UpdateTaskDependencies
+ 4. Review the task plan with GetTaskTable
+ 5. Present the plan to the user and wait for confirmation to exit Plan Mode"""
     else:
-        orchestrator_policy = """Core operating policy:
+        orchestrator_policy = """You are in Act Mode. You have full access to all tools for planning and execution.
+
+MODE AWARENESS:
+ - You are currently in ACT MODE - a full execution mode
+ - You have access to ALL tools including file writes, terminal commands, and task delegation
+ - Your goal is to plan AND execute tasks to completion
+
+Core operating policy:
 1) Always plan work with TaskManager first.
 2) Before any delegation, call GetRunnableTasks to obtain the current runnable frontier.
 3) DelegateTasks is ONLY for runnable tasks from the latest GetRunnableTasks result.
@@ -282,7 +344,15 @@ Execution guidance:
  - If a planned task lacks clarity or its scope changes, use UpdateTaskContent to refine its subject and description.
  - If the entire topology plan is fundamentally flawed or a complete restart is requested, use DeleteAllTasks (requires confirm=True) to clear the board.
  - For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (RunRead, RunWrite, RunEdit, RunGrep). Do NOT use terminal commands for these tasks.
- - For terminal/CLI tasks, use RunTerminalCommand directly."""
+ - For terminal/CLI tasks, use RunTerminalCommand directly.
+
+Act Mode workflow:
+ 1. Analyze the user's request and create a task plan
+ 2. Use GetRunnableTasks to identify executable tasks
+ 3. Use DelegateTasks to execute tasks (parallel when possible)
+ 4. Verify execution results and update task status
+ 5. Continue until all tasks are completed
+ 6. Provide a final summary of completed work"""
 
     final_answer_format = """Final answer format:
 When providing your final answer, use this structure:
@@ -300,6 +370,7 @@ When providing your final answer, use this structure:
         _environment_section(workdir, startup_terminal_label),
         f"Today's date is {datetime.date.today().isoformat()}.",
         orchestrator_policy,
+        _mode_switch_section(plan_mode),
         _code_style_section(),
         _cautious_actions_section(),
         _tool_priority_section(startup_terminal_label, startup_terminal_source),
