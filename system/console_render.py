@@ -10,10 +10,20 @@ from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+from rich.theme import Theme
 
 from init import log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
 
-console = Console(force_terminal=True)
+# 自定义主题：覆盖默认深色调，h1 金色醒目、h2-4 蓝青色系层次分明
+_custom_theme = Theme({
+    "markdown.block_quote": "bright_black",
+    "markdown.h1": "bold yellow",
+    "markdown.h2": "cyan underline",
+    "markdown.h3": "deep_sky_blue1 bold",
+    "markdown.h4": "steel_blue1 italic",
+})
+
+console = Console(force_terminal=True, theme=_custom_theme)
 
 # 线程锁：用于多子智能体并发输出时保护控制台，防止输出交错
 console_lock = threading.Lock()
