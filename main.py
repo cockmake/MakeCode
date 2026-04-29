@@ -407,26 +407,29 @@ def _read_user_query(messages: list = None) -> str:
         color = "ansigreen" if pct < 70 else "ansiyellow" if pct < 90 else "ansired"
         # 组装 toolbar 内容
         _tb_bg = "bg:#1a1a2e"
-        bottom_toolbar_content = [(f"{_tb_bg} fg:{color} bold", f" 📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) ")]
+        bottom_toolbar_content = []
 
         # 追加当前模型信息
         current_model = get_current_model_config()
         if current_model:
             model_text = current_model.get_display_text()
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#e0e0e0 bold", f" 🤖 Model: {model_text} "))
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#e0e0e0 bold", f"🤖 Model: {model_text} "))
+
+        # 追加 Token 使用情况
+        bottom_toolbar_content.append((f"{_tb_bg} fg:{color} bold", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) "))
+
+        # 追加 Plan/Act 模式状态
+        from utils.plan_mode import is_plan_mode as _is_plan_mode
+        if _is_plan_mode():
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#ff8800 bold", "📋 Plan (Ctrl+P 切换) "))
+        else:
+            bottom_toolbar_content.append((f"{_tb_bg} fg:#aaaaaa bold", "🎬 Act (Ctrl+P 切换) "))
 
         # 追加 HITL 状态
         hitl_on = get_hitl_status()
         hitl_color = "ansigreen" if hitl_on else "ansired"
         hitl_text = "ON" if hitl_on else "OFF"
-        bottom_toolbar_content.append((f"{_tb_bg} fg:{hitl_color} bold", f" 🛡️ HITL: {hitl_text} "))
-
-        # 追加 Plan/Act 模式状态
-        from utils.plan_mode import is_plan_mode as _is_plan_mode
-        if _is_plan_mode():
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#ff8800 bold", " 📋 Plan (Ctrl+P 切换) "))
-        else:
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#aaaaaa bold", " 🎬 Act (Ctrl+P 切换) "))
+        bottom_toolbar_content.append((f"{_tb_bg} fg:{hitl_color} bold", f"🛡️ HITL: {hitl_text}"))
 
     try:
         with patch_stdout():
