@@ -209,11 +209,12 @@ def _mode_switch_section(plan_mode: bool = False) -> str:
     if plan_mode:
         return """# Mode Switch Awareness
 
-IMPORTANT: You have just switched to PLAN MODE.
- - You are now in a READ-ONLY planning phase
- - Do NOT attempt to execute any modifications
- - Focus on analyzing the codebase and creating an execution plan
- - Use only read-only tools (RunRead, RunGrep, RunGlob, TaskManager)
+IMPORTANT: The user has switched you to PLAN MODE.
+ - This means the user wants to review and refine a plan before any execution.
+ - You are now in a READ-ONLY planning phase.
+ - Do NOT attempt to execute any modifications.
+ - Focus on analyzing the codebase and creating an execution plan.
+ - Use only read-only tools (RunRead, RunGrep, RunGlob, TaskManager).
 
 What you should do now:
 1. Acknowledge the mode change in your response
@@ -226,10 +227,10 @@ Remember: In Plan Mode, you CANNOT write files, execute commands, or delegate ta
     else:
         return """# Mode Switch Awareness
 
-IMPORTANT: You have just switched to ACT MODE.
- - You now have FULL ACCESS to all tools
- - You can write files, execute commands, and delegate tasks
- - Your goal is to plan AND execute tasks to completion
+IMPORTANT: The user has switched you to ACT MODE.
+ - This means the user has reviewed the plan and is ready for execution.
+ - You now have FULL ACCESS to all tools.
+ - You can write files, execute commands, and delegate tasks.
 
 What you should do now:
 1. Acknowledge the mode change in your response
@@ -289,7 +290,14 @@ def get_orchestrator_system_prompt(
     skills_prompt_block = SKILL_LOADER.render_prompt_block()
 
     if plan_mode:
-        orchestrator_policy = """You are in Plan Mode. Focus on analyzing the codebase and creating an execution plan.
+        orchestrator_policy = """The system has two modes controlled by the user:
+ - Plan Mode (current): read-only analysis and task planning. No modifications allowed.
+ - Act Mode: full execution with all tools.
+
+The user switches between modes via /plan command or Ctrl+P.
+When your plan is ready, suggest the user switch to Act Mode to proceed.
+
+You are in Plan Mode. Focus on analyzing the codebase and creating an execution plan.
 
 MODE AWARENESS:
  - You are currently in PLAN MODE - a read-only planning phase
@@ -310,7 +318,7 @@ Core operating policy:
 1. Use RunRead/RunGrep/RunGlob to understand the codebase structure
 2. Use TaskManager tools to create task topology with clear dependencies
 3. Only plan — do not execute any modifications
-4. When your plan is ready, explicitly inform the user and suggest they exit Plan Mode
+4. When your plan is ready, present it to the user for approval
 5. If you need to make changes to the plan, use UpdateTaskContent or UpdateTaskDependencies
 
 Plan Mode workflow:
@@ -320,7 +328,14 @@ Plan Mode workflow:
  4. Review the task plan with GetTaskTable
  5. Present the plan to the user and wait for confirmation to exit Plan Mode"""
     else:
-        orchestrator_policy = """You are in Act Mode. You have full access to all tools for planning and execution.
+        orchestrator_policy = """The system has two modes controlled by the user:
+ - Plan Mode: read-only analysis and task planning.
+ - Act Mode (current): full execution with all tools.
+
+The user switches between modes via /plan command or Ctrl+P.
+If the user switches back to Plan Mode during execution, stop modifying files and return to planning.
+
+You are in Act Mode. You have full access to all tools for planning and execution.
 
 MODE AWARENESS:
  - You are currently in ACT MODE - a full execution mode
