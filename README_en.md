@@ -79,9 +79,10 @@ Provides the following execution primitives:
 - `RunWrite`: only for creating and writing a NEW file (when target file does not exist or is empty). **Automatically triggers Tree-sitter syntax validation before writing**, blocks and displays detailed error line numbers if syntax errors are detected.
 - `RunEdit`: modify an existing file. **Uses text search-and-replace mechanism (search_content → replace_content) instead of line number ranges**. Must call `RunRead` first, locate changes by providing exact text with surrounding context. **Supports triple fallback: exact match → strip match → difflib fuzzy match (similarity ≥90%)**. Automatically triggers Tree-sitter syntax validation after editing.
 - `RunGrep`: search text files in a target directory with a regex pattern. Automatically excludes common build/dependency directories (`build`, `dist`, `__pycache__`, `node_modules`, `target`, `venv`, `site-packages`, `htmlcov`) and hidden directories (starting with `.`) to reduce irrelevant matches.
+- `RunGlob`: search files and directories by glob pattern. Supports pipe-separated multi-patterns (e.g. `*.py|*.js|*.ts`), `**` recursive matching, and type filtering (`file`/`dir`/`all`). Automatically excludes hidden and build/dependency directories, returns up to 500 items. Ideal for quickly exploring project structure in Plan Mode.
 - `RunTerminalCommand`: run a non-interactive terminal command
 
-#### 📋 Tree-sitter Syntax Validation (`system/ts_validator.py`) 🆕
+#### 📋 Tree-sitter Syntax Validation (`system/ts_validator.py`)
 
 `RunWrite` and `RunEdit` automatically invoke Tree-sitter for syntax checking before writing files:
 
@@ -110,7 +111,7 @@ Implementation details:
 - **Transactional Dependency Rollback**: `UpdateTaskDependencies` automatically rolls back the dependency list on
   topology validation failure, maintaining data consistency.
 
-### 2.5 Human-In-The-Loop (HITL) Interceptor 🆕
+### 2.5 Human-In-The-Loop (HITL) Interceptor
 
 To guarantee agent execution safety in real engineering environments, the system introduces a Human-In-The-Loop (HITL)
 interception mechanism:
@@ -127,6 +128,7 @@ interception mechanism:
   interception panel. When a user forcefully interrupts an interaction, it won't crash the sub-agent to death. Instead,
   it converts the interruption into a string feedback rejecting the LLM request, letting the agent self-correct
   properly.
+- **Workspace Path Escape Interception & Directory Allowlist**: When a tool accesses a path outside the workspace, HITL intercepts and offers three options: (1) Allow this access; (2) Allow the entire directory (including subdirectories) for the rest of the session; (3) Reject. Once a directory is allowlisted, all subsequent accesses to sub-paths under that directory are automatically permitted. The allowlist is cleared when toggling HITL status, `/clear`, or `/reset`.
 
 ### 2.6 Task Management (`utils/tasks.py`)
 
@@ -195,7 +197,7 @@ the skills catalog is no longer appended to orchestrator/sub-agent system prompt
 - Performs lightweight cleanup of older tool outputs via `micro_compact`.
 - Uses the model to summarize past history and rebuild context.
 
-#### Streaming Summary Generation 🆕
+#### Streaming Summary Generation
 
 - **Real-time Streaming Display**: Uses Rich Live component to display summary generation progress in real-time
 - **Multi-API Adaptation**: Internally calls `get_summary_stream()` method, automatically adapting to Chat Completions or Responses API
@@ -230,7 +232,7 @@ the skills catalog is no longer appended to orchestrator/sub-agent system prompt
 - For sub-agent histories, the system only prompts for loading after the task plan is successfully loaded. If all tasks
   in the plan are already completed, it automatically skips the prompt.
 
-### 2.12 Auto Session Title Generation 🆕
+### 2.12 Auto Session Title Generation
 
 MakeCode automatically generates a concise session title based on the user's first query, and embeds it into the relevant file names for easy session identification and management:
 
@@ -246,7 +248,7 @@ MakeCode automatically generates a concise session title based on the user's fir
 
 Sub-agents can use the `TodoUpdate` tool to maintain a lightweight todo list for multi-step task tracking.
 
-### 2.14 MCP Service Integration (`utils/mcp_manager.py`)🆕
+### 2.14 MCP Service Integration (`utils/mcp_manager.py`)
 
 MakeCode supports integrating external tools and services via the **Model Context Protocol (MCP)**, extending the
 agent's capability boundary.
@@ -262,6 +264,8 @@ agent's capability boundary.
   built-in tools, and seamlessly integrate into `llm_client`
 - **Error Isolation & Recovery**: Failure to load a single MCP service does not affect others; detailed error logs and
   graceful degradation are provided
+- **Connection Retry**: Automatically retries once when a single MCP service fails on first connection attempt, improving startup success rate
+- **Parallel Loading**: Multiple MCP services are initialized concurrently via `asyncio.gather`, significantly reducing startup time; runtime incremental enablement of multiple services also uses parallel connections
 
 #### Configuration Example
 
@@ -306,7 +310,7 @@ Create `.makecode/mcp_config.json` in your workspace:
 > 💡 **Tip**: MCP service integration is optional. If `mcp_config.json` is not configured, the system will skip loading
 > and continue normal operation.
 
-### 2.15 Model Management Panel (`system/models.py`) 🆕
+### 2.15 Model Management Panel (`system/models.py`)
 
 MakeCode provides a visual model configuration management interface with multi-model switching and persistent storage.
 
@@ -337,7 +341,7 @@ class ModelConfig:
 - `system/commands.py`: Provides `/models` command interaction
 - `init.py`: Loads model configuration at initialization
 
-### 2.16 Console Rendering & Output Optimization (`system/console_render.py`) 🆕
+### 2.16 Console Rendering & Output Optimization (`system/console_render.py`)
 
 MakeCode extracts rendering functions into a standalone `console_render.py` module, providing unified multi-thread-safe rendering capabilities.
 
@@ -360,13 +364,13 @@ MakeCode extracts rendering functions into a standalone `console_render.py` modu
 - `utils/teams.py`: Integrates console rendering, managing sub-agent execution logs
 - `main.py`: Initializes renderer and sets output strategy
 
-### 2.17 Plan Mode 🆕
+### 2.17 Plan Mode
 
 MakeCode supports Plan/Act mode switching, ensuring the agent focuses on analysis and task topology planning during the planning phase, rather than executing modifications prematurely.
 
 #### Core Concepts
 
-- **Plan Mode**: Only read-only and planning tools are allowed (e.g., `RunRead`, `RunGrep`, `TaskManager`, etc.), file writes, terminal execution, and task delegation are prohibited
+- **Plan Mode**: Only read-only and planning tools are allowed (e.g., `RunRead`, `RunGrep`, `RunGlob`, `TaskManager`, etc.), file writes, terminal execution, and task delegation are prohibited
 - **Act Mode**: Full execution mode where all tools are available
 
 #### Restricted Tools in Plan Mode
@@ -406,19 +410,19 @@ Agent/
 │  └─ todo.py               # internal todo manager for sub-agents
 ├─ utils/
 │  ├─ llm_client.py         # LLM standard adapter (Chat vs Response API)
-│  ├─ hitl.py               # Human-In-The-Loop interceptor and UI (🆕)
+│  ├─ hitl.py               # Human-In-The-Loop interceptor and UI
 │  ├─ common.py             # file / terminal / grep primitives
 │  ├─ file_access.py        # file access control and fine-grained concurrency locks
-│  ├─ mcp_manager.py        # MCP service manager, config loading & tool registration 🆕
-│  ├─ plan_mode.py          # Plan Mode state management and tool interception (🆕)
+│  ├─ mcp_manager.py        # MCP service manager, config loading & tool registration
+│  ├─ plan_mode.py          # Plan Mode state management and tool interception
 │  ├─ tasks.py              # TaskManager topology and status logic
 │  ├─ teams.py              # concurrent delegation and execution logs
 │  └─ memory.py             # transcript saving and history compaction
 ├─ system/
 │  ├─ commands.py           # slash command module (descriptions, completer, interactive panels)
-│  ├─ console_render.py     # console rendering module (multi-thread-safe, streaming) 🆕
-│  ├─ stream_render.py      # streaming render module (two-phase, relay Live, throttled refresh) 🆕
-│  ├─ models.py             # model management module (config persistence, favorites) 🆕
+│  ├─ console_render.py     # console rendering module (multi-thread-safe, streaming)
+│  ├─ stream_render.py      # streaming render module (two-phase, relay Live, throttled refresh)
+│  ├─ models.py             # model management module (config persistence, favorites)
 │  └─ ts_validator.py        # Tree-sitter syntax validation module
 ├─ skills/
 │  ├─ pdf/
@@ -491,8 +495,8 @@ flowchart TD
 - `main.py` is the main orchestrator, handling model conversations, tool calls, and the main loop.
 - `init.py` provides workspace selection and model configuration initialization.
 - `prompts.py` centrally manages all LLM prompts for easier maintenance and parameterization.
-- `utils/common.py` provides file read/write, line-based editing, text search, and terminal command execution.
-- `utils/hitl.py` 🆕 manages secure interception of high-risk commands and destructive operations through a globally
+- `utils/common.py` provides file read/write, line-based editing, text search, glob-based file discovery, and terminal command execution.
+- `utils/hitl.py` manages secure interception of high-risk commands and destructive operations through a globally
   queued TUI, complete with trace context for concurrency safety.
 - `utils/file_access.py` implements file access control: mandatory read-before-edit, mtime-lock validation, and
   fine-grained file-level concurrency locks.
@@ -501,14 +505,14 @@ flowchart TD
   failure context recovery.
 - `utils/skills.py` provides skill discovery and content loading.
 - `utils/memory.py` handles long-session compaction and transcript saving.
-- `utils/mcp_manager.py` 🆕 manages MCP service configuration loading, client lifecycle, tool extraction and
+- `utils/mcp_manager.py` manages MCP service configuration loading, client lifecycle, tool extraction and
   registration, with support for dynamic enable/disable.
-- `utils/plan_mode.py` 🆕 manages Plan/Act mode state and intercepts restricted tool calls in Plan Mode.
-- `system/ts_validator.py` 🆕 provides Tree-sitter syntax validation, automatically detecting code syntax errors before file writes.
-- `system/commands.py` 🆕 handles slash command definitions, completion, and interactive panel processing.
-- `system/console_render.py` 🆕 provides multi-thread-safe console rendering with streaming output and smart truncation (first 50 lines + last 250 lines).
-- `system/stream_render.py` 🆕 implements a two-phase streaming render engine: Reasoning process uses native append mode with dim styling, Text body uses throttled Live + Markdown real-time rendering with Markdown code block relay support.
-- `system/models.py` 🆕 provides model configuration management with multi-model persistence, favorites, and max_context settings.
+- `utils/plan_mode.py` manages Plan/Act mode state and intercepts restricted tool calls in Plan Mode.
+- `system/ts_validator.py` provides Tree-sitter syntax validation, automatically detecting code syntax errors before file writes.
+- `system/commands.py` handles slash command definitions, completion, and interactive panel processing.
+- `system/console_render.py` provides multi-thread-safe console rendering with streaming output and smart truncation (first 50 lines + last 250 lines).
+- `system/stream_render.py` implements a two-phase streaming render engine: Reasoning process uses native append mode with dim styling, Text body uses throttled Live + Markdown real-time rendering with Markdown code block relay support.
+- `system/models.py` provides model configuration management with multi-model persistence, favorites, and max_context settings.
 - `tools/todo.py` allows sub-agents to maintain internal todos for multi-step task tracking.
 
 ---
@@ -588,7 +592,7 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | Command              | Description                                                                                                                                      |
 |----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
 | `/cmds`              | List all available commands and their descriptions                                                                                               |
-| `/models`            | Manage model configurations (add, edit, delete, switch, favorite) 🆕                                                                              |
+| `/models`            | Manage model configurations (add, edit, delete, switch, favorite)                                                                                  |
 | `/mcp-view`          | View the MCP status overview and the currently loaded MCP tool list                                                                              |
 | `/mcp-restart`       | Restart the MCP background manager and reload configuration                                                                                      |
 | `/mcp-switch`        | Interactively toggle MCP services on/off, save changes to `.makecode/mcp_config.json` after confirmation, and attempt incremental enable/disable |
@@ -597,11 +601,14 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | `/skills-list`       | List available skills in the current workspace                                                                                                   |
 | `/compact`           | Compact the current conversation context                                                                                                         |
 | `/tools`             | List detailed information of available tools                                                                                                     |
-| `/tasks` / `/plan`   | View the task board and current execution progress                                                                                               |
+| `/tasks`              | View the task board and current execution progress                                                                                               |
+| `/plan`               | Enter/exit Plan Mode — only read-only and planning tools are allowed in the planning phase                                                       |
 | `/status`            | Report system status, completed tasks, and next steps                                                                                            |
 | `/help`              | Show usage help and self-introduction                                                                                                            |
 | `/workspace` / `/ls` | View the current workspace directory structure                                                                                                   |
 | `/clear` / `/reset`  | Clear current conversation history                                                                                                               |
+| `/hitl`               | Toggle Human-in-the-Loop interception status (On/Off)                                                                                            |
+| `/sub-agent-console`  | Toggle Sub-Agent console output status, disabled by default                                                                                      |
 | `/quit` / `/exit`    | Exit the program                                                                                                                                 |
 
 > 💡 **Tip: MCP-related commands**
@@ -683,7 +690,7 @@ If model calls fail, use the `/models` command to check:
 
 ### 9.2 Path escapes workspace
 
-`RunRead`, `RunWrite`, `RunEdit`, and `RunGrep` all enforce workspace boundaries. Paths outside the workspace are
+`RunRead`, `RunWrite`, `RunEdit`, `RunGrep`, and `RunGlob` all enforce workspace boundaries. Paths outside the workspace are
 rejected.
 
 ### 9.3 Terminal command failures
