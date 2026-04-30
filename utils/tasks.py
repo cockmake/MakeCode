@@ -1,7 +1,6 @@
 import json
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -17,7 +16,6 @@ TASKS_DIR = MAKECODE_DIR / "tasks"
 
 VALID_STATUS = {
     "pending",
-    "in_progress",
     "completed",
 }
 
@@ -48,7 +46,7 @@ class CreateTask(BaseModel):
     depend_on: list[str] = Field(
         default_factory=list, description="IDs of tasks this task depends on."
     )
-    status: Literal["pending", "in_progress", "completed"] = Field(
+    status: Literal["pending", "completed"] = Field(
         default="pending", description="Initial task status."
     )
 
@@ -97,11 +95,11 @@ class UpdateTaskStatus(BaseModel):
     Update one task's status.
     Constraints:
     - task must exist
-    - status must be one of pending/in_progress/completed
+    - status must be one of pending/completed
     """
 
     task_id: str = Field(..., min_length=1, description="Target task ID.")
-    status: Literal["pending", "in_progress", "completed"] = Field(
+    status: Literal["pending", "completed"] = Field(
         ..., description="New status for the task."
     )
 
@@ -161,12 +159,6 @@ class UpdateTaskDependencies(BaseModel):
         return v
 
 
-class GetTask(BaseModel):
-    """Get one task's full detail by ID."""
-
-    task_id: str = Field(..., min_length=1, description="Target task ID.")
-
-
 class UpdateTaskContent(BaseModel):
     """
     Update one task's subject and description.
@@ -211,10 +203,6 @@ class GetTaskTable(BaseModel):
     Returns a compact structured payload with summary + rows,
     designed for direct model context consumption.
     """
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat()
 
 
 def list_task_plans() -> list[Path]:
@@ -276,17 +264,13 @@ class TaskManager:
         else:
             self.path = self.workspace / f"task_plan_{epic_id}.json"
             
-        now = _now_iso()
         self._data: dict[str, Any] = {
             "epic_id": epic_id,
             "next_id": 1,
-            "created_at": now,
-            "updated_at": now,
             "tasks": {},
         }
 
     def _save(self) -> None:
-        self._data["updated_at"] = _now_iso()
         self.path.write_text(
             json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
@@ -346,9 +330,6 @@ class TaskManager:
                 f"Invalid status '{status}', must be one of {sorted(VALID_STATUS)}"
             )
 
-    def _touch_task(self, task: dict[str, Any]) -> None:
-        task["updated_at"] = _now_iso()
-
     def _active_task_ids(self) -> set[str]:
         return {
             tid
@@ -363,6 +344,11 @@ class TaskManager:
         """
         tasks = self._data["tasks"]
         active = self._active_task_ids()
+
+        # Check for self-dependency
+        for tid in active:
+            if tid in tasks[tid].get("depend_on", []):
+                raise ValueError(f"Task {tid} cannot depend on itself")
 
         indegree = {tid: 0 for tid in active}
         graph: dict[str, list[str]] = defaultdict(list)
@@ -428,15 +414,12 @@ class TaskManager:
         if task_id in dep_ids:
             raise ValueError("Task cannot depend on itself")
 
-        now = _now_iso()
         task = {
             "id": task_id,
             "subject": subject,
             "description": description,
             "status": status,
             "depend_on": sorted(set(dep_ids), key=self._id_sort_key),
-            "created_at": now,
-            "updated_at": now,
         }
         self._data["tasks"][task_id] = task
         self._data["next_id"] += 1
@@ -451,8 +434,18 @@ class TaskManager:
     ) -> dict[str, Any]:
         self._validate_status(status)
         task = self._task(task_id)
+        if status == "completed":
+            tasks = self._data["tasks"]
+            incomplete = [
+                dep for dep in task.get("depend_on", [])
+                if dep in tasks and tasks[dep]["status"] != "completed"
+            ]
+            if incomplete:
+                raise ValueError(
+                    f"Cannot complete task '{task_id}': "
+                    f"dependencies {incomplete} are not completed."
+                )
         task["status"] = status
-        self._touch_task(task)
         self._save()
         return task
 
@@ -477,7 +470,6 @@ class TaskManager:
         task = self._data["tasks"][tid]
         old_deps = task.get("depend_on", [])
         task["depend_on"] = sorted(set(dep_ids), key=self._id_sort_key)
-        self._touch_task(task)
 
         try:
             self._validate_topology()
@@ -499,7 +491,6 @@ class TaskManager:
         task = self._data["tasks"][tid]
         task["subject"] = subject.strip()
         task["description"] = description
-        self._touch_task(task)
         self._save()
         return task
 
@@ -514,7 +505,6 @@ class TaskManager:
 
         self._data["tasks"] = {}
         self._data["next_id"] = 1
-        self._data["updated_at"] = _now_iso()
 
         self._save()
         return {"status": "success", "message": "All tasks have been permanently deleted."}
@@ -538,7 +528,7 @@ class TaskManager:
             self._data["tasks"].values(), key=lambda t: self._id_sort_key(t["id"])
         )
         runnable_ids = {t["id"] for t in self.get_runnable_tasks()}
-        status_count = {"pending": 0, "in_progress": 0, "completed": 0}
+        status_count = {"pending": 0, "completed": 0}
         rows = []
         for t in tasks:
             status = t["status"]
@@ -552,7 +542,6 @@ class TaskManager:
                     "depend_on": t.get("depend_on", []),
                     "is_runnable": t["id"] in runnable_ids,
                     "description": t.get("description", ""),
-                    "updated_at": t.get("updated_at"),
                 }
             )
 
@@ -561,7 +550,6 @@ class TaskManager:
                 "epic_id": self._data["epic_id"],
                 "total": len(tasks),
                 "pending": status_count["pending"],
-                "in_progress": status_count["in_progress"],
                 "completed": status_count["completed"],
                 "runnable_count": len(runnable_ids),
             },
@@ -572,7 +560,6 @@ class TaskManager:
                 "depend_on",
                 "is_runnable",
                 "description",
-                "updated_at",
             ],
             "rows": rows,
         }
@@ -586,7 +573,6 @@ TOOLS = [
     pydantic_function_tool(UpdateTaskStatus),
     pydantic_function_tool(UpdateTaskDependencies),
     pydantic_function_tool(DeleteAllTasks),
-    pydantic_function_tool(GetTask),
     pydantic_function_tool(GetRunnableTasks),
     pydantic_function_tool(GetTaskTable),
 ]
@@ -616,7 +602,6 @@ TASK_MANAGER_TOOLS_HANDLERS = {
     "UpdateTaskStatus": lambda **kw: TASK_MANAGER.update_task_status(**kw),
     "UpdateTaskDependencies": lambda **kw: TASK_MANAGER.update_task_dependencies(**kw),
     "DeleteAllTasks": lambda **kw: TASK_MANAGER.delete_all_tasks(**kw),
-    "GetTask": lambda **kw: TASK_MANAGER.get_task(**kw),
     "GetRunnableTasks": lambda **kw: TASK_MANAGER.get_runnable_tasks(**kw),
     "GetTaskTable": lambda **kw: TASK_MANAGER.get_task_table(**kw),
 }

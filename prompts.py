@@ -311,7 +311,7 @@ Blocked tools (DO NOT USE):
 
 Allowed tools (USE THESE):
  - RunRead, RunGrep, RunGlob — file reading and searching
- - TaskManager tools (CreateTask, UpdateTaskContent, UpdateTaskDependencies, GetTask, GetRunnableTasks, GetTaskTable) — task planning
+ - TaskManager tools (CreateTask, UpdateTaskContent, UpdateTaskStatus, UpdateTaskDependencies, GetRunnableTasks, GetTaskTable, DeleteAllTasks) — task planning
  - LoadSkill — load domain-specific skills
 
 Core operating policy:
