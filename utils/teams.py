@@ -171,12 +171,6 @@ class TeammateManager:
         self.history_path = new_path
         return True
 
-    async def _set_plan_task_status(
-            self, task_id: str, status: str, lock: asyncio.Lock
-    ):
-        async with lock:
-            TASK_MANAGER.update_task_status(task_id=task_id, status=status)
-
     def _validate_delegation_tasks(self, tasks: Any) -> list[dict]:
         try:
             validated_model = DelegateTasks.model_validate({"tasks": tasks})
@@ -379,8 +373,6 @@ class TeammateManager:
                     ),  # 保存相对路径方便查看
                 }
 
-                await self._set_plan_task_status(plan_task_id, "in_progress", lock)
-
                 async with lock:
                     self.history.append(task_record)
                 await self._save_history(lock)
@@ -408,10 +400,6 @@ class TeammateManager:
                         # 如果没有明确的状态，默认为未完成
                         succeeded = False
 
-                    final_plan_status = "completed" if succeeded else "pending"
-                    await self._set_plan_task_status(
-                        plan_task_id, final_plan_status, lock
-                    )
                     history_status = "completed" if succeeded else "failed"
                 except Exception as exc:
                     log_error_traceback(
@@ -420,7 +408,6 @@ class TeammateManager:
                     report = f"Error: Sub-agent crashed - {exc}."
                     succeeded = False
                     history_status = "failed"
-                    await self._set_plan_task_status(plan_task_id, "pending", lock)
 
                 # 任务完成，更新总 history 状态
                 async with lock:
