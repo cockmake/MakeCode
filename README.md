@@ -376,6 +376,7 @@ Agent/
 │  ├─ llm_client.py         # LLM 标准适配器 (Chat vs Response) 
 │  ├─ hitl.py               # 高危操作人工拦截与可视化 UI
 │  ├─ common.py             # 文件/终端/搜索等基础工具
+│  ├─ skills.py             # 技能发现与内容加载
 │  ├─ file_access.py        # 文件访问控制与细粒度并发锁
 │  ├─ mcp_manager.py        # MCP 服务管理器，配置加载与工具注册
 │  ├─ plan_mode.py          # Plan Mode 状态管理与工具拦截
@@ -419,10 +420,13 @@ flowchart TD
     O --> S["Skills\nutils/skills.py"]
     O --> MM["Memory\nutils/memory.py"]
     O --> MCP["MCP Manager\nutils/mcp_manager.py"]
+    O --> PM["Plan Mode\nutils/plan_mode.py"]
+    O --> FA["File Access Control\nutils/file_access.py"]
 
-    TS --> C["验证通过后\n执行文件写入"]
+    TS --> CV["验证通过后\n执行文件写入"]
     I --> H
-    H --> C
+    H --> FA
+    FA --> C
     C --> W["工作区文件"]
     C --> X["终端命令执行"]
 

@@ -412,6 +412,7 @@ Agent/
 │  ├─ llm_client.py         # LLM standard adapter (Chat vs Response API)
 │  ├─ hitl.py               # Human-In-The-Loop interceptor and UI
 │  ├─ common.py             # file / terminal / grep primitives
+│  ├─ skills.py             # skill discovery and content loading
 │  ├─ file_access.py        # file access control and fine-grained concurrency locks
 │  ├─ mcp_manager.py        # MCP service manager, config loading & tool registration
 │  ├─ plan_mode.py          # Plan Mode state management and tool interception
@@ -455,9 +456,13 @@ flowchart TD
     O --> S["Skills\nutils/skills.py"]
     O --> MM["Memory\nutils/memory.py"]
     O --> MCP["MCP Manager\nutils/mcp_manager.py"]
-    TS --> C["Validate then\nWrite Files"]
+    O --> PM["Plan Mode\nutils/plan_mode.py"]
+    O --> FA["File Access Control\nutils/file_access.py"]
+
+    TS --> CV["Validate then\nWrite Files"]
     I --> H
-    H --> C
+    H --> FA
+    FA --> C
     C --> W["Workspace Files"]
     C --> X["Terminal Command Execution"]
 
