@@ -35,6 +35,7 @@ from system.console_render import (
     _render_env_customization_hint,
     console,
 )
+from system.updater import check_update
 from utils.hitl import get_hitl_status
 from system.models import get_current_model_config
 from utils.plan_mode import is_plan_mode, PLAN_MODE_BLOCKLIST
@@ -461,6 +462,17 @@ def _apply_pending_title():
         log_error_traceback("Failed to apply pending title", exc)
 
 
+def _background_update_check():
+    """后台检查更新，有新版本时提示用户（不阻塞启动）。"""
+    try:
+        version_info = check_update()
+        if version_info:
+            new_version = version_info.get('version', '未知')
+            console.print(f"\n[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]")
+    except Exception:
+        pass  # 静默失败，不影响正常使用
+
+
 if __name__ == "__main__":
     _render_startup_banner()
     _render_env_customization_hint()
@@ -470,6 +482,10 @@ if __name__ == "__main__":
 
     GLOBAL_MCP_MANAGER.initialize(console=console)
     GLOBAL_MCP_MANAGER.start_background()
+
+    # 后台检查更新（仅打包环境）
+    if getattr(sys, 'frozen', False):
+        threading.Thread(target=_background_update_check, daemon=True).start()
 
     history = [{"role": "system", "content": get_dynamic_system_prompt()}]
 
