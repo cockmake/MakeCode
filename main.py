@@ -474,7 +474,7 @@ def _background_update_check():
         from io import StringIO
         buf = StringIO()
         tmp = Console(file=buf, force_terminal=True)
-        tmp.print(f"\n[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]")
+        tmp.print(f"\n[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]\n")
         if release_log:
             tmp.print(Markdown(release_log))
         print_formatted_text(ANSI(buf.getvalue()))
