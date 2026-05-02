@@ -144,7 +144,7 @@ def ask_user(question: str, options: list, **kwargs) -> str:
     # Custom input
     if choice == custom_key:
         try:
-            custom_text = prompt("✏️ 请输入你的回答: ").strip()
+            custom_text = prompt("请输入你的回答：").strip()
         except KeyboardInterrupt:
             return json.dumps({"choice": "<cancelled>"}, ensure_ascii=False)
         except EOFError:
