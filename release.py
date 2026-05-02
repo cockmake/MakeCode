@@ -22,7 +22,7 @@ def get_sha256(file_path: Path) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="生成 version.json 发布文件")
-    parser.add_argument("--release_log", required=True, help="发布日志/说明")
+    parser.add_argument("--release_log", required=True, help="发布日志（markdown 格式）")
     args = parser.parse_args()
 
     exe_path = Path("dist") / "MakeCode.exe"
