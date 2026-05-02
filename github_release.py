@@ -117,6 +117,29 @@ def upload_asset(token: str, upload_url: str, file_path: Path) -> dict:
     return resp.json()
 
 
+def get_release_body(version_path: Path) -> str:
+    """生成 markdown 格式的 Release 介绍内容。"""
+    lines = [f"## MakeCode {CURRENT_VERSION}", ""]
+
+    # 从 version.json 读取 commit
+    if version_path.exists():
+        try:
+            with open(version_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            release_log = data.get("release_log")
+            if release_log:
+                lines.append(f"**发布日志**: {release_log}")
+                lines.append("")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    lines.append("### 下载")
+    lines.append("- `MakeCode.exe` — 主程序")
+    lines.append("- `version.json` — 版本信息文件")
+
+    return "\n".join(lines)
+
+
 def main():
     token = get_token()
     tag = f"v{CURRENT_VERSION}"
@@ -137,13 +160,16 @@ def main():
     print("[清理] 删除旧 Releases...")
     delete_all_releases(token)
 
+    # 生成 Release 介绍内容
+    body = get_release_body(version_path)
+
     # 创建新 Release
     print(f"[创建] Release {tag}...")
     release = create_release(
         token,
         tag=tag,
         name=tag,
-        body=f"MakeCode {CURRENT_VERSION} 版本发布",
+        body=body,
     )
     print(f"   Release ID: {release['id']}")
     print(f"   URL: {release['html_url']}")

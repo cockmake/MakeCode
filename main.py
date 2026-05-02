@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from prompt_toolkit import PromptSession, print_formatted_text
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import HTML, ANSI
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -462,13 +462,22 @@ def _apply_pending_title():
         log_error_traceback("Failed to apply pending title", exc)
 
 
+
 def _background_update_check():
     """后台检查更新，有新版本时提示用户（不阻塞启动）。"""
     try:
         version_info = check_update()
-        if version_info:
-            new_version = version_info.get('version', '未知')
-            console.print(f"\n[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]")
+        if not version_info:
+            return
+        new_version = version_info.get('version', '未知')
+        release_log = version_info.get('release_log', '')
+        from io import StringIO
+        buf = StringIO()
+        tmp = Console(file=buf, force_terminal=True)
+        tmp.print(f"\n[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]")
+        if release_log:
+            tmp.print(Markdown(release_log))
+        print_formatted_text(ANSI(buf.getvalue()))
     except Exception:
         pass  # 静默失败，不影响正常使用
 
