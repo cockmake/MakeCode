@@ -1,6 +1,6 @@
 """
 发布脚本 - 自动生成 version.json 并准备上传文件。
-用法: python release.py --release_log LOG
+用法: python release.py --release_log <发布日志文件路径>
 """
 import argparse
 import hashlib
@@ -22,8 +22,14 @@ def get_sha256(file_path: Path) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="生成 version.json 发布文件")
-    parser.add_argument("--release_log", required=True, help="发布日志（markdown 格式）")
+    parser.add_argument("--release_log", required=True, type=Path, help="发布日志文件路径（markdown 格式）")
     args = parser.parse_args()
+
+    log_path: Path = args.release_log
+    if not log_path.exists():
+        print(f"❌ 找不到发布日志文件 {log_path}")
+        sys.exit(1)
+    release_log = log_path.read_text(encoding="utf-8").strip()
 
     exe_path = Path("dist") / "MakeCode.exe"
     if not exe_path.exists():
@@ -35,7 +41,7 @@ def main():
         "version": CURRENT_VERSION,
         "download_url": f"{UPDATE_SERVER_URL}/MakeCode.exe",
         "sha256": sha256,
-        "release_log": args.release_log,
+        "release_log": release_log,
     }
 
     output = Path("dist") / "version.json"
@@ -43,7 +49,7 @@ def main():
 
     print(f"[OK] 已生成 {output}")
     print(f"   版本: {CURRENT_VERSION}")
-    print(f"   发布日志: {args.release_log}")
+    print(f"   发布日志: {release_log}")
     print(f"   SHA256: {sha256}")
     print()
     print("请将 dist 目录下的文件上传到服务器:")
