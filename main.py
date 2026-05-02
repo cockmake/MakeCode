@@ -107,17 +107,6 @@ def _get_all_tools_definition():
         raise
 
 
-def get_base_super_tools():
-    """获取基础工具定义"""
-    try:
-        return llm_client.format_tools(
-            COMMON_TOOLS + SKILL_TOOLS + TASK_MANAGER_TOOLS + TEAM_TOOLS
-        )
-    except RuntimeError as exc:
-        if "No model configured" in str(exc):
-            return []
-        raise
-
 
 orchestrator_access = AgentFileAccess()
 

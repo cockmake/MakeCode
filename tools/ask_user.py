@@ -1,7 +1,6 @@
 """
 主动向用户提问工具 — 允许 Agent 在不确定时主动询问用户意见。
 """
-import asyncio
 import json
 
 from openai import pydantic_function_tool
@@ -79,14 +78,6 @@ def ask_user(question: str, options: list, **kwargs) -> str:
         parsed_options = validated.options
     except Exception as exc:
         return f"Error: Invalid arguments provided to AskUser. {exc}"
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("Event loop is closed")
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 
     with console_lock:
         # Build display entries from options
