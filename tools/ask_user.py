@@ -159,7 +159,7 @@ def ask_user(question: str, options: list, **kwargs) -> str:
             return result
 
         control = FormattedTextControl(get_formatted_text)
-        window = Window(content=control)
+        window = Window(content=control, wrap_lines=True)
         layout = Layout(window, focused_element=window)
 
         style = Style(
