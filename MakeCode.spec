@@ -24,7 +24,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     # 2. 将原来的 datas 列表与 copy_metadata 的结果相加
-    datas=[('tiktoken_cache', 'tiktoken_cache')] + ts_cache_datas + copy_metadata('fastmcp') + [('updater.exe', '.')],
+    datas=[('tiktoken_cache', 'tiktoken_cache')] + ts_cache_datas + copy_metadata('fastmcp') + [('dist/updater.exe', '.')],
     hiddenimports=[
         'tiktoken_ext.openai_public', 
         'tiktoken_ext', 

@@ -11,8 +11,7 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'numpy', 'matplotlib', 'PIL', 'pandas', 'openpyxl', 'xlrd',
-        'pytest', 'tkinter', 'unittest', 'xmlrpc', 'pydoc',
-        'doctest', 'email', 'http', 'urllib',
+        'pytest', 'tkinter',
     ],
     noarchive=False,
     optimize=0,

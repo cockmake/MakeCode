@@ -104,18 +104,7 @@ def main():
             log.error("恢复旧版本也失败，主程序可能损坏")
         sys.exit(1)
 
-    # 4. 启动主程序
-    try:
-        cmd = [exe_path]
-        if launch_args:
-            cmd.extend(launch_args.split())
-        subprocess.Popen(cmd)
-        log.info("已启动主程序")
-    except OSError as e:
-        log.error("启动主程序失败: %s", e)
-        sys.exit(1)
-
-    # 5. 清理
+    # 4. 清理
     try:
         if os.path.exists(backup_path):
             os.remove(backup_path)

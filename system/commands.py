@@ -598,18 +598,32 @@ class CommandHandler:
 
         self.console.print("[bold cyan]📥 正在下载更新...[/bold cyan]")
 
+        # 进度显示
+        progress_text = [""]
+        def _progress(downloaded: int, total: int | None) -> None:
+            if total:
+                pct = downloaded / total * 100
+                bar_len = 30
+                filled = int(bar_len * downloaded / total)
+                bar = "█" * filled + "░" * (bar_len - filled)
+                progress_text[0] = f"\r  {bar} {pct:.1f}%  ({downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB)"
+            else:
+                progress_text[0] = f"\r  已下载: {downloaded // 1024 // 1024} MB"
+            print(progress_text[0], end="", flush=True)
+
         try:
-            new_exe_path = download_update(version_info)
+            new_exe_path = download_update(version_info, progress_callback=_progress)
         except Exception as exc:
-            self.console.print(f"[bold red]❌ 下载失败: {exc}[/bold red]")
+            self.console.print(f"\n[bold red]❌ 下载失败: {exc}[/bold red]")
             return True
 
         if new_exe_path is None:
-            self.console.print("[bold red]❌ 下载失败，请稍后重试[/bold red]")
+            self.console.print("\n[bold red]❌ 下载失败，请稍后重试[/bold red]")
             return True
 
+        print()  # 换行
         self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
-        self.console.print("[dim]程序将自动退出并完成更新，更新后会自动重启[/dim]")
+        self.console.print("[dim]程序将自动退出并完成更新，更新后请手动重启程序[/dim]")
 
         try:
             launch_updater(new_exe_path)
