@@ -1,0 +1,169 @@
+"""
+GitHub Release 上传脚本。
+用法: python github_release.py
+
+需要设置环境变量 GITHUB_TOKEN，或在同目录下创建 .github_token 文件。
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+import requests
+
+from version import CURRENT_VERSION
+
+# GitHub 配置
+GITHUB_OWNER = "upupmake"
+GITHUB_REPO = "MakeCode"
+GITHUB_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+
+
+def get_token() -> str:
+    """获取 GitHub Token，优先从环境变量读取，其次从文件读取。"""
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token
+
+    token_file = Path(__file__).parent / ".github_token"
+    if token_file.exists():
+        return token_file.read_text().strip()
+
+    print("❌ 未找到 GitHub Token")
+    print("   请设置环境变量 GITHUB_TOKEN，或创建 .github_token 文件")
+    sys.exit(1)
+
+
+def get_all_releases(token: str) -> list:
+    """获取所有 Releases。"""
+    url = f"{GITHUB_API}/releases"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def delete_release(token: str, release_id: int):
+    """删除指定 Release。"""
+    url = f"{GITHUB_API}/releases/{release_id}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    resp = requests.delete(url, headers=headers)
+    resp.raise_for_status()
+
+
+def delete_all_releases(token: str):
+    """删除所有 Releases。"""
+    releases = get_all_releases(token)
+    if not releases:
+        print("   没有找到任何 Release")
+        return
+
+    print(f"   找到 {len(releases)} 个 Release，正在删除...")
+    for release in releases:
+        tag = release["tag_name"]
+        release_id = release["id"]
+        print(f"   删除 {tag} (ID: {release_id})")
+        delete_release(token, release_id)
+
+        # 同时删除对应的 tag
+        tag_url = f"{GITHUB_API}/git/refs/tags/{tag}"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        requests.delete(tag_url, headers=headers)
+
+    print("   [OK] 所有 Release 已删除")
+
+
+def create_release(token: str, tag: str, name: str, body: str) -> dict:
+    """创建 GitHub Release。"""
+    url = f"{GITHUB_API}/releases"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    payload = {
+        "tag_name": tag,
+        "name": name,
+        "body": body,
+        "draft": False,
+        "prerelease": False,
+    }
+
+    resp = requests.post(url, headers=headers, json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def upload_asset(token: str, upload_url: str, file_path: Path) -> dict:
+    """上传文件到 Release。"""
+    url = upload_url.replace("{?name,label}", f"?name={file_path.name}")
+    headers = {
+        "Authorization": f"token {token}",
+        "Content-Type": "application/octet-stream",
+    }
+
+    with open(file_path, "rb") as f:
+        resp = requests.post(url, headers=headers, data=f)
+
+    resp.raise_for_status()
+    return resp.json()
+
+
+def main():
+    token = get_token()
+    tag = f"v{CURRENT_VERSION}"
+    dist_dir = Path("dist")
+
+    exe_path = dist_dir / "MakeCode.exe"
+    version_path = dist_dir / "version.json"
+
+    if not exe_path.exists():
+        print(f"❌ 找不到 {exe_path}，请先运行 pyinstaller MakeCode.spec")
+        sys.exit(1)
+
+    if not version_path.exists():
+        print(f"❌ 找不到 {version_path}，请先运行 python release.py")
+        sys.exit(1)
+
+    # 删除所有旧 Release
+    print("[清理] 删除旧 Releases...")
+    delete_all_releases(token)
+
+    # 创建新 Release
+    print(f"[创建] Release {tag}...")
+    release = create_release(
+        token,
+        tag=tag,
+        name=tag,
+        body=f"MakeCode {CURRENT_VERSION} 版本发布",
+    )
+    print(f"   Release ID: {release['id']}")
+    print(f"   URL: {release['html_url']}")
+
+    upload_url = release["upload_url"]
+
+    # 上传 MakeCode.exe
+    print(f"[上传] MakeCode.exe ({exe_path.stat().st_size / 1024 / 1024:.1f} MB)...")
+    upload_asset(token, upload_url, exe_path)
+    print("   [OK] 上传完成")
+
+    # 上传 version.json
+    print("[上传] version.json...")
+    upload_asset(token, upload_url, version_path)
+    print("   [OK] 上传完成")
+
+    print()
+    print(f"[OK] GitHub Release 发布成功！")
+    print(f"   下载地址: {release['html_url']}")
+
+
+if __name__ == "__main__":
+    main()
