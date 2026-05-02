@@ -138,6 +138,7 @@ Do NOT use RunTerminalCommand when a dedicated tool exists:
  - To EDIT files: use RunEdit (not sed, awk, or terminal editors)
  - To CREATE files: use RunWrite (not echo >>, cat heredoc)
  - To SEARCH file content: use RunGrep (not grep, rg, findstr)
+ - To SEARCH files by name/pattern: use RunGlob (not find, ls, dir)
  - Reserve RunTerminalCommand EXCLUSIVELY for: builds, tests, git, package management, system info
 
 Runtime terminal is fixed at startup: {terminal_label} (source={terminal_source}).

@@ -96,6 +96,8 @@ class RunTerminalCommand(BaseModel):
 
     PREFERRED APPROACH:
     - For file read/write/edit: Use File tools (RunRead/RunWrite/RunEdit)
+    - For file content search: Use RunGrep (not grep, rg, findstr)
+    - For file name/pattern search: Use RunGlob (not find, ls, dir)
     - Use this tool ONLY for: builds, tests, git, package management, system info
 
     TIMEOUT: 120 seconds hard limit.
