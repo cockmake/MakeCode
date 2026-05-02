@@ -128,7 +128,8 @@ def get_release_body(version_path: Path) -> str:
                 data = json.load(f)
             release_log = data.get("release_log")
             if release_log:
-                lines.append(f"**发布日志**: {release_log}")
+                lines.append(f"**发布日志**:")
+                lines.append(release_log)
                 lines.append("")
         except (json.JSONDecodeError, OSError):
             pass
