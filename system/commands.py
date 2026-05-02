@@ -1,7 +1,6 @@
 """
 斜杠命令模块 - 负责处理所有内置命令和交互式界面
 """
-import asyncio
 import shutil
 import time
 from asyncio import CancelledError
@@ -10,7 +9,6 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Any
 
-from prompt_toolkit import prompt
 from prompt_toolkit.application import Application
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.completion import Completer, Completion
@@ -29,11 +27,11 @@ from init import log_error_traceback
 from system.console_render import toggle_sub_agent_console
 from system.models import get_model_manager
 from utils import hitl as hitl_mod
-from utils.plan_mode import toggle_plan_mode, is_plan_mode
+from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
 from utils.teams import list_team_histories, load_team_history, get_history_title
 from utils.memory import get_checkpoint_title
-from utils.updater import check_update, download_update, launch_updater
+from system.updater import check_update, download_update, launch_updater
 
 
 class CommandAction(Enum):
@@ -122,7 +120,7 @@ def interactive_choose_checkpoint(
             uid = cp.name
         mtime = cp.stat().st_mtime
         date_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
-        
+
         # Extract title based on file type
         if stem.startswith("ckpt_"):
             cp_title = get_checkpoint_title(cp)
@@ -132,12 +130,12 @@ def interactive_choose_checkpoint(
             cp_title = get_history_title(cp)
         else:
             cp_title = None
-        
+
         if cp_title:
             desc = f"{uid} - {cp_title} (最近一次更新时间：{date_str})"
         else:
             desc = f"{uid} (最近一次更新时间：{date_str})"
-            
+
         options.append((str(cp), desc))
 
     selected_index = [0]
@@ -560,13 +558,15 @@ class CommandHandler:
     def handle_update(self) -> bool:
         """处理 /update 命令 - 检查并安装更新"""
         import sys
-        if not getattr(sys, 'frozen', False):
-            self.console.print("\n[bold yellow]⚠️ 开发环境下不支持自动更新，请使用 pyinstaller 打包后再试。[/bold yellow]")
-            return True
-
         from version import CURRENT_VERSION
 
-        self.console.print(f"\n[bold cyan]🔍 正在检查更新... 当前版本: v{CURRENT_VERSION}[/bold cyan]")
+        self.console.print(f"\n[bold cyan]📋 当前版本: v{CURRENT_VERSION}[/bold cyan]")
+
+        if not getattr(sys, 'frozen', False):
+            self.console.print("[bold yellow]⚠️ 开发环境下不支持自动更新，请使用 pyinstaller 打包后再试。[/bold yellow]")
+            return True
+
+        self.console.print("[bold cyan]🔍 正在检查更新...[/bold cyan]")
 
         try:
             version_info = check_update()
@@ -600,6 +600,7 @@ class CommandHandler:
 
         # 进度显示
         progress_text = [""]
+
         def _progress(downloaded: int, total: int | None) -> None:
             if total:
                 pct = downloaded / total * 100
@@ -845,7 +846,8 @@ class CommandHandler:
             current_model = model_manager.get_current_model()
             result = [
                 ("class:title", "⚙️ 模型管理面板\n"),
-                ("class:hint", "↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出\n\n"),
+                ("class:hint",
+                 "↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出\n\n"),
             ]
             if not model_manager.models:
                 result.append(("class:empty", "  暂无模型。按 A 添加模型，按 Q 退出。\n"))

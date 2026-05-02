@@ -393,6 +393,60 @@ The following tools are blocked in Plan Mode:
 - `main.py`: Ctrl+P key binding and UI hints
 - `system/commands.py`: `/plan` command handler
 
+### 2.18 AskUser Proactive Questioning Tool (`tools/ask_user.py`)
+
+MakeCode allows agents to proactively ask users questions when uncertain, rather than guessing blindly or retrying indefinitely.
+
+#### Core Features
+
+- **Proactive Questioning**: When requirements are ambiguous, multiple approaches exist, or user preferences/domain knowledge is needed, the agent can call the `AskUser` tool to pose questions to the user
+- **Option Lists**: Supports predefined option lists, with each option optionally marked as "recommended"
+- **Custom Input**: In addition to predefined options, a "Custom Input" option is always available, allowing users to freely type their response
+- **TUI Interactive Panel**: Terminal-based visual selection panel built on `prompt_toolkit`, supporting `↑/↓` arrow key navigation, `Enter` to confirm, and `Ctrl+C` to cancel
+- **Concurrency Safety**: Uses `console_lock` to ensure the interactive panel does not conflict with other output in multi-sub-agent concurrent environments
+
+#### Use Cases
+
+- Confirming specific direction when requirements are vague
+- Letting users choose among multiple technical approaches
+- Decisions requiring user preferences or domain knowledge
+
+### 2.19 Auto-Update Mechanism (`system/updater.py` + `updater.py`)
+
+MakeCode includes a complete built-in auto-update system supporting version checking, incremental downloading, and seamless upgrades.
+
+#### Core Components
+
+- **Version Checking** (`system/updater.py`): Fetches `version.json` from a remote server and compares it with the local `CURRENT_VERSION` to determine if an update is available
+- **Download & Verification**: Supports chunked downloading (8KB/chunk) with progress callbacks, followed by automatic SHA256 integrity verification
+- **Standalone Updater** (`updater.py`): Uses a "standalone updater" approach — after downloading the new exe to a temporary directory, the main program releases `updater.exe` and exits; the updater waits for the main process to exit, then replaces the old exe with the new file for a seamless upgrade
+- **Progress Display**: Real-time percentage and byte count display during download
+
+#### Version Configuration (`version.py`)
+
+```python
+CURRENT_VERSION = "3.0.5"
+UPDATE_SERVER_URL = "https://starvpn.forwardforever.top"
+VERSION_CHECK_URL = f"{UPDATE_SERVER_URL}/version.json"
+DOWNLOAD_URL = f"{UPDATE_SERVER_URL}/MakeCode.exe"
+```
+
+#### Update Flow
+
+1. User executes the `/update` command
+2. System fetches `version.json` from remote and compares version numbers
+3. If a new version is available, displays version number and release notes, awaiting user confirmation
+4. Downloads the new version exe with real-time progress display
+5. After SHA256 verification passes, releases `updater.exe` and launches it
+6. Main program exits; updater completes the file replacement
+
+#### Related Components
+
+- `system/updater.py`: Core update logic (version check, download, verification, updater launch)
+- `updater.py`: Standalone updater program, responsible for replacing the exe after the main program exits
+- `version.py`: Version number and update server URL configuration
+- `system/commands.py`: `/update` command handling and interactive confirmation
+
 ---
 ---
 
@@ -403,11 +457,14 @@ Agent/
 ├─ main.py                  # orchestrator loop and CLI entry
 ├─ init.py                  # workspace selection, model config init
 ├─ prompts.py               # centralized management of all LLM prompts
+├─ version.py               # version number and update server URL configuration
+├─ updater.py               # standalone updater program (replaces exe after main program exits)
 ├─ requirements.txt         # project dependencies
 ├─ README.md
 ├─ README_en.md
 ├─ tools/
-│  └─ todo.py               # internal todo manager for sub-agents
+│  ├─ todo.py               # internal todo manager for sub-agents
+│  └─ ask_user.py            # agent proactive questioning tool
 ├─ utils/
 │  ├─ llm_client.py         # LLM standard adapter (Chat vs Response API)
 │  ├─ hitl.py               # Human-In-The-Loop interceptor and UI
@@ -424,6 +481,7 @@ Agent/
 │  ├─ console_render.py     # console rendering module (multi-thread-safe, streaming)
 │  ├─ stream_render.py      # streaming render module (two-phase, relay Live, throttled refresh)
 │  ├─ models.py             # model management module (config persistence, favorites)
+│  ├─ updater.py            # auto-update module (version check, download, verification & upgrade launch)
 │  └─ ts_validator.py        # Tree-sitter syntax validation module
 ├─ skills/
 │  ├─ pdf/
@@ -519,6 +577,10 @@ flowchart TD
 - `system/stream_render.py` implements a two-phase streaming render engine: Reasoning process uses native append mode with dim styling, Text body uses throttled Live + Markdown real-time rendering with Markdown code block relay support.
 - `system/models.py` provides model configuration management with multi-model persistence, favorites, and max_context settings.
 - `tools/todo.py` allows sub-agents to maintain internal todos for multi-step task tracking.
+- `tools/ask_user.py` allows agents to proactively ask users questions when uncertain, supporting option lists and custom input via a TUI interactive panel.
+- `system/updater.py` implements auto-update logic: version checking, download with progress, SHA256 verification, and launching the standalone updater for seamless upgrades.
+- `updater.py` is the standalone updater program that replaces the exe file after the main program exits.
+- `version.py` manages version number and update server URL configuration.
 
 ---
 ---
@@ -615,6 +677,7 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | `/hitl`               | Toggle Human-in-the-Loop interception status (On/Off)                                                                                            |
 | `/sub-agent-console`  | Toggle Sub-Agent console output status, disabled by default                                                                                      |
 | `/quit` / `/exit`    | Exit the program                                                                                                                                 |
+| `/update`             | Check for and install the latest version update                                                                                                  |
 
 > 💡 **Tip: MCP-related commands**
 > - `/mcp-view`: First shows an MCP status overview, including configured services / enabled in config / disabled in
