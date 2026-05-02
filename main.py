@@ -65,6 +65,7 @@ from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 import utils.tasks as _tasks_module
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
 from utils.teams import TEAM, TEAM_TOOLS, TEAM_TOOLS_HANDLERS
+from tools.ask_user import ASK_USER_TOOLS, ASK_USER_TOOLS_HANDLERS
 
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
@@ -101,6 +102,7 @@ def _get_all_tools_definition():
             + SKILL_TOOLS
             + TASK_MANAGER_TOOLS
             + TEAM_TOOLS
+            + ASK_USER_TOOLS
             + GLOBAL_MCP_MANAGER.get_tools()
         )
     except RuntimeError as exc:
@@ -128,6 +130,7 @@ BASE_SUPER_TOOLS_HANDLERS = {
     **SKILL_TOOLS_HANDLERS,
     **TASK_MANAGER_TOOLS_HANDLERS,
     **TEAM_TOOLS_HANDLERS,
+    **ASK_USER_TOOLS_HANDLERS,
     "RunRead": lambda path, regions, **kwargs: run_read(
         path, regions, orchestrator_access
     ),
