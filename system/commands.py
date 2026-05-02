@@ -33,6 +33,7 @@ from utils.plan_mode import toggle_plan_mode, is_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
 from utils.teams import list_team_histories, load_team_history, get_history_title
 from utils.memory import get_checkpoint_title
+from utils.updater import check_update, download_update, launch_updater
 
 
 class CommandAction(Enum):
@@ -78,6 +79,7 @@ COMMAND_DESCRIPTIONS = {
     "/hitl": "切换 Human-in-the-Loop 拦截状态 (开启/关闭)",
     "/quit": "退出程序",
     "/exit": "退出程序",
+    "/update": "检查并安装最新版本更新",
 }
 
 
@@ -553,6 +555,69 @@ class CommandHandler:
         for cmd, desc in COMMAND_DESCRIPTIONS.items():
             table.add_row(cmd, desc)
         self.console.print(table)
+        return True
+
+    def handle_update(self) -> bool:
+        """处理 /update 命令 - 检查并安装更新"""
+        import sys
+        if not getattr(sys, 'frozen', False):
+            self.console.print("\n[bold yellow]⚠️ 开发环境下不支持自动更新，请使用 pyinstaller 打包后再试。[/bold yellow]")
+            return True
+
+        from version import CURRENT_VERSION
+
+        self.console.print(f"\n[bold cyan]🔍 正在检查更新... 当前版本: v{CURRENT_VERSION}[/bold cyan]")
+
+        try:
+            version_info = check_update()
+        except Exception as exc:
+            self.console.print(f"[bold red]❌ 检查更新失败: {exc}[/bold red]")
+            return True
+
+        if version_info is None:
+            self.console.print("[bold green]✅ 当前已是最新版本！[/bold green]")
+            return True
+
+        new_version = version_info.get('version', '未知')
+        release_notes = version_info.get('release_notes', '')
+
+        self.console.print(f"\n[bold yellow]📢 发现新版本: v{new_version}[/bold yellow]")
+        if release_notes:
+            self.console.print(f"[dim]更新内容: {release_notes}[/dim]")
+
+        # 确认是否更新
+        from prompt_toolkit import prompt
+        try:
+            answer = prompt("\n是否下载并安装更新？(y/n): ")
+        except KeyboardInterrupt:
+            answer = "n"
+
+        if answer.lower() != 'y':
+            self.console.print("[dim]已取消更新[/dim]")
+            return True
+
+        self.console.print("[bold cyan]📥 正在下载更新...[/bold cyan]")
+
+        try:
+            new_exe_path = download_update(version_info)
+        except Exception as exc:
+            self.console.print(f"[bold red]❌ 下载失败: {exc}[/bold red]")
+            return True
+
+        if new_exe_path is None:
+            self.console.print("[bold red]❌ 下载失败，请稍后重试[/bold red]")
+            return True
+
+        self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
+        self.console.print("[dim]程序将自动退出并完成更新，更新后会自动重启[/dim]")
+
+        try:
+            launch_updater(new_exe_path)
+        except Exception as exc:
+            self.console.print(f"[bold red]❌ 启动更新器失败: {exc}[/bold red]")
+            return True
+
+        # launch_updater 内部会调用 sys.exit，不会执行到这里
         return True
 
     def handle_skills_switch(self) -> str:
@@ -1041,6 +1106,11 @@ class CommandHandler:
             status = "开启" if new_state else "关闭"
             status_color = "green" if new_state else "yellow"
             self.console.print(f"\n[bold]📊 Sub-Agent 输出状态: [{status_color}]{status}[/{status_color}][/bold]")
+            return CommandResult(action=CommandAction.CONTINUE)
+
+        # /update - 检查更新
+        if query == "/update":
+            self.handle_update()
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /skills 相关命令
