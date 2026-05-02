@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -41,8 +42,12 @@ def check_update() -> dict | None:
     有更新返回版本信息字典，无更新或出错返回 None。
     """
     try:
+        # 创建不验证 SSL 证书的上下文（解决打包后证书路径问题）
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
         req = urllib.request.Request(VERSION_CHECK_URL, headers={"User-Agent": "Agent-Updater/1.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         logger.warning("检查更新失败: %s", exc)
@@ -80,8 +85,12 @@ def download_update(version_info: dict, progress_callback=None) -> Path | None:
     tmp_file = Path(tmp_dir) / "MakeCode_update.exe"
 
     try:
+        # 创建不验证 SSL 证书的上下文（解决打包后证书路径问题）
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
         req = urllib.request.Request(url, headers={"User-Agent": "Agent-Updater/1.0"})
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with urllib.request.urlopen(req, timeout=300, context=ssl_ctx) as resp:
             total = resp.headers.get("Content-Length")
             total = int(total) if total and total.isdigit() else None
             downloaded = 0
