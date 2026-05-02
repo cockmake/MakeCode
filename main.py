@@ -43,7 +43,6 @@ from system.ts_validator import init_ts_cache
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
-    RunGlob,
     run_edit,
     run_read,
     run_write,
@@ -85,11 +84,8 @@ def get_current_tools_definition():
     """获取当前可用的工具定义（包含动态加载的 MCP 工具）"""
     all_tools = _get_all_tools_definition()
     if is_plan_mode():
-        from openai import pydantic_function_tool
         # Plan Mode: 黑名单过滤，禁止写入/执行/委托工具
         filtered = [t for t in all_tools if t["function"]["name"] not in PLAN_MODE_BLOCKLIST]
-        if not any(t["function"]["name"] == "RunGlob" for t in filtered):
-            filtered.append(pydantic_function_tool(RunGlob))
         return filtered
     return all_tools
 

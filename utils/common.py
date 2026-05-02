@@ -659,7 +659,7 @@ class RunGrep(BaseModel):
     - For large codebases, use specific target_dir to narrow scope
     """
 
-    keyword_pattern: str = Field(
+    content_pattern: str = Field(
         ...,
         description="The Regex pattern or string to search for in the file contents.",
     )
@@ -674,15 +674,15 @@ class RunGrep(BaseModel):
 
 
 def run_grep(
-        keyword_pattern: str,
+        content_pattern: str,
         target_dir: str = ".",
         filename_pattern: str = "*",
 ) -> str:
     try:
-        regex = re.compile(keyword_pattern)
+        regex = re.compile(content_pattern)
     except re.error as e:
         log_error_traceback("RunGrep regex compile", e)
-        return f"Error: Invalid regex pattern '{keyword_pattern}': {e}"
+        return f"Error: Invalid regex pattern '{content_pattern}': {e}"
 
     # Split pipe-separated patterns, e.g., "*.py|*.js|*.vue" -> ["*.py", "*.js", "*.vue"]
     patterns = [p.strip() for p in filename_pattern.split("|") if p.strip()]
@@ -753,7 +753,7 @@ def run_grep(
         return f"Error during grep search: {e}"
 
     if not results:
-        return f"No matches found for '{keyword_pattern}' in dir '{target_dir}' matching {patterns}."
+        return f"No matches found for '{content_pattern}' in dir '{target_dir}' matching {patterns}."
 
     output_blocks = []
     if base_dir != WORKDIR:
@@ -775,7 +775,6 @@ def run_grep(
 class RunGlob(BaseModel):
     """
     Search for files and/or directories matching a glob pattern.
-    This is a read-only file discovery tool, ideal for Plan Mode.
 
     AUTO-EXCLUDED:
     - Hidden directories (starting with '.')
@@ -786,10 +785,10 @@ class RunGlob(BaseModel):
     - For large codebases, use specific target_dir to narrow scope
     """
 
-    pattern: str = Field(
+    filename_pattern: str = Field(
         ...,
         description=(
-            "Glob pattern to match. Supports multiple patterns separated by '|'. "
+            "Glob pattern to match file names. Supports multiple patterns separated by '|'. "
             "Examples: '*.py', '*.py|*.js|*.ts', 'src/**/*', 'tests/test_*'. "
             "Use '**' for recursive matching through directories."
         ),
@@ -811,7 +810,7 @@ class RunGlob(BaseModel):
 
 
 def run_glob(
-        pattern: str,
+        filename_pattern: str,
         target_dir: str = ".",
         type: str = "all",
 ) -> str:
@@ -826,7 +825,7 @@ def run_glob(
         return f"Error: Invalid type '{type}'. Must be 'file', 'dir', or 'all'."
 
     # Split pipe-separated patterns, e.g., "*.py|*.js" -> ["*.py", "*.js"]
-    patterns = [p.strip() for p in pattern.split("|") if p.strip()]
+    patterns = [p.strip() for p in filename_pattern.split("|") if p.strip()]
     if not patterns:
         patterns = ["*"]
 
@@ -878,7 +877,7 @@ def run_glob(
 
         total_count = len(matched_files) + len(matched_dirs)
         if total_count == 0:
-            return f"No {type_label} found matching pattern '{pattern}' in directory '{target_dir}'."
+            return f"No {type_label} found matching pattern '{filename_pattern}' in directory '{target_dir}'."
 
         # Format output: directories always with [DIR] prefix and trailing /
         sorted_files = sorted(matched_files)
@@ -886,9 +885,9 @@ def run_glob(
         lines = [f"[DIR] {d}/" for d in sorted_dirs] + list(sorted_files)
 
         if base_dir == WORKDIR:
-            output = f"Found {total_count} {type_label} matching '{pattern}' in '{target_dir}':\n\n"
+            output = f"Found {total_count} {type_label} matching '{filename_pattern}' in '{target_dir}':\n\n"
         else:
-            output = f"Found {total_count} {type_label} matching '{pattern}' in '{target_dir}' (paths relative to {base_dir.as_posix()}):\n\n"
+            output = f"Found {total_count} {type_label} matching '{filename_pattern}' in '{target_dir}' (paths relative to {base_dir.as_posix()}):\n\n"
         output += "\n".join(lines)
 
         if total_count >= MAX_ITEMS:
@@ -925,6 +924,7 @@ TOOLS = [
     pydantic_function_tool(RunWrite),
     pydantic_function_tool(RunEdit),
     pydantic_function_tool(RunGrep),
+    pydantic_function_tool(RunGlob),
 ]
 
 FILE_NAMESPACE = {
