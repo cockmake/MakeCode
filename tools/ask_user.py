@@ -4,6 +4,7 @@
 import json
 
 from openai import pydantic_function_tool
+from prompt_toolkit import prompt
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
@@ -13,10 +14,7 @@ from prompt_toolkit.styles import Style
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-from rich.panel import Panel
-from rich.text import Text
-
-from system.console_render import console_lock, console
+from system.console_render import console_lock
 
 
 class Option(BaseModel):
@@ -86,23 +84,8 @@ def ask_user(question: str, options: list, **kwargs) -> str:
             label = f"⭐ {opt.content} （推荐）" if opt.is_recommended else opt.content
             entries.append((str(i + 1), label))
 
-        # Render info panel first (like HITL does), so context is visible
-        panel_text = Text()
-        panel_text.append(f"❓ {question}")
-        if parsed_options:
-            panel_text.append("\n\n")
-            for i, opt in enumerate(parsed_options):
-                marker = "⭐ " if opt.is_recommended else ""
-                panel_text.append(f"  {marker}{opt.content}")
-                if opt.is_recommended:
-                    panel_text.append(" （推荐）", style="bold green")
-                panel_text.append("\n")
-        console.print(Panel(
-            panel_text,
-            title="❓ Agent 请你做出选择",
-            border_style="cyan",
-            expand=False,
-        ))
+        custom_key = str(len(parsed_options) + 1)
+        entries.append((custom_key, "✏️ 自定义输入"))
 
         selected_index = [0]
 
@@ -125,7 +108,7 @@ def ask_user(question: str, options: list, **kwargs) -> str:
             event.app.exit(result="abort")
 
         def get_formatted_text():
-            result = [("class:title", "\n请使用 ↑/↓ 选择，Enter 确认:\n")]
+            result = [("class:question", f"\n❓ {question}\n"), ("class:title", "\n请使用 ↑/↓ 选择，Enter 确认:\n")]
             for i, (key, text) in enumerate(entries):
                 if i == selected_index[0]:
                     result.append(("class:selected", f"👉 [{key}] {text}\n"))
@@ -134,11 +117,12 @@ def ask_user(question: str, options: list, **kwargs) -> str:
             return result
 
         control = FormattedTextControl(get_formatted_text)
-        window = Window(content=control, height=len(entries) + 2)
+        window = Window(content=control, height=len(entries) + 4)
         layout = Layout(window)
 
         style = Style(
             [
+                ("question", "fg:ansiyellow bold"),
                 ("title", "fg:ansicyan bold"),
                 ("selected", "fg:ansigreen bold"),
                 ("unselected", "fg:ansigray"),
@@ -156,6 +140,18 @@ def ask_user(question: str, options: list, **kwargs) -> str:
     # Handle result
     if choice == "abort":
         return json.dumps({"choice": "<cancelled>"}, ensure_ascii=False)
+
+    # Custom input
+    if choice == custom_key:
+        try:
+            custom_text = prompt("✏️ 请输入你的回答: ").strip()
+        except KeyboardInterrupt:
+            return json.dumps({"choice": "<cancelled>"}, ensure_ascii=False)
+        except EOFError:
+            return json.dumps({"choice": "<cancelled>"}, ensure_ascii=False)
+        if not custom_text:
+            return json.dumps({"choice": "<empty_input>"}, ensure_ascii=False)
+        return json.dumps({"choice": custom_text, "custom": True}, ensure_ascii=False)
 
     # Selected a listed option — find the content
     idx = int(choice) - 1
