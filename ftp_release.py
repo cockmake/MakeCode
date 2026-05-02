@@ -82,6 +82,11 @@ def main():
     print()
     print("[OK] 上传完成！")
 
+    # 清理发布日志文件
+    log_file = Path("RELEASE_LOG.md")
+    if log_file.exists():
+        log_file.unlink()
+
 
 if __name__ == "__main__":
     main()

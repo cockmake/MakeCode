@@ -192,6 +192,11 @@ def main():
     print(f"[OK] GitHub Release 发布成功！")
     print(f"   下载地址: {release['html_url']}")
 
+    # 清理发布日志文件
+    log_file = Path("RELEASE_LOG.md")
+    if log_file.exists():
+        log_file.unlink()
+
 
 if __name__ == "__main__":
     main()
