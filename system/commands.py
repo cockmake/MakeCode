@@ -445,13 +445,13 @@ class CommandHandler:
 
         if not status.get("is_running"):
             self.console.print(
-                "\n[bold yellow]⚠️ MCP 后台管理器当前未运行。若配置已准备好，可执行 /mcp-restart 或使用 /mcp-switch 保存启用状态后触发加载。[/bold yellow]"
+                f"\n[bold yellow]⚠️ MCP 后台管理器未运行。\n   配置路径: {status.get('config_path', '未配置')}[/bold yellow]"
             )
             return True
 
         if status.get("tool_count", 0) == 0:
             self.console.print(
-                "\n[bold yellow]⚠️ 当前没有已加载的 MCP 工具。请检查配置中的启用状态、服务连通性，或尝试 /mcp-restart。[/bold yellow]"
+                f"\n[bold yellow]⚠️ MCP 服务为空，暂无可用工具。\n   配置路径: {status.get('config_path', '未配置')}[/bold yellow]"
             )
             return True
 
@@ -480,7 +480,7 @@ class CommandHandler:
 
         if not server_switches:
             self.console.print(
-                "\n[bold yellow]⚠️ mcp_config.json 中没有可切换的 mcpServers。[/bold yellow]"
+                f"\n[bold yellow]⚠️ MCP 服务为空，暂无可切换的服务。\n   配置路径: {self.mcp_manager.config_path}[/bold yellow]"
             )
             return True
 

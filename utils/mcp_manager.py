@@ -72,12 +72,22 @@ class GlobalMCPManager:
         if self._is_running:
             return
         if not self.config_path or not self.config_path.exists():
-            if self.console:
-                print_formatted_text(
-                    HTML(
-                        f"<ansiyellow><b>⚠️ MCP 配置文件不存在，已跳过加载。\n   路径: {self.config_path}</b></ansiyellow>"
+            # 自动创建空的 MCP 配置文件
+            try:
+                self.config_path.parent.mkdir(parents=True, exist_ok=True)
+                self._save_config_dict({"mcpServers": {}})
+                if self.console:
+                    print_formatted_text(
+                        HTML(
+                            f"<ansicyan><b>ℹ️ MCP 配置文件不存在，已自动创建空配置。\n   路径: {self.config_path}</b></ansicyan>"
+                        )
                     )
-                )
+            except Exception as e:
+                log_error_traceback("MCP Config Create Error", e)
+                if self.console:
+                    print_formatted_text(
+                        HTML(f"<ansired><b>⚠️ 创建 MCP 配置文件失败: {e}</b></ansired>")
+                    )
             return
 
         try:
@@ -87,7 +97,7 @@ class GlobalMCPManager:
             log_error_traceback("MCP Config Load Error", e)
             if self.console:
                 print_formatted_text(
-                    HTML(f"<ansired><b>⚠️ Failed to load MCP config: {e}</b></ansired>")
+                    HTML(f"<ansired><b>⚠️ 加载 MCP 配置失败: {e}</b></ansired>")
                 )
             return
 
@@ -95,7 +105,7 @@ class GlobalMCPManager:
             if self.console:
                 print_formatted_text(
                     HTML(
-                        "<ansiyellow><b>⚠️ MCP 配置文件中没有定义 mcpServers</b></ansiyellow>"
+                        f"<ansiyellow><b>⚠️ MCP 服务为空，暂无可用服务。\n   路径: {self.config_path}</b></ansiyellow>"
                     )
                 )
             return
