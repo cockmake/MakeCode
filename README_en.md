@@ -370,15 +370,21 @@ MakeCode supports Plan/Act mode switching, ensuring the agent focuses on analysi
 
 #### Core Concepts
 
-- **Plan Mode**: Only read-only and planning tools are allowed (e.g., `RunRead`, `RunGrep`, `RunGlob`, `TaskManager`, etc.), file writes, terminal execution, and task delegation are prohibited
+- **Plan Mode**: Only read-only tools, planning tools, and restricted terminal commands are allowed (e.g., `RunRead`, `RunGrep`, `RunGlob`, `TaskManager`, `LoadSkill`, etc.), file writes, edits, and task delegation are prohibited
 - **Act Mode**: Full execution mode where all tools are available
 
 #### Restricted Tools in Plan Mode
 
 The following tools are blocked in Plan Mode:
 - `RunWrite` / `RunEdit` — File write/edit
-- `RunTerminalCommand` — Terminal command execution
 - `DelegateTasks` — Task delegation
+
+#### Restricted Terminal Commands in Plan Mode
+
+`RunTerminalCommand` is available in Plan Mode, but with a **two-layer filtering mechanism**:
+
+1. **Prefix Filtering**: Only `git`, `pip`, `npm`, `docker` command prefixes are allowed; other commands are blocked directly
+2. **HITL Confirmation**: Allowed commands still trigger the user confirmation panel and require manual approval before execution
 
 #### Switching Methods
 
@@ -420,7 +426,8 @@ MakeCode includes a complete built-in auto-update system supporting version chec
 - **Version Checking** (`system/updater.py`): Fetches `version.json` from a remote server and compares it with the local `CURRENT_VERSION` to determine if an update is available
 - **Download & Verification**: Supports chunked downloading (8KB/chunk) with progress callbacks, followed by automatic SHA256 integrity verification
 - **Standalone Updater** (`updater.py`): Uses a "standalone updater" approach — after downloading the new exe to a temporary directory, the main program releases `updater.exe` and exits; the updater waits for the main process to exit, then replaces the old exe with the new file for a seamless upgrade
-- **Progress Display**: Real-time percentage and byte count display during download
+- **Progress Display**: Real-time visual progress bar (`█░` fill animation), percentage, and MB count during download
+- **Background Check on Startup**: Automatically checks for updates in the background at startup; notifies the user in the terminal if a new version is available
 
 #### Version Configuration (`version.py`)
 
@@ -438,7 +445,7 @@ DOWNLOAD_URL = f"{UPDATE_SERVER_URL}/MakeCode.exe"
 3. If a new version is available, displays version number and release notes, awaiting user confirmation
 4. Downloads the new version exe with real-time progress display
 5. After SHA256 verification passes, releases `updater.exe` and launches it
-6. Main program exits; updater completes the file replacement
+6. Main program exits; updater completes the file replacement; user must manually restart the program
 
 #### Related Components
 
