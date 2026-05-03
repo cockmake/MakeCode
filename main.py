@@ -38,7 +38,12 @@ from system.console_render import (
 from system.updater import check_update
 from utils.hitl import get_hitl_status
 from system.models import get_current_model_config
-from utils.plan_mode import is_plan_mode, PLAN_MODE_BLOCKLIST
+from utils.plan_mode import (
+    is_plan_mode,
+    is_plan_mode_command_allowed,
+    PLAN_MODE_BLOCKLIST,
+    PLAN_MODE_ALLOWED_COMMANDS,
+)
 from system.stream_render import StreamRenderer
 from system.ts_validator import init_ts_cache
 from utils.common import (
@@ -257,6 +262,16 @@ def agent_loop(messages: list):
                         f"⛔ Plan Mode active: '{tool_name}' is blocked. "
                         f"Complete your plan first, then exit Plan Mode to execute."
                     )
+                elif is_plan_mode() and tool_name == "RunTerminalCommand":
+                    cmd = arguments.get("command", "")
+                    if is_plan_mode_command_allowed(cmd):
+                        handler = current_handlers.get(tool_name)
+                        output = handler(**arguments)
+                    else:
+                        output = (
+                            f"⛔ Plan Mode: this command is not allowed. "
+                            f"Only {', '.join(PLAN_MODE_ALLOWED_COMMANDS)} commands are permitted in Plan Mode."
+                        )
                 else:
                     handler = current_handlers.get(tool_name)
                     if handler:

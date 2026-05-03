@@ -8,6 +8,7 @@ import platform
 from pathlib import Path
 
 from init import WORKDIR
+from utils.plan_mode import PLAN_MODE_ALLOWED_COMMANDS
 from utils.skills import SKILL_LOADER
 
 
@@ -291,7 +292,8 @@ def get_orchestrator_system_prompt(
     skills_prompt_block = SKILL_LOADER.render_prompt_block()
 
     if plan_mode:
-        orchestrator_policy = """The system has two modes controlled by the user:
+        _allowed_cmds = ", ".join(PLAN_MODE_ALLOWED_COMMANDS)
+        orchestrator_policy = f"""The system has two modes controlled by the user:
  - Plan Mode (current): read-only analysis and task planning. No modifications allowed.
  - Act Mode: full execution with all tools.
 
@@ -307,11 +309,11 @@ MODE AWARENESS:
 
 Blocked tools (DO NOT USE):
  - RunWrite, RunEdit — file write/edit operations
- - RunTerminalCommand — terminal execution
  - DelegateTasks — sub-agent delegation
 
 Allowed tools (USE THESE):
  - RunRead, RunGrep, RunGlob — file reading and searching
+ - RunTerminalCommand — terminal execution (restricted to {_allowed_cmds} commands, will auto-trigger user confirmation)
  - TaskManager tools (CreateTask, UpdateTaskContent, UpdateTaskStatus, UpdateTaskDependencies, GetRunnableTasks, GetTaskTable, DeleteAllTasks) — task planning
  - LoadSkill — load domain-specific skills
 
@@ -321,6 +323,7 @@ Core operating policy:
 3. Only plan — do not execute any modifications
 4. When your plan is ready, present it to the user for approval
 5. If you need to make changes to the plan, use UpdateTaskContent or UpdateTaskDependencies
+6. RunTerminalCommand is available in Plan Mode but ONLY for {_allowed_cmds} commands. Any other commands will be blocked. Allowed commands will auto-trigger user confirmation before execution.
 
 Plan Mode workflow:
  1. Analyze the user's request and break it down into subtasks
