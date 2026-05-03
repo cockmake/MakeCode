@@ -320,8 +320,7 @@ def _render_env_customization_hint():
     """渲染模型配置提示"""
     hint_text = (
         "💡 模型配置已迁移到 MakeCode 配置面板：\n"
-        "使用 /models 添加、删除、标记常用或切换当前模型。\n"
-        "配置文件位置：.makecode/model_config.json"
+        "使用 /models 添加、删除、标记常用或切换当前模型。"
     )
     console.print(
         Panel(
