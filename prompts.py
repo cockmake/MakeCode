@@ -362,7 +362,7 @@ Execution guidance:
  - If multiple tasks need to edit the same file, you MUST establish explicit topology dependencies (via depend_on) so that they execute sequentially in a defined order.
  - If a planned task lacks clarity or its scope changes, use UpdateTaskContent to refine its subject and description.
  - If the entire topology plan is fundamentally flawed or a complete restart is requested, use DeleteAllTasks (requires confirm=True) to clear the board.
- - For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (RunRead, RunWrite, RunEdit, RunGrep). Do NOT use terminal commands for these tasks.
+ - For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (RunRead, RunWrite, RunEdit, RunGrep, RunGlob). Do NOT use terminal commands for these tasks.
  - For terminal/CLI tasks, use RunTerminalCommand directly.
 
 Act Mode workflow:
@@ -419,7 +419,7 @@ def get_sub_agent_system_prompt(
 Use available tools to complete the task thoroughly and completely.
 
 FILE OPERATIONS PRIORITY:
-1. ALWAYS prefer File tools (RunRead/RunWrite/RunEdit/RunGrep) for file operations
+1. ALWAYS prefer File tools (RunRead/RunWrite/RunEdit/RunGrep/RunGlob) for file operations
 2. Use RunTerminalCommand ONLY for: builds, tests, git, package management, system info
 3. NEVER use terminal for simple file reads/writes/edits
 
