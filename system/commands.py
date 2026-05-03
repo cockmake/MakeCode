@@ -378,6 +378,12 @@ class CommandHandler:
         disabled_servers = status.get("disabled_servers", [])
         loaded_servers = status.get("loaded_servers", [])
 
+        # 统计每个已加载服务的工具数量
+        tool_count_by_server = {}
+        for tool in status.get("tools", []):
+            provider = tool.get("provider", "Unknown")
+            tool_count_by_server[provider] = tool_count_by_server.get(provider, 0) + 1
+
         summary_table = Table(
             title="[bold cyan]🔌 MCP 状态总览[/bold cyan]",
             box=box.ROUNDED,
@@ -406,27 +412,14 @@ class CommandHandler:
             "配置中已禁用",
             ", ".join(disabled_servers) if disabled_servers else "(无)",
         )
-        summary_table.add_row(
-            "当前已加载服务",
-            ", ".join(loaded_servers) if loaded_servers else "(无)",
-        )
-        summary_table.add_row(
-            "当前已加载工具数", str(status.get("tool_count", 0))
-        )
-        self.console.print(summary_table)
-
-        if not status.get("is_running"):
-            self.console.print(
-                "\n[bold yellow]⚠️ MCP 后台管理器当前未运行。若配置已准备好，可执行 /mcp-restart 或使用 /mcp-switch 保存启用状态后触发加载。[/bold yellow]"
+        if loaded_servers:
+            loaded_display = ", ".join(
+                f"{name} ({tool_count_by_server.get(name, 0)})"
+                for name in loaded_servers
             )
-            return True
-
-        if status.get("tool_count", 0) == 0:
-            self.console.print(
-                "\n[bold yellow]⚠️ 当前没有已加载的 MCP 工具。请检查配置中的启用状态、服务连通性，或尝试 /mcp-restart。[/bold yellow]"
-            )
-            return True
-
+        else:
+            loaded_display = "(无)"
+        summary_table.add_row("当前已加载服务", loaded_display)
         table = Table(
             title=f"[bold cyan]🛠️ 已加载的 MCP 工具明细 (共 {status['tool_count']} 个)[/bold cyan]",
             box=box.ROUNDED,
@@ -448,6 +441,20 @@ class CommandHandler:
             )
 
         self.console.print(table)
+        self.console.print(summary_table)
+
+        if not status.get("is_running"):
+            self.console.print(
+                "\n[bold yellow]⚠️ MCP 后台管理器当前未运行。若配置已准备好，可执行 /mcp-restart 或使用 /mcp-switch 保存启用状态后触发加载。[/bold yellow]"
+            )
+            return True
+
+        if status.get("tool_count", 0) == 0:
+            self.console.print(
+                "\n[bold yellow]⚠️ 当前没有已加载的 MCP 工具。请检查配置中的启用状态、服务连通性，或尝试 /mcp-restart。[/bold yellow]"
+            )
+            return True
+
         return True
 
     def handle_mcp_restart(self) -> bool:
