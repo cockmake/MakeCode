@@ -362,7 +362,7 @@ Execution guidance:
  - If multiple tasks need to edit the same file, you MUST establish explicit topology dependencies (via depend_on) so that they execute sequentially in a defined order.
  - If a planned task lacks clarity or its scope changes, use UpdateTaskContent to refine its subject and description.
  - If the entire topology plan is fundamentally flawed or a complete restart is requested, use DeleteAllTasks (requires confirm=True) to clear the board.
- - For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (FileRead, FileCreate, FileEdit, ContentSearch, FileSearch). Do NOT use terminal commands for these tasks.
+ - For file operations (reading, writing, editing, text searching or file searching), use the File namespace tools (FileRead, FileCreate, FileEdit, ContentSearch, FileSearch). Do NOT use terminal commands for these tasks.
  - For terminal/CLI tasks, use RunTerminalCommand directly.
 
 Act Mode workflow:

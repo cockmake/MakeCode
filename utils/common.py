@@ -237,7 +237,7 @@ class FileRead(BaseModel):
     """
 
     path: str = Field(
-        ..., description="Path to the file to read, relative to workspace."
+        ..., description="Path to the file to read, relative to workspace by default. Paths outside workspace require user permission."
     )
     regions: list[ReadBlock] = Field(
         ...,
@@ -378,7 +378,7 @@ class FileCreate(BaseModel):
     """
 
     path: str = Field(
-        ..., description="Path to the file to write, relative to workspace."
+        ..., description="Path to the file to write, relative to workspace by default. Paths outside workspace require user permission."
     )
     content: str = Field(..., description="The content to write to the file.")
 
@@ -667,7 +667,7 @@ class ContentSearch(BaseModel):
     )
     target_dir: str = Field(
         default=".",
-        description="Directory to search in, relative to workspace. Pinpoint specific source folders (e.g., 'src', 'app') to avoid scanning dependency directories.",
+        description="Directory to search in, relative to workspace by default. Paths outside workspace require user permission. Pinpoint specific source folders (e.g., 'src', 'app') to avoid scanning dependency directories.",
     )
     filename_pattern: str = Field(
         default="*",
@@ -798,7 +798,7 @@ class FileSearch(BaseModel):
     target_dir: str = Field(
         default=".",
         description=(
-            "Directory to search in, relative to workspace. "
+            "Directory to search in, relative to workspace by default. Paths outside workspace require user permission. "
             "Pinpoint specific source folders (e.g., 'src', 'app') to avoid scanning dependency directories."
         ),
     )
@@ -933,8 +933,8 @@ FILE_NAMESPACE = {
     "type": "namespace",
     "name": "File",
     "description": (
-        "Primary file operation tools for workspace files. Always prefer this namespace for file reads, "
-        "writes, edits, and text searches instead of shell commands. "
+        "Primary file operation tools. Always prefer this namespace for file reads, "
+        "writes, edits, text searches and file searches instead of shell commands. "
         "IMPORTANT: Use FileCreate only to create/write new or completely empty files. For existing-file changes, you must call "
         "FileRead first and then use FileEdit."
     ),
