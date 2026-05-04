@@ -39,15 +39,15 @@ class AgentFileAccess:
         self.visited_files: dict[str, float] = {}
 
     def record_access(self, path: str, mtime: float):
-        """在 RunRead 或 RunWrite 成功后记录文件的 mtime"""
+        """在 FileRead 或 FileCreate 成功后记录文件的 mtime"""
         self.visited_files[path] = mtime
 
     def can_edit(self, path: str, current_mtime: float) -> tuple[bool, str]:
-        """在 RunEdit 前严格检查是否允许修改"""
+        """在 FileEdit 前严格检查是否允许修改"""
         if path not in self.visited_files:
             return (
                 False,
-                f"🔴 拦截: 试图编辑未读取的文件 '{path}'。请务必先使用 RunRead 读取该文件以获取最新内容。",
+                f"🔴 拦截: 试图编辑未读取的文件 '{path}'。请务必先使用 FileRead 读取该文件以获取最新内容。",
             )
 
         recorded_mtime = self.visited_files[path]
@@ -60,7 +60,7 @@ class AgentFileAccess:
                 f"🔴 拦截: 文件 '{path}' 在你上次读取后已被其他程序或智能体修改（或你刚修改过但未重新读取）。\n"
                 f"Last modification: {_fmt(current_mtime)}\n"
                 f"Last read: {_fmt(recorded_mtime)}\n"
-                f"必须重新使用 RunRead 读取最新内容后再进行 RunEdit 。"
+                f"必须重新使用 FileRead 读取最新内容后再进行 FileEdit 。"
             )
             return False, error_msg
         return True, ""

@@ -49,9 +49,9 @@ from system.ts_validator import init_ts_cache
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
-    run_edit,
-    run_read,
-    run_write,
+    file_edit,
+    file_read,
+    file_create,
 )
 from utils.file_access import AgentFileAccess
 from utils.llm_client import llm_client
@@ -122,13 +122,13 @@ BASE_SUPER_TOOLS_HANDLERS = {
     **TASK_MANAGER_TOOLS_HANDLERS,
     **TEAM_TOOLS_HANDLERS,
     **ASK_USER_TOOLS_HANDLERS,
-    "RunRead": lambda path, regions, **kwargs: run_read(
+    "FileRead": lambda path, regions, **kwargs: file_read(
         path, regions, orchestrator_access
     ),
-    "RunWrite": lambda path, content, **kwargs: run_write(
+    "FileCreate": lambda path, content, **kwargs: file_create(
         path, content, orchestrator_access
     ),
-    "RunEdit": lambda path, edits, **kwargs: run_edit(
+    "FileEdit": lambda path, edits, **kwargs: file_edit(
         path, edits, orchestrator_access
     ),
 }

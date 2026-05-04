@@ -36,9 +36,9 @@ from utils.common import (
     STARTUP_TERMINAL_SOURCE,
     STARTUP_TERMINAL_TYPE,
     sanitize_title,
-    run_read,
-    run_write,
-    run_edit,
+    file_read,
+    file_create,
+    file_edit,
 )
 from utils.file_access import AgentFileAccess
 from utils.hitl import check_permission, current_agent_role
@@ -527,13 +527,13 @@ class TeammateManager:
             **SKILL_TOOLS_HANDLERS,
             **GLOBAL_MCP_MANAGER.get_handlers(),
             "TodoUpdate": lambda tasks, **kwargs: local_todo.update(tasks),
-            "RunRead": lambda path, regions, **kwargs: run_read(
+            "FileRead": lambda path, regions, **kwargs: file_read(
                 path, regions, agent_access
             ),
-            "RunWrite": lambda path, content, **kwargs: run_write(
+            "FileCreate": lambda path, content, **kwargs: file_create(
                 path, content, agent_access
             ),
-            "RunEdit": lambda path, edits, **kwargs: run_edit(
+            "FileEdit": lambda path, edits, **kwargs: file_edit(
                 path, edits, agent_access
             ),
         }

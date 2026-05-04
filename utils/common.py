@@ -35,7 +35,7 @@ def _is_binary_file(filepath: Path) -> bool:
                 return True
         return False
     except Exception as exc:
-        log_error_traceback("RunGrep binary file check", exc)
+        log_error_traceback("ContentSearch binary file check", exc)
         return True
 
 
@@ -95,9 +95,9 @@ class RunTerminalCommand(BaseModel):
     - Network attacks: nmap, sqlmap
 
     PREFERRED APPROACH:
-    - For file read/write/edit: Use File tools (RunRead/RunWrite/RunEdit)
-    - For file content search: Use RunGrep (not grep, rg, findstr)
-    - For file name/pattern search: Use RunGlob (not find, ls, dir)
+    - For file read/write/edit: Use File tools (FileRead/FileCreate/FileEdit)
+    - For file content search: Use ContentSearch (not grep, rg, findstr)
+    - For file name/pattern search: Use FileSearch (not find, ls, dir)
     - Use this tool ONLY for: builds, tests, git, package management, system info
 
     TIMEOUT: 120 seconds hard limit.
@@ -219,7 +219,7 @@ class ReadBlock(BaseModel):
         return data
 
 
-class RunRead(BaseModel):
+class FileRead(BaseModel):
     """
     Read contents of a file. Reads only the specified line ranges.
 
@@ -233,7 +233,7 @@ class RunRead(BaseModel):
        Example: regions=[{"start":1,"end":150},{"start":300,"end":450}]
     3. Overlapping or adjacent regions will be automatically merged for efficiency.
 
-    WORKFLOW: Before calling RunRead, estimate all line ranges you need, then provide them all at once.
+    WORKFLOW: Before calling FileRead, estimate all line ranges you need, then provide them all at once.
     """
 
     path: str = Field(
@@ -297,18 +297,18 @@ def merge_intervals(intervals: list[list[int]]) -> list[list[int]]:
     return merged
 
 
-def run_read(
+def file_read(
         path: str, regions: list[dict], agent_access=None
 ) -> str:
     try:
         try:
-            validated = RunRead.model_validate({"path": path, "regions": regions})
+            validated = FileRead.model_validate({"path": path, "regions": regions})
             path = validated.path
             regions = validated.regions
         except Exception as exc:
-            return f"Error: Invalid arguments provided to RunRead. {exc}"
+            return f"Error: Invalid arguments provided to FileRead. {exc}"
 
-        fp = safe_path(path, "RunRead")
+        fp = safe_path(path, "FileRead")
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
             if not fp.exists():
@@ -361,17 +361,17 @@ def run_read(
 
         return f"File: {path}, Total lines: {total_lines}\n" + "\n".join(formatted_lines)
     except Exception as e:
-        log_error_traceback("RunRead execution", e)
+        log_error_traceback("FileRead execution", e)
         return f"Error: {e}"
 
 
-class RunWrite(BaseModel):
+class FileCreate(BaseModel):
     """
     Create and write a NEW file, or overwrite a completely empty file.
 
     CRITICAL REQUIREMENTS:
     1. Use this tool ONLY when the target file does NOT exist yet, or is empty.
-    2. If the file already exists and has content, use RunRead first, then RunEdit.
+    2. If the file already exists and has content, use FileRead first, then FileEdit.
     3. Parent directories will be automatically created if they don't exist.
 
     ENCODING: Files are written in UTF-8 encoding.
@@ -383,20 +383,20 @@ class RunWrite(BaseModel):
     content: str = Field(..., description="The content to write to the file.")
 
 
-def run_write(path: str, content: str, agent_access=None) -> str:
+def file_create(path: str, content: str, agent_access=None) -> str:
     try:
         try:
-            validated = RunWrite.model_validate({"path": path, "content": content})
+            validated = FileCreate.model_validate({"path": path, "content": content})
             path = validated.path
             content = validated.content
         except Exception as exc:
-            return f"Error: Invalid arguments provided to RunWrite. {exc}"
+            return f"Error: Invalid arguments provided to FileCreate. {exc}"
 
-        allowed, reason = check_permission("tool", "RunWrite", path)
+        allowed, reason = check_permission("tool", "FileCreate", path)
         if not allowed:
             return f"User Denied Execution. Reason: {reason}"
 
-        fp = safe_path(path, "RunWrite")
+        fp = safe_path(path, "FileCreate")
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
             if fp.exists() and fp.stat().st_size > 0:
@@ -407,8 +407,8 @@ def run_write(path: str, content: str, agent_access=None) -> str:
                 if existing_content:
                     return (
                         f"Error: File {path} already exists and is not empty. "
-                        "RunWrite is only for creating new files or writing to empty ones. "
-                        "For modifications, call RunRead first, then RunEdit."
+                        "FileCreate is only for creating new files or writing to empty ones. "
+                        "For modifications, call FileRead first, then FileEdit."
                     )
             fp.parent.mkdir(parents=True, exist_ok=True)
 
@@ -425,7 +425,7 @@ def run_write(path: str, content: str, agent_access=None) -> str:
 
             return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
-        log_error_traceback("RunWrite execution", e)
+        log_error_traceback("FileCreate execution", e)
         return f"Error: {e}"
 
 
@@ -470,14 +470,14 @@ class EditBlock(BaseModel):
         return data
 
 
-class RunEdit(BaseModel):
+class FileEdit(BaseModel):
     """
     Replace specific text blocks in a file with new content.
 
-    PREREQUISITE: You MUST call RunRead first to get the current file content.
+    PREREQUISITE: You MUST call FileRead first to get the current file content.
 
     HOW TO USE PERFECTLY:
-    1. Read the file first using `RunRead`.
+    1. Read the file first using `FileRead`.
     2. Identify the exact lines you want to change.
     3. Copy those lines into `search_content`, adding 2-3 lines of unchanged code above and below as context.
     4. Write the modified version into `replace_content`, making sure to KEEP the unchanged context lines!
@@ -588,20 +588,20 @@ def apply_edit_block(file_text: str, search: str, replace: str) -> tuple[bool, s
         f"(needs >= {SIMILARITY_THRESHOLD}). Ensure exact indentation and spaces."
     )
 
-def run_edit(path: str, edits: Any, agent_access=None) -> str:
+def file_edit(path: str, edits: Any, agent_access=None) -> str:
     try:
         try:
-            validated = RunEdit.model_validate({"path": path, "edits": edits})
+            validated = FileEdit.model_validate({"path": path, "edits": edits})
             path = validated.path
             parsed_blocks = validated.edits
         except Exception as exc:
-            return f"Error: Invalid arguments provided to RunEdit. {exc}"
+            return f"Error: Invalid arguments provided to FileEdit. {exc}"
 
-        allowed, reason = check_permission("tool", "RunEdit", path)
+        allowed, reason = check_permission("tool", "FileEdit", path)
         if not allowed:
             return f"User Denied Execution. Reason: {reason}"
 
-        fp = safe_path(path, "RunEdit")
+        fp = safe_path(path, "FileEdit")
         file_lock = GLOBAL_FILE_CONTROLLER.get_lock(fp)
         with file_lock:
             if not fp.exists():
@@ -643,11 +643,11 @@ def run_edit(path: str, edits: Any, agent_access=None) -> str:
         return success_msg
 
     except Exception as e:
-        log_error_traceback("RunEdit execution", e)
+        log_error_traceback("FileEdit execution", e)
         return f"Error: {e}"
 
 
-class RunGrep(BaseModel):
+class ContentSearch(BaseModel):
     """
     Search for a regex pattern in text files within a specific directory.
 
@@ -675,7 +675,7 @@ class RunGrep(BaseModel):
     )
 
 
-def run_grep(
+def content_search(
         content_pattern: str,
         target_dir: str = ".",
         filename_pattern: str = "*",
@@ -683,7 +683,7 @@ def run_grep(
     try:
         regex = re.compile(content_pattern)
     except re.error as e:
-        log_error_traceback("RunGrep regex compile", e)
+        log_error_traceback("ContentSearch regex compile", e)
         return f"Error: Invalid regex pattern '{content_pattern}': {e}"
 
     # Split pipe-separated patterns, e.g., "*.py|*.js|*.vue" -> ["*.py", "*.js", "*.vue"]
@@ -698,11 +698,11 @@ def run_grep(
     MAX_MATCHES = 500
 
     try:
-        base_dir = safe_path(target_dir, "RunGrep")
+        base_dir = safe_path(target_dir, "ContentSearch")
         if not base_dir.is_dir():
             return f"Error: Target directory '{target_dir}' not found or is not a directory."
     except Exception as e:
-        log_error_traceback("RunGrep resolve target dir", e)
+        log_error_traceback("ContentSearch resolve target dir", e)
         return f"Error resolving target directory: {e}"
 
     EXCLUDE_DIRS = {
@@ -738,7 +738,7 @@ def run_grep(
                                 if total_matches >= MAX_MATCHES:
                                     break
                 except Exception as exc:
-                    log_error_traceback(f"RunGrep file read: {filepath}", exc)
+                    log_error_traceback(f"ContentSearch file read: {filepath}", exc)
                     continue
 
                 if matched_lines:
@@ -751,7 +751,7 @@ def run_grep(
                 break
 
     except Exception as e:
-        log_error_traceback("RunGrep walk execution", e)
+        log_error_traceback("ContentSearch walk execution", e)
         return f"Error during grep search: {e}"
 
     if not results:
@@ -774,7 +774,7 @@ def run_grep(
     return "\n".join(output_blocks).strip()
 
 
-class RunGlob(BaseModel):
+class FileSearch(BaseModel):
     """
     Search for files and/or directories matching a glob pattern.
 
@@ -811,7 +811,7 @@ class RunGlob(BaseModel):
     )
 
 
-def run_glob(
+def file_search(
         filename_pattern: str,
         target_dir: str = ".",
         type: str = "all",
@@ -835,11 +835,11 @@ def run_glob(
     type_label = {"file": "file(s)", "dir": "director(ies)", "all": "item(s)"}[type]
 
     try:
-        base_dir = safe_path(target_dir, "RunGlob")
+        base_dir = safe_path(target_dir, "FileSearch")
         if not base_dir.is_dir():
             return f"Error: Target directory '{target_dir}' not found or is not a directory."
     except Exception as e:
-        log_error_traceback("RunGlob resolve target dir", e)
+        log_error_traceback("FileSearch resolve target dir", e)
         return f"Error resolving target directory: {e}"
 
     try:
@@ -898,7 +898,7 @@ def run_glob(
         return output
 
     except Exception as e:
-        log_error_traceback("RunGlob execution", e)
+        log_error_traceback("FileSearch execution", e)
         return f"Error during glob search: {e}"
 
 
@@ -922,11 +922,11 @@ def get_system_time(**kwargs) -> str:
 
 
 TOOLS = [
-    pydantic_function_tool(RunRead),
-    pydantic_function_tool(RunWrite),
-    pydantic_function_tool(RunEdit),
-    pydantic_function_tool(RunGrep),
-    pydantic_function_tool(RunGlob),
+    pydantic_function_tool(FileRead),
+    pydantic_function_tool(FileCreate),
+    pydantic_function_tool(FileEdit),
+    pydantic_function_tool(ContentSearch),
+    pydantic_function_tool(FileSearch),
 ]
 
 FILE_NAMESPACE = {
@@ -935,8 +935,8 @@ FILE_NAMESPACE = {
     "description": (
         "Primary file operation tools for workspace files. Always prefer this namespace for file reads, "
         "writes, edits, and text searches instead of shell commands. "
-        "IMPORTANT: Use RunWrite only to create/write new or completely empty files. For existing-file changes, you must call "
-        "RunRead first and then use RunEdit."
+        "IMPORTANT: Use FileCreate only to create/write new or completely empty files. For existing-file changes, you must call "
+        "FileRead first and then use FileEdit."
     ),
     "tools": TOOLS,
 }
@@ -958,10 +958,10 @@ COMMON_TOOLS = [
 
 COMMON_TOOLS_HANDLERS = {
     "RunTerminalCommand": run_terminal_command,
-    "RunRead": run_read,
-    "RunWrite": run_write,
-    "RunGrep": run_grep,
-    "RunGlob": run_glob,
-    "RunEdit": run_edit,
+    "FileRead": file_read,
+    "FileCreate": file_create,
+    "ContentSearch": content_search,
+    "FileSearch": file_search,
+    "FileEdit": file_edit,
     "GetSystemTime": get_system_time,
 }

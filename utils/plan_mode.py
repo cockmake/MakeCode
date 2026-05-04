@@ -11,8 +11,8 @@ Toggle via Ctrl+P key or /plan command.
 # Tools blocked in Plan Mode: write/edit/delegate tools
 PLAN_MODE_BLOCKLIST = frozenset({
     # File write/edit
-    "RunWrite",
-    "RunEdit",
+    "FileCreate",
+    "FileEdit",
     # Team delegation
     "DelegateTasks",
 })

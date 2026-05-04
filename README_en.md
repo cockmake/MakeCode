@@ -75,16 +75,16 @@ chosen **Workspace Directory (`WORKDIR`)**, not the location of the MakeCode sou
 
 Provides the following execution primitives:
 
-- `RunRead`: read file contents, optionally by line range
-- `RunWrite`: only for creating and writing a NEW file (when target file does not exist or is empty). **Automatically triggers Tree-sitter syntax validation before writing**, blocks and displays detailed error line numbers if syntax errors are detected.
-- `RunEdit`: modify an existing file. **Uses text search-and-replace mechanism (search_content → replace_content) instead of line number ranges**. Must call `RunRead` first, locate changes by providing exact text with surrounding context. **Supports triple fallback: exact match → strip match → difflib fuzzy match (similarity ≥90%)**. Automatically triggers Tree-sitter syntax validation after editing.
-- `RunGrep`: search text files in a target directory with a regex pattern. Automatically excludes common build/dependency directories (`build`, `dist`, `__pycache__`, `node_modules`, `target`, `venv`, `site-packages`, `htmlcov`) and hidden directories (starting with `.`) to reduce irrelevant matches.
-- `RunGlob`: search files and directories by glob pattern. Supports pipe-separated multi-patterns (e.g. `*.py|*.js|*.ts`), `**` recursive matching, and type filtering (`file`/`dir`/`all`). Automatically excludes hidden and build/dependency directories, returns up to 500 items. Ideal for quickly exploring project structure.
+- `FileRead`: read file contents, optionally by line range
+- `FileCreate`: only for creating and writing a NEW file (when target file does not exist or is empty). **Automatically triggers Tree-sitter syntax validation before writing**, blocks and displays detailed error line numbers if syntax errors are detected.
+- `FileEdit`: modify an existing file. **Uses text search-and-replace mechanism (search_content → replace_content) instead of line number ranges**. Must call `FileRead` first, locate changes by providing exact text with surrounding context. **Supports triple fallback: exact match → strip match → difflib fuzzy match (similarity ≥90%)**. Automatically triggers Tree-sitter syntax validation after editing.
+- `ContentSearch`: search text files in a target directory with a regex pattern. Automatically excludes common build/dependency directories (`build`, `dist`, `__pycache__`, `node_modules`, `target`, `venv`, `site-packages`, `htmlcov`) and hidden directories (starting with `.`) to reduce irrelevant matches.
+- `FileSearch`: search files and directories by glob pattern. Supports pipe-separated multi-patterns (e.g. `*.py|*.js|*.ts`), `**` recursive matching, and type filtering (`file`/`dir`/`all`). Automatically excludes hidden and build/dependency directories, returns up to 500 items. Ideal for quickly exploring project structure.
 - `RunTerminalCommand`: run a non-interactive terminal command
 
 #### 📋 Tree-sitter Syntax Validation (`system/ts_validator.py`)
 
-`RunWrite` and `RunEdit` automatically invoke Tree-sitter for syntax checking before writing files:
+`FileCreate` and `FileEdit` automatically invoke Tree-sitter for syntax checking before writing files:
 
 - **Multi-language Support**: Automatically detects Python, JavaScript, TypeScript, Go, Rust, and more
 - **Smart Exclusion**: Automatically skips plain text and documentation files (`.md`, `.txt`, `.rst`, `.log`, etc.) to avoid false positives
@@ -101,8 +101,8 @@ Implementation details:
 
 ### 2.4 File Access Control Mechanism (`utils/file_access.py`)
 
-- **Mandatory Read-Before-Edit**: Agents must use `RunRead` before editing a file, otherwise the edit is blocked.
-- **Modification Time Lock Validation**: If a file is modified by another program or agent after being read, `RunEdit`is
+- **Mandatory Read-Before-Edit**: Agents must use `FileRead` before editing a file, otherwise the edit is blocked.
+- **Modification Time Lock Validation**: If a file is modified by another program or agent after being read, `FileEdit`is
   blocked and prompts for re-reading.
 - **Fine-Grained File-Level Locks**: Multi-agent concurrent read/write uses per-file `RLock` instead of a global lock,
   improving concurrency performance.
@@ -116,7 +116,7 @@ Implementation details:
 To guarantee agent execution safety in real engineering environments, the system introduces a Human-In-The-Loop (HITL)
 interception mechanism:
 
-- **Sensitive Operation Blocks**: By default, file modification actions (`RunEdit`, `RunWrite`) and critical terminal
+- **Sensitive Operation Blocks**: By default, file modification actions (`FileEdit`, `FileCreate`) and critical terminal
   commands (e.g. `npm`, `git`, `rm`, gated by an exclusion whitelist) are intercepted.
 - **TUI Interactive Panel**: A terminal visual intercept panel built with `prompt_toolkit`, allowing the user to use
   arrow keys to choose either "Allow" or "Reject with feedback".
@@ -370,13 +370,13 @@ MakeCode supports Plan/Act mode switching, ensuring the agent focuses on analysi
 
 #### Core Concepts
 
-- **Plan Mode**: Only read-only tools, planning tools, and restricted terminal commands are allowed (e.g., `RunRead`, `RunGrep`, `RunGlob`, `TaskManager`, `LoadSkill`, etc.), file writes, edits, and task delegation are prohibited
+- **Plan Mode**: Only read-only tools, planning tools, and restricted terminal commands are allowed (e.g., `FileRead`, `ContentSearch`, `FileSearch`, `TaskManager`, `LoadSkill`, etc.), file writes, edits, and task delegation are prohibited
 - **Act Mode**: Full execution mode where all tools are available
 
 #### Restricted Tools in Plan Mode
 
 The following tools are blocked in Plan Mode:
-- `RunWrite` / `RunEdit` — File write/edit
+- `FileCreate` / `FileEdit` — File write/edit
 - `DelegateTasks` — Task delegation
 
 #### Restricted Terminal Commands in Plan Mode
@@ -765,7 +765,7 @@ If model calls fail, use the `/models` command to check:
 
 ### 9.2 Path escapes workspace
 
-`RunRead`, `RunWrite`, `RunEdit`, `RunGrep`, and `RunGlob` all enforce workspace boundaries. Paths outside the workspace are
+`FileRead`, `FileCreate`, `FileEdit`, `ContentSearch`, and `FileSearch` all enforce workspace boundaries. Paths outside the workspace are
 rejected.
 
 ### 9.3 Terminal command failures

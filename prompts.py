@@ -135,11 +135,11 @@ def _tool_priority_section(terminal_label: str, terminal_source: str) -> str:
     return f"""# Tool Usage Priority
 
 Do NOT use RunTerminalCommand when a dedicated tool exists:
- - To READ files: use RunRead (not cat, head, tail, type)
- - To EDIT files: use RunEdit (not sed, awk, or terminal editors)
- - To CREATE files: use RunWrite (not echo >>, cat heredoc)
- - To SEARCH file content: use RunGrep (not grep, rg, findstr)
- - To SEARCH files by name/pattern: use RunGlob (not find, ls, dir)
+ - To READ files: use FileRead (not cat, head, tail, type)
+ - To EDIT files: use FileEdit (not sed, awk, or terminal editors)
+ - To CREATE files: use FileCreate (not echo >>, cat heredoc)
+ - To SEARCH file content: use ContentSearch (not grep, rg, findstr)
+ - To SEARCH files by name/pattern: use FileSearch (not find, ls, dir)
  - Reserve RunTerminalCommand EXCLUSIVELY for: builds, tests, git, package management, system info
 
 Runtime terminal is fixed at startup: {terminal_label} (source={terminal_source}).
@@ -199,10 +199,10 @@ def _communication_style_section() -> str:
 def _error_recovery_section() -> str:
     """Systematic error recovery strategy."""
     return """# Error Recovery Strategy
- - First failure: Retry the same task once with updated context describing the failure.
+ - First failure: Diagnose WHY it failed, then try a different approach based on the root cause.
  - Second failure: Decompose the failed task into smaller subtasks.
  - Third failure or unresolvable blocker: Mark as blocked and escalate to user with detailed diagnosis.
- - If a tool returns an error, analyze WHY before switching tactics.
+ - If a tool returns an error, analyze the error message and tool output before attempting any fix.
  - Do not blindly retry the identical action, but don't abandon viable approaches after a single failure."""
 
 
@@ -216,7 +216,7 @@ IMPORTANT: The user has switched you to PLAN MODE.
  - You are now in a READ-ONLY planning phase.
  - Do NOT attempt to execute any modifications.
  - Focus on analyzing the codebase and creating an execution plan.
- - Use only read-only tools (RunRead, RunGrep, RunGlob, TaskManager).
+ - Use only read-only tools (FileRead, ContentSearch, FileSearch, TaskManager).
 
 What you should do now:
 1. Acknowledge the mode change in your response
@@ -241,19 +241,19 @@ What you should do now:
 4. Execute tasks using DelegateTasks or direct tool calls
 5. Verify execution results and update task status
 
-Remember: In Act Mode, you can use ALL tools including RunWrite, RunEdit, RunTerminalCommand, and DelegateTasks."""
+Remember: In Act Mode, you can use ALL tools including FileCreate, FileEdit, RunTerminalCommand, and DelegateTasks."""
 
 
 def _hitl_section(is_orchestrator: bool = True) -> str:
     """Human-in-the-Loop guidance.
 
     Orchestrator has additional HITL tools: DeleteAllTasks, DelegateTasks.
-    Sub-Agent only has: RunEdit, RunWrite, RunTerminalCommand.
+    Sub-Agent only has: FileEdit, FileCreate, RunTerminalCommand.
     """
     if is_orchestrator:
-        tools = "RunEdit, RunWrite, RunTerminalCommand, DeleteAllTasks, or DelegateTasks"
+        tools = "FileEdit, FileCreate, RunTerminalCommand, DeleteAllTasks, or DelegateTasks"
     else:
-        tools = "RunEdit, RunWrite, or RunTerminalCommand"
+        tools = "FileEdit, FileCreate, or RunTerminalCommand"
     return (
         f"Human-in-the-Loop (HITL): Certain actions (like {tools}) "
         f"may require human confirmation. If a tool returns "
@@ -308,17 +308,17 @@ MODE AWARENESS:
  - Do NOT attempt to execute any modifications until the user exits Plan Mode
 
 Blocked tools (DO NOT USE):
- - RunWrite, RunEdit — file write/edit operations
+ - FileCreate, FileEdit — file create/edit operations
  - DelegateTasks — sub-agent delegation
 
 Allowed tools (USE THESE):
- - RunRead, RunGrep, RunGlob — file reading and searching
+ - FileRead, ContentSearch, FileSearch — file reading and searching
  - RunTerminalCommand — terminal execution (restricted to {_allowed_cmds} commands, will auto-trigger user confirmation)
  - TaskManager tools (CreateTask, UpdateTaskContent, UpdateTaskStatus, UpdateTaskDependencies, GetRunnableTasks, GetTaskTable, DeleteAllTasks) — task planning
  - LoadSkill — load domain-specific skills
 
 Core operating policy:
-1. Use RunRead/RunGrep/RunGlob to understand the codebase structure
+1. Use FileRead/ContentSearch/FileSearch to understand the codebase structure
 2. Use TaskManager tools to create task topology with clear dependencies
 3. Only plan — do not execute any modifications
 4. When your plan is ready, present it to the user for approval
@@ -327,7 +327,7 @@ Core operating policy:
 
 Plan Mode workflow:
  1. Analyze the user's request and break it down into subtasks
- 2. Use RunRead/RunGrep/RunGlob to understand the codebase
+ 2. Use FileRead/ContentSearch/FileSearch to understand the codebase
  3. Create tasks with CreateTask, establishing dependencies with UpdateTaskDependencies
  4. Review the task plan with GetTaskTable
  5. Present the plan to the user and wait for confirmation to exit Plan Mode"""
@@ -362,7 +362,7 @@ Execution guidance:
  - If multiple tasks need to edit the same file, you MUST establish explicit topology dependencies (via depend_on) so that they execute sequentially in a defined order.
  - If a planned task lacks clarity or its scope changes, use UpdateTaskContent to refine its subject and description.
  - If the entire topology plan is fundamentally flawed or a complete restart is requested, use DeleteAllTasks (requires confirm=True) to clear the board.
- - For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (RunRead, RunWrite, RunEdit, RunGrep, RunGlob). Do NOT use terminal commands for these tasks.
+ - For workspace file operations (reading, writing, editing, or text searching), use the File namespace tools (FileRead, FileCreate, FileEdit, ContentSearch, FileSearch). Do NOT use terminal commands for these tasks.
  - For terminal/CLI tasks, use RunTerminalCommand directly.
 
 Act Mode workflow:
@@ -419,7 +419,7 @@ def get_sub_agent_system_prompt(
 Use available tools to complete the task thoroughly and completely.
 
 FILE OPERATIONS PRIORITY:
-1. ALWAYS prefer File tools (RunRead/RunWrite/RunEdit/RunGrep/RunGlob) for file operations
+1. ALWAYS prefer File tools (FileRead/FileCreate/FileEdit/ContentSearch/FileSearch) for file operations
 2. Use RunTerminalCommand ONLY for: builds, tests, git, package management, system info
 3. NEVER use terminal for simple file reads/writes/edits
 
