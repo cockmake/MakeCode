@@ -9,7 +9,6 @@ import openai._constants as _openai_consts
 _openai_consts.INITIAL_RETRY_DELAY = 10
 _openai_consts.MAX_RETRY_DELAY = 30
 
-from init import log_error_traceback
 from prompts import get_summary_system_prompt, get_summary_user_prompt
 
 
@@ -206,7 +205,7 @@ class ChatAPIClient(BaseLLMClient):
 
             return {"type": "done", "content": (text, tool_calls, raw_message)}
 
-        from utils.stream_cancel import stream_cancel_event
+        from system.stream_cancel import stream_cancel_event
 
         for chunk in stream:
             # ESC 取消检查：用户按下 ESC 后立即中断流式读取

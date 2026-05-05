@@ -1,7 +1,6 @@
 import json
 import sys
 import threading
-import time
 from typing import Any
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -11,10 +10,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
-from rich.padding import Padding
-from rich.rule import Rule
 
 from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_SOURCE, STARTUP_TERMINAL_TYPE
 from prompts import get_orchestrator_system_prompt, get_title_generation_system_prompt
@@ -28,7 +24,6 @@ from system.commands import (
 from system.console_render import (
     _render_tool_call,
     _render_tool_output,
-    toggle_sub_agent_console,
     _render_history,
     _render_token_usage,
     _render_startup_banner,
@@ -190,7 +185,7 @@ def _stream_with_render(messages: list, current_tools: list):
     1. 思考阶段：使用原生 append 模式流式输出，配合 dim 样式，极致性能无闪烁。
     2. 正文阶段：采用带『节流 (Throttle)』的 Live + Markdown 实时渲染。
     """
-    from utils.stream_cancel import start_cancel_listener, stop_cancel_listener, is_cancelled
+    from system.stream_cancel import start_cancel_listener, stop_cancel_listener, is_cancelled
 
     renderer = StreamRenderer(console=console, update_interval=0.1)
     start_cancel_listener()

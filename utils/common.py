@@ -533,7 +533,7 @@ def apply_edit_block(file_text: str, search: str, replace: str) -> tuple[bool, s
     if count == 1:
         return True, file_text.replace(search, replace), ""
     elif count > 1:
-        return False, file_text, "Search content found multiple times. Please include more context to make it unique."
+        return False, file_text, "Search content found multiple times. Please include more context to make it unique. IMPORTANT: Please call FileRead to re-read the file and obtain the latest content before retrying."
 
     # 2. 尝试容错匹配 (去除首尾空白)
     search_stripped = search.strip()
@@ -547,7 +547,7 @@ def apply_edit_block(file_text: str, search: str, replace: str) -> tuple[bool, s
         new_text = file_text[:start_idx] + replace.strip() + file_text[end_idx:]
         return True, new_text, ""
     elif count_stripped > 1:
-        return False, file_text, "Stripped search content matches multiple locations. Please include more context."
+        return False, file_text, "Stripped search content matches multiple locations. Please include more context. IMPORTANT: Please call FileRead to re-read the file and obtain the latest content before retrying."
 
     # 3. difflib 模糊匹配兜底
     SIMILARITY_THRESHOLD = 0.95
@@ -558,7 +558,7 @@ def apply_edit_block(file_text: str, search: str, replace: str) -> tuple[bool, s
 
     search_len = len(search_lines)
     if search_len == 0 or not file_lines:
-        return False, file_text, "Search content NOT found."
+        return False, file_text, "Search content NOT found. IMPORTANT: Please call FileRead to re-read the file and obtain the latest content before retrying."
 
     best_ratio = 0.0
     best_start_idx = -1
@@ -585,7 +585,8 @@ def apply_edit_block(file_text: str, search: str, replace: str) -> tuple[bool, s
 
     return False, file_text, (
         f"Search content NOT found. Best match similarity was {best_ratio:.2f} "
-        f"(needs >= {SIMILARITY_THRESHOLD}). Ensure exact indentation and spaces."
+        f"(needs >= {SIMILARITY_THRESHOLD}). Ensure exact indentation and spaces. "
+        f"IMPORTANT: The file may have been modified since your last read. Please call FileRead again to get the latest content before retrying the edit."
     )
 
 def file_edit(path: str, edits: Any, agent_access=None) -> str:
@@ -621,7 +622,7 @@ def file_edit(path: str, edits: Any, agent_access=None) -> str:
                 )
 
                 if not success:
-                    return f"Error in edit block {i + 1}:\n{msg}\nNo changes were saved."
+                    return f"Error in edit block {i + 1}:\n{msg}\nNo changes were saved. Please call FileRead to re-read the file and obtain the latest content before retrying."
 
                 if "Warning" in msg:
                     warnings.append(f"Block {i + 1}: {msg}")
