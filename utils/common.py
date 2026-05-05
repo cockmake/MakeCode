@@ -788,11 +788,10 @@ class FileSearch(BaseModel):
     """
 
     filename_pattern: str = Field(
-        ...,
+        default="*",
         description=(
             "Glob pattern to match file names. Supports multiple patterns separated by '|'. "
-            "Examples: '*.py', '*.py|*.js|*.ts', 'src/**/*', 'tests/test_*'. "
-            "Use '**' for recursive matching through directories."
+            "Examples: '*.py', '*.py|*.js|*.vue'. Defaults to '*' (all files)."
         ),
     )
     target_dir: str = Field(
@@ -812,7 +811,7 @@ class FileSearch(BaseModel):
 
 
 def file_search(
-        filename_pattern: str,
+        filename_pattern: str = "*",
         target_dir: str = ".",
         type: str = "all",
 ) -> str:
@@ -830,6 +829,13 @@ def file_search(
     patterns = [p.strip() for p in filename_pattern.split("|") if p.strip()]
     if not patterns:
         patterns = ["*"]
+
+    def _to_recursive(p: str) -> str:
+        if p.startswith("**/"):
+            return p
+        return "**/*" if p == "*" else f"**/{p}"
+
+    patterns = [_to_recursive(p) for p in patterns]
 
     # Determine item type label for output
     type_label = {"file": "file(s)", "dir": "director(ies)", "all": "item(s)"}[type]
