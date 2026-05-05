@@ -190,11 +190,18 @@ def _stream_with_render(messages: list, current_tools: list):
     1. 思考阶段：使用原生 append 模式流式输出，配合 dim 样式，极致性能无闪烁。
     2. 正文阶段：采用带『节流 (Throttle)』的 Live + Markdown 实时渲染。
     """
-    renderer = StreamRenderer(console=console, update_interval=0.1)
-    stream = llm_client.generate_stream(messages, current_tools)
-    text_content, tool_calls, raw_message = renderer.render(stream, agent_name="Orchestrator")
+    from utils.stream_cancel import start_cancel_listener, stop_cancel_listener, is_cancelled
 
-    return text_content, tool_calls, raw_message
+    renderer = StreamRenderer(console=console, update_interval=0.1)
+    start_cancel_listener()
+    try:
+        stream = llm_client.generate_stream(messages, current_tools)
+        text_content, tool_calls, raw_message = renderer.render(stream, agent_name="Orchestrator")
+        cancelled = is_cancelled()
+    finally:
+        stop_cancel_listener()
+
+    return text_content, tool_calls, raw_message, cancelled
 
 
 def _is_no_model_configured_error(exc: Exception) -> bool:
@@ -232,7 +239,7 @@ def agent_loop(messages: list):
         )
 
         try:
-            text_content, tool_calls, raw_message = _stream_with_render(messages, current_super_tools)
+            text_content, tool_calls, raw_message, cancelled = _stream_with_render(messages, current_super_tools)
         except Exception as e:
             if _is_no_model_configured_error(e):
                 console.print(
@@ -242,6 +249,10 @@ def agent_loop(messages: list):
             log_error_traceback("Orchestrator generation error", e)
             error_msg = f"智能体执行出错: {e}."
             console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
+            break
+
+        # 用户按 ESC 取消：丢弃部分文本，不执行工具调用，回到输入等待
+        if cancelled:
             break
 
         llm_client.append_assistant_message(messages, raw_message)

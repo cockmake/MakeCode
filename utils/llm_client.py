@@ -206,7 +206,13 @@ class ChatAPIClient(BaseLLMClient):
 
             return {"type": "done", "content": (text, tool_calls, raw_message)}
 
+        from utils.stream_cancel import stream_cancel_event
+
         for chunk in stream:
+            # ESC 取消检查：用户按下 ESC 后立即中断流式读取
+            if stream_cancel_event.is_set():
+                break
+
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
