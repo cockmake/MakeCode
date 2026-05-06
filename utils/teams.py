@@ -526,7 +526,10 @@ class TeammateManager:
             **COMMON_TOOLS_HANDLERS,
             **SKILL_TOOLS_HANDLERS,
             **GLOBAL_MCP_MANAGER.get_handlers(),
-            "TodoUpdate": lambda tasks, **kwargs: local_todo.update(tasks),
+            "TodoUpdate": lambda **kw: (
+                local_todo.update(kw["todos"]) if "todos" in kw
+                else f"Error: TodoUpdate requires 'todos' field, got keys: {list(kw.keys())}"
+            ),
             "FileRead": lambda path, regions, **kwargs: file_read(
                 path, regions, agent_access
             ),

@@ -452,10 +452,10 @@ CONFLICT AVOIDANCE:
  - If unsure whether a file is shared, read it first and proceed conservatively.
 
 WORKFLOW:
-1. Call TodoUpdate to create a short actionable plan (2-6 tasks)
+1. Call TodoUpdate to create a short actionable plan (2-6 todos)
 2. Execute the task step by step
 3. Keep TodoUpdate status current as you progress
-4. Mark all tasks completed when done
+4. Mark all todos completed when done
 
 SUB-AGENT EXECUTION CONSTRAINTS:
  - Agent threads reset cwd between tool calls; use ABSOLUTE file paths only.

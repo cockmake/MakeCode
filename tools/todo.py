@@ -56,14 +56,14 @@ class TodoUpdate(BaseModel):
     2. During work: Update status as you progress
     3. At completion: Mark all items completed
     """
-    tasks: list[TaskItem] = Field(
+    todos: list[TaskItem] = Field(
         ...,
-        description="List of todo tasks, each with: id (string), description (task description), status (pending/in_progress/completed).",
+        description="List of todo items, each with: id (string), description (task description), status (pending/in_progress/completed).",
     )
 
-    @field_validator("tasks", mode="before")
+    @field_validator("todos", mode="before")
     @classmethod
-    def parse_stringified_tasks(cls, v: Any) -> Any:
+    def parse_stringified_todos(cls, v: Any) -> Any:
         if isinstance(v, str):
             try:
                 v = v.strip()
@@ -81,10 +81,10 @@ class TodoManager:
     def __init__(self):
         self.items: list[TaskItem] = []
 
-    def update(self, tasks: Any):
+    def update(self, todos: list[dict]):
         try:
-            validated_model = TodoUpdate.model_validate({"tasks": tasks})
-            spec_list = validated_model.tasks
+            validated_model = TodoUpdate.model_validate({"todos": todos})
+            spec_list = validated_model.todos
         except Exception as exc:
             from init import log_error_traceback
             log_error_traceback("TodoManager update validation", exc)
