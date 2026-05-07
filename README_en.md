@@ -128,7 +128,7 @@ interception mechanism:
   interception panel. When a user forcefully interrupts an interaction, it won't crash the sub-agent to death. Instead,
   it converts the interruption into a string feedback rejecting the LLM request, letting the agent self-correct
   properly.
-- **Workspace Path Escape Interception & Directory Allowlist**: When a tool accesses a path outside the workspace, HITL intercepts and offers three options: (1) Allow this access; (2) Allow the entire directory (including subdirectories) for the rest of the session; (3) Reject. Once a directory is allowlisted, all subsequent accesses to sub-paths under that directory are automatically permitted. The allowlist is cleared when toggling HITL status, `/clear`, or `/reset`.
+- **Workspace Path Escape Interception & Directory Allowlist**: When a tool accesses a path outside the workspace, HITL intercepts and offers three options: (1) Allow this access; (2) Allow the entire directory (including subdirectories) for the rest of the session; (3) Reject. Once a directory is allowlisted, all subsequent accesses to sub-paths under that directory are automatically permitted. The allowlist is cleared when toggling HITL status or `/new`.
 
 ### 2.6 Task Management (`utils/tasks.py`)
 
@@ -679,8 +679,7 @@ In the interactive CLI, you can type `/` to trigger quick commands (with auto-co
 | `/plan`               | Enter/exit Plan Mode — only read-only and planning tools are allowed in the planning phase                                                       |
 | `/status`            | Report system status, completed tasks, and next steps                                                                                            |
 | `/help`              | Show usage help and self-introduction                                                                                                            |
-| `/workspace` / `/ls` | View the current workspace directory structure                                                                                                   |
-| `/clear` / `/reset`  | Clear current conversation history                                                                                                               |
+| `/new`                | Clear current conversation history                                                                                                               |
 | `/hitl`               | Toggle Human-in-the-Loop interception status (On/Off)                                                                                            |
 | `/sub-agent-console`  | Toggle Sub-Agent console output status, disabled by default                                                                                      |
 | `/quit` / `/exit`    | Exit the program                                                                                                                                 |

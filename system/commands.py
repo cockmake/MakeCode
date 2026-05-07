@@ -70,10 +70,7 @@ COMMAND_DESCRIPTIONS = {
     "/status": "汇报系统状态、已完成任务和下一步计划",
     "/sub-agent-console": "切换 Sub-Agent 的控制台输出状态，默认关闭",
     "/help": "显示使用帮助和自我介绍",
-    "/workspace": "查看当前工作区目录结构",
-    "/ls": "查看当前工作区目录结构",
-    "/clear": "清空当前对话历史",
-    "/reset": "清空当前对话历史",
+    "/new": "清空当前对话历史",
     "/hitl": "切换 Human-in-the-Loop 拦截状态 (开启/关闭)",
     "/quit": "退出程序",
     "/exit": "退出程序",
@@ -896,8 +893,8 @@ class CommandHandler:
         self.console.print(f"\n[bold cyan]已退出模型面板，当前模型：[/bold cyan][bold green]{current_text}[/bold green]")
         return True
 
-    def handle_clear_reset(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
-        """处理 /clear 和 /reset 命令，返回 (should_continue, new_checkpoint)"""
+    def handle_new(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
+        """处理 /new 命令，返回 (should_continue, new_checkpoint)"""
         if not hitl_mod.get_hitl_status():
             hitl_mod.toggle_hitl(enabled=True)
             self.console.print("[dim]🛡️ Human-in-the-Loop 已恢复为开启状态[/dim]")
@@ -1145,9 +1142,9 @@ class CommandHandler:
             self.handle_skills_list()
             return CommandResult(action=CommandAction.CONTINUE)
 
-        # /clear, /reset - 清空历史
-        if query in ["/clear", "/reset"]:
-            self.handle_clear_reset(history, current_checkpoint)
+        # /new - 清空历史
+        if query == "/new":
+            self.handle_new(history, current_checkpoint)
             return CommandResult(action=CommandAction.RESET_CHECKPOINT)
 
         # /compact - 压缩上下文
