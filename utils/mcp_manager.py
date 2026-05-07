@@ -247,7 +247,7 @@ class GlobalMCPManager:
                 if self.console:
                     print_formatted_text(
                         HTML(
-                            f"<ansigreen>✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>"
+                            f"<ansigreen>✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>\n"
                         )
                     )
 

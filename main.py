@@ -507,15 +507,15 @@ if __name__ == "__main__":
     _render_startup_banner()
     _render_env_customization_hint()
 
+    # 后台检查更新（仅打包环境）
+    if getattr(sys, 'frozen', False):
+        threading.Thread(target=_background_update_check, daemon=True).start()
+
     # 初始化 tree-sitter 语言包缓存
     _init_tree_sitter_cache(console)
 
     GLOBAL_MCP_MANAGER.initialize(console=console)
     GLOBAL_MCP_MANAGER.start_background()
-
-    # 后台检查更新（仅打包环境）
-    if getattr(sys, 'frozen', False):
-        threading.Thread(target=_background_update_check, daemon=True).start()
 
     history = [{"role": "system", "content": get_dynamic_system_prompt()}]
 
