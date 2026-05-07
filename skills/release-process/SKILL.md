@@ -119,7 +119,13 @@ python release.py --release_log RELEASE_LOG.md
 
 ### 3.2 上传文件到服务器（可并行）
 
-FTP 上传和 GitHub Release 上传相互独立，**可以同时执行**以加快发布速度。
+FTP 上传和 GitHub Release 上传相互独立，**可以使用一行命令同时执行**以加快发布速度：
+
+```bash
+Start-Process -FilePath "python" -ArgumentList "ftp_release.py" -NoNewWindow; Start-Process -FilePath "python" -ArgumentList "github_release.py" -NoNewWindow
+```
+
+或者分别执行：
 
 使用 FTP 上传脚本将构建产物上传到更新服务器：
 
@@ -151,7 +157,7 @@ python ftp_release.py
 
 ### 3.3 上传到 GitHub Release（可与 FTP 并行）
 
-使用 GitHub Release 脚本将构建产物发布到 GitHub，可与 FTP 上传同时执行：
+使用 GitHub Release 脚本将构建产物发布到 GitHub，可与 FTP 上传同时执行（见 3.2 节的一行命令）：
 
 ```bash
 python github_release.py
@@ -261,10 +267,8 @@ pyinstaller MakeCode.spec
 # 4. 创建发布日志文件 RELEASE_LOG.md，写入 markdown 格式的发布内容
 # 5. 生成版本信息（--release_log 传入发布日志文件路径）
 python release.py --release_log RELEASE_LOG.md
-# 6. 上传到服务器（FTP 和 GitHub 可同时执行）
-python ftp_release.py &
-python github_release.py &
-wait
+# 6. 上传到服务器（可以使用一行命令同时进行）
+Start-Process -FilePath "python" -ArgumentList "ftp_release.py" -NoNewWindow; Start-Process -FilePath "python" -ArgumentList "github_release.py" -NoNewWindow
 # 7. 确认工作区干净
 git status  # 应输出 "nothing to commit, working tree clean"
 ```
