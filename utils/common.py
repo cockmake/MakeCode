@@ -423,7 +423,7 @@ def file_create(path: str, content: str, agent_access=None) -> str:
             if agent_access:
                 agent_access.record_access(str(fp.resolve()), mtime)
 
-            return f"Wrote {len(content)} bytes to {path}"
+            return f"Created {path}: {content.count('\n') + 1} lines written"
     except Exception as e:
         log_error_traceback("FileCreate execution", e)
         return f"Error: {e}"
