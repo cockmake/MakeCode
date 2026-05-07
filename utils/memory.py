@@ -136,7 +136,7 @@ try:
     if _local_cache.exists():
         os.environ["TIKTOKEN_CACHE_DIR"] = str(_local_cache)
 
-    _ENCODER = tiktoken.get_encoding("cl100k_base")
+    _ENCODER = tiktoken.get_encoding("o200k_base")
 except ImportError:
     print_formatted_text(
         HTML(f"\n<ansiyellow>⚠️ tiktoken加载失败, token将使用估算模式 </ansiyellow>\n")
