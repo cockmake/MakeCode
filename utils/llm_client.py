@@ -117,13 +117,13 @@ class ChatAPIClient(BaseLLMClient):
     """Implementation for the standard OpenAI Chat Completions API standard."""
 
     def generate(self, messages: list, tools: list = None):
-        kwargs = {"model": self.model, "messages": messages}
+        kwargs = {"model": self.model, "messages": messages, "reasoning_effort": "medium"}
         if tools:
             kwargs["tools"] = tools
         return self.client.chat.completions.create(**kwargs)
 
     def generate_stream(self, messages: list, tools: list = None):
-        kwargs = {"model": self.model, "messages": messages, "stream": True}
+        kwargs = {"model": self.model, "messages": messages, "stream": True, "reasoning_effort": "medium"}
         if tools:
             kwargs["tools"] = tools
 
@@ -310,7 +310,7 @@ class ChatAPIClient(BaseLLMClient):
             {"role": "user", "content": conversation_text},
             {"role": "user", "content": get_summary_user_prompt(reason)},
         ]
-        res = self.client.chat.completions.create(model=self.model, messages=messages)
+        res = self.client.chat.completions.create(model=self.model, messages=messages, reasoning_effort="medium")
         return res.choices[0].message.content or ""
 
     def get_summary_stream(self, conversation_text: str, reason: str) -> Generator[str, None, None]:
@@ -324,7 +324,8 @@ class ChatAPIClient(BaseLLMClient):
         response_stream = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            stream=True
+            stream=True,
+            reasoning_effort="medium"
         )
 
         # 直接遍历返回的 stream 对象
@@ -338,7 +339,7 @@ class ChatAPIClient(BaseLLMClient):
 
 class AsyncChatAPIClient(ChatAPIClient, AsyncBaseLLMClient):
     async def generate(self, messages: list, tools: list = None):
-        kwargs = {"model": self.model, "messages": messages}
+        kwargs = {"model": self.model, "messages": messages, "reasoning_effort": "medium"}
         if tools:
             kwargs["tools"] = tools
         return await self.client.chat.completions.create(**kwargs)
@@ -350,7 +351,7 @@ class AsyncChatAPIClient(ChatAPIClient, AsyncBaseLLMClient):
             {"role": "user", "content": get_summary_user_prompt(reason)},
         ]
         res = await self.client.chat.completions.create(
-            model=self.model, messages=messages
+            model=self.model, messages=messages, reasoning_effort="medium"
         )
         return res.choices[0].message.content or ""
 
@@ -367,7 +368,7 @@ def _create_llm_client():
         base_url=current_model.base_url,
         api_key=current_model.api_key,
         max_retries=3,
-        default_headers={"User-Agent": "Python"},
+        default_headers={"User-Agent": "MakeCode Agent"},
     )
     return ChatAPIClient(client, current_model.model_id)
 

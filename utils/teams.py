@@ -332,7 +332,7 @@ class TeammateManager:
                 raise RuntimeError("No model configured. Please use /models to configure a model first.")
             async_client = AsyncOpenAI(
                 base_url=current_model.base_url, api_key=current_model.api_key, max_retries=3,
-                default_headers={"User-Agent": "Python"},
+                default_headers={"User-Agent": "MakeCode Agent"},
             )
             local_async_llm_client = AsyncChatAPIClient(async_client, current_model.model_id)
 
