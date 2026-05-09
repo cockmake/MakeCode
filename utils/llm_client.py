@@ -367,6 +367,7 @@ def _create_llm_client():
         base_url=current_model.base_url,
         api_key=current_model.api_key,
         max_retries=3,
+        default_headers={"User-Agent": "Python"},
     )
     return ChatAPIClient(client, current_model.model_id)
 
