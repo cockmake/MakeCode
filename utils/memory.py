@@ -203,8 +203,6 @@ def _read_memory_records(include_deleted: bool = False) -> list[dict]:
         return []
 
     records = []
-    valid_records = []
-    had_invalid_line = False
     with open(MEMORY_JSONL_FILE, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -213,13 +211,9 @@ def _read_memory_records(include_deleted: bool = False) -> list[dict]:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
-                had_invalid_line = True
                 continue
-            valid_records.append(record)
             if include_deleted or record.get("status") == "active":
                 records.append(record)
-    if had_invalid_line:
-        _write_memory_records(valid_records)
     return records
 
 
