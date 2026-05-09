@@ -17,7 +17,7 @@ MakeCode is an Agent CLI designed for engineering workflows. It follows an **Orc
 - TaskManager maintains dependency relationships and the runnable frontier.
 - The Team module wakes sub-agents concurrently for parallel-safe tasks, with **automatic failure context recovery**.
 - The Skills module loads domain-specific guidance on demand.
-- The Memory module compacts long conversations and stores transcripts.
+- The Memory module handles long-conversation compaction, long-term memory management, and transcript storage.
 - The **File Access Control** module enforces read-before-edit, mtime-lock validation, and fine-grained file-level
   concurrency locks.
 - **Centralized Prompt Management** unifies all LLM prompts for easier maintenance and parameterization.
@@ -190,12 +190,31 @@ will be automatically discovered at startup.
 Default behavior: the skills summary injection is enabled by default. When disabled, the UI shows `skills已关闭`, and
 the skills catalog is no longer appended to orchestrator/sub-agent system prompts.
 
-### 2.9 Conversation Compaction (`utils/memory.py`)
+### 2.9 Conversation Compaction and Long-Term Memory (`utils/memory.py`)
 
 - Provides the `Compact` tool for history compaction.
 - Saves pre-compaction transcripts into `.makecode/transcripts/`.
 - Performs lightweight cleanup of older tool outputs via `micro_compact`.
 - Uses the model to summarize past history and rebuild context.
+- After compaction, the system automatically analyzes whether durable information should be appended, updated, or deleted from **long-term memory**, then injects reusable cross-session knowledge into future prompts.
+- Long-term memory also supports an **active management mode**, so users can explicitly request memory maintenance without waiting for the compaction flow.
+
+#### Long-Term Memory Management
+
+- **Three memory actions**: supports appending, updating, and deleting long-term memories instead of append-only storage.
+- **Two management modes**:
+    - `compact`: after context compaction, the system decides whether to change long-term memories based on the summary, transcript, and current active memories.
+    - `active`: when the user explicitly requests memory management, the system manages long-term memories based only on that request.
+- **Selection policy**: stores only stable information with reuse value across future sessions, such as user preferences, project conventions, workflow rules, repeated pitfalls, and confirmed release norms. It does not store one-off task progress, temporary implementation details, or facts that can be directly re-read from the repository.
+- **Capacity and eviction policy**: long-term memory capacity is configurable; when the limit is exceeded, older active memories are evicted in chronological order.
+- **Storage paths**: long-term memories are stored in `.makecode/memory/memory.jsonl`, and memory capacity settings are stored in `.makecode/memory/memory_config.json`.
+
+#### Long-Term Memory Commands
+
+- `/memory-list`: list current active long-term memories.
+- `/memory-delete`: delete one or more long-term memories by ID.
+- `/memory-size`: view or set the long-term memory capacity limit.
+- `/memory-update`: proactively add, refine, or remove long-term memories from an explicit user request.
 
 #### Streaming Summary Generation
 
@@ -482,7 +501,7 @@ Agent/
 │  ├─ plan_mode.py          # Plan Mode state management and tool interception
 │  ├─ tasks.py              # TaskManager topology and status logic
 │  ├─ teams.py              # concurrent delegation and execution logs
-│  └─ memory.py             # transcript saving and history compaction
+│  └─ memory.py             # long-session compaction, long-term memory management, and transcript storage
 ├─ system/
 │  ├─ commands.py           # slash command module (descriptions, completer, interactive panels)
 │  ├─ console_render.py     # console rendering module (multi-thread-safe, streaming)
@@ -503,6 +522,7 @@ Runtime-generated directories:
 - `.makecode/tasks/`: task-plan JSON files
 - `.makecode/team/`: sub-agent history and run logs
 - `.makecode/transcripts/`: transcripts saved before compaction
+- `.makecode/memory/`: long-term memory data and capacity settings
 
 ### 3.2 Architecture Diagram (Mermaid)
 
@@ -574,7 +594,7 @@ flowchart TD
 - `utils/teams.py` delegates the latest runnable tasks to sub-agents concurrently, collects results, and supports
   failure context recovery.
 - `utils/skills.py` provides skill discovery and content loading.
-- `utils/memory.py` handles long-session compaction and transcript saving.
+- `utils/memory.py` handles long-session compaction, long-term memory management, and transcript storage.
 - `utils/mcp_manager.py` manages MCP service configuration loading, client lifecycle, tool extraction and
   registration, with support for dynamic enable/disable.
 - `utils/plan_mode.py` manages Plan/Act mode state and intercepts restricted tool calls in Plan Mode.

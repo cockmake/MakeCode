@@ -16,7 +16,7 @@ MakeCode 是一个面向工程任务的 Agent CLI。它采用"编排器（Orches
 - TaskManager 负责维护任务依赖关系与可执行前沿。
 - Team 系统负责并发唤醒子智能体执行可并行任务，并支持**失败上下文自动恢复**。
 - Skills 系统负责按需加载领域技能说明。
-- Memory 模块负责在长会话下压缩上下文并保存转录。
+- Memory 模块负责长会话压缩、长期记忆管理与转录保存。
 - **File Access Control** 模块提供强制读取后编辑、修改时间锁校验与细粒度文件级并发锁。
 - **Prompt 集中管理** 将所有 LLM Prompt 统一维护，便于扩展与参数化。
 
@@ -167,12 +167,31 @@ Team 模块支持：
 默认行为：skills 摘要注入默认开启。关闭后，系统会显示 `skills已关闭`，并停止把技能目录摘要拼接到主/子智能体的`system prompt`
 后面。
 
-### 2.9 会话压缩（`utils/memory.py`）
+### 2.9 会话压缩与长期记忆（`utils/memory.py`）
 
 - 提供 `Compact` 工具用于压缩历史对话。
 - 自动保存压缩前转录到 `.makecode/transcripts/`。
 - 对工具结果进行轻量清理（`micro_compact`），保留最近结果。
 - 调用模型对历史进行摘要后再重建上下文。
+- 在压缩完成后自动分析是否需要写入、更新或删除**长期记忆**，将可跨会话复用的稳定信息注入后续 Prompt。
+- 长期记忆同时支持**主动管理模式**：用户可显式发起记忆维护请求，而不必等待自动压缩流程触发。
+
+#### 长期记忆管理机制
+
+- **三类记忆动作**：支持新增、更新、删除长期记忆，而不是只追加记录。
+- **双模式管理**：
+    - `compact`：在上下文压缩后，基于摘要、转录和当前 active 记忆自动判断是否需要变更长期记忆。
+    - `active`：当用户显式发起记忆管理请求时，仅根据该请求管理长期记忆。
+- **筛选原则**：仅保存对未来会话有复用价值的稳定信息，例如用户偏好、项目约定、工作流规则、常见陷阱和已确认的发布规范；不保存一次性任务进度、临时实现细节或可直接从仓库重新读取的事实。
+- **容量与淘汰策略**：长期记忆容量可配置；超出上限时，系统会按时间顺序淘汰较旧的 active 记忆。
+- **存储位置**：长期记忆保存于 `.makecode/memory/memory.jsonl`，容量配置保存于 `.makecode/memory/memory_config.json`。
+
+#### 长期记忆命令
+
+- `/memory-list`：列出当前 active 长期记忆。
+- `/memory-delete`：按 ID 删除一条或多条长期记忆。
+- `/memory-size`：查看或设置长期记忆容量上限。
+- `/memory-update`：根据用户提供的请求主动新增、修正或清理长期记忆。
 
 #### 流式摘要生成
 
@@ -446,7 +465,7 @@ Agent/
 │  ├─ plan_mode.py          # Plan Mode 状态管理与工具拦截
 │  ├─ tasks.py              # TaskManager 任务拓扑与状态管理
 │  ├─ teams.py              # 子智能体并发委派与执行日志
-│  └─ memory.py             # 会话压缩与转录保存
+│  └─ memory.py             # 会话压缩、长期记忆管理与转录保存
 ├─ system/
 │  ├─ commands.py           # 斜杠命令模块（命令描述、补全器、交互面板）
 │  ├─ console_render.py     # 控制台渲染模块（多线程安全渲染、流式输出）
@@ -467,6 +486,7 @@ Agent/
 - `.makecode/tasks/`：任务计划 JSON
 - `.makecode/team/`：子智能体历史与运行日志
 - `.makecode/transcripts/`：压缩前会话转录
+- `.makecode/memory/`：长期记忆数据与容量配置
 
 ### 3.2 架构图（Mermaid）
 
@@ -535,7 +555,7 @@ flowchart TD
 - `utils/tasks.py` 维护任务 DAG、状态流转与 runnable frontier。
 - `utils/teams.py` 负责把最新可执行任务并发委派给子智能体，回收结果，并支持失败上下文恢复。
 - `utils/skills.py` 提供技能发现和技能内容加载。
-- `utils/memory.py` 负责长会话压缩与转录保存。
+- `utils/memory.py` 负责长会话压缩、长期记忆管理与转录保存。
 - `utils/mcp_manager.py` 负责 MCP 服务配置加载、客户端生命周期管理、工具提取与注册，支持动态启用/禁用服务。
 - `utils/plan_mode.py` 管理 Plan/Act 模式状态，拦截 Plan Mode 下的受限工具调用。
 - `system/ts_validator.py` 提供 Tree-sitter 语法验证，在文件写入前自动检测语法错误。
