@@ -937,11 +937,17 @@ class CommandHandler:
     def handle_memory_list(self) -> bool:
         """处理 /memory-list 命令"""
         memories = list_long_term_memories()
+        active_count = len(memories)
         if not memories:
-            self.console.print("\n[bold yellow]暂无长期记忆。[/bold yellow]")
+            self.console.print("\n[bold yellow]暂无长期记忆。[/bold yellow] [dim](active: 0)[/dim]")
             return True
 
-        table = Table(title="[bold cyan]长期记忆[/bold cyan]", box=box.ROUNDED, expand=True)
+        table = Table(
+            title=f"[bold cyan]长期记忆[/bold cyan] [dim](active: {active_count})[/dim]",
+            box=box.ROUNDED,
+            expand=True,
+            show_lines=True,
+        )
         table.add_column("ID", style="cyan", no_wrap=True)
         table.add_column("Category", style="green", no_wrap=True)
         table.add_column("Created At", style="magenta", no_wrap=True)
@@ -959,21 +965,28 @@ class CommandHandler:
         return True
 
     def handle_memory_delete(self, query: str, history: list, current_checkpoint: Optional[Path]) -> Optional[Path]:
-        """处理 /memory-delete <id> 命令"""
-        parts = query.split(maxsplit=1)
-        if len(parts) != 2 or not parts[1].strip():
-            self.console.print("\n[bold yellow]用法：/memory-delete <memory_id>[/bold yellow]")
+        """处理 /memory-delete <id> [id...] 命令"""
+        parts = query.split()
+        if len(parts) < 2:
+            self.console.print("\n[bold yellow]用法：/memory-delete <memory_id> [memory_id ...][/bold yellow]")
             return current_checkpoint
 
-        memory_id = parts[1].strip()
-        if not delete_long_term_memory(memory_id):
-            self.console.print(f"\n[bold yellow]未找到 active 长期记忆：{memory_id}[/bold yellow]")
-            return current_checkpoint
+        deleted_ids = []
+        missing_ids = []
+        for memory_id in parts[1:]:
+            if delete_long_term_memory(memory_id):
+                deleted_ids.append(memory_id)
+            else:
+                missing_ids.append(memory_id)
 
-        if history and history[0].get("role") == "system":
-            history[0]["content"] = self.get_system_prompt_fn()
-        new_checkpoint = self.save_checkpoint(history, current_checkpoint)
-        self.console.print(f"\n[bold green]已删除长期记忆：{memory_id}[/bold green]")
+        new_checkpoint = current_checkpoint
+        if deleted_ids:
+            if history and history[0].get("role") == "system":
+                history[0]["content"] = self.get_system_prompt_fn()
+            new_checkpoint = self.save_checkpoint(history, current_checkpoint)
+            self.console.print(f"\n[bold green]已删除长期记忆：{', '.join(deleted_ids)}[/bold green]")
+        if missing_ids:
+            self.console.print(f"\n[bold yellow]未找到 active 长期记忆：{', '.join(missing_ids)}[/bold yellow]")
         return new_checkpoint
 
     def handle_memory_size(self, query: str) -> bool:
