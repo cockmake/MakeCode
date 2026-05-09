@@ -20,6 +20,43 @@ class StreamRenderer:
         self.console = console or Console()
         self.update_interval = update_interval
 
+    def render_text_stream(self, stream_generator: Iterator[dict]) -> Tuple[str, List, Any]:
+        text_content = ""
+        live_buffer = ""
+        tool_calls = []
+        raw_message = None
+        live = None
+        last_update_time = 0
+
+        try:
+            for event in stream_generator:
+                event_type = event.get("type")
+
+                if event_type == "text":
+                    chunk = event["content"]
+                    text_content += chunk
+                    live_buffer += chunk
+
+                    if live is None:
+                        live = self._start_live()
+
+                    live, live_buffer = self._process_block_commit(live, text_content, live_buffer)
+                    last_update_time = self._throttled_update(live, live_buffer, last_update_time)
+
+                elif event_type == "done":
+                    text_content_done, tool_calls, raw_message = event["content"]
+                    if text_content_done:
+                        text_content = text_content_done
+                    if live is None and text_content:
+                        live = self._start_live()
+                        live_buffer = text_content
+                    break
+
+        finally:
+            self._safe_cleanup(live, live_buffer)
+
+        return text_content, tool_calls, raw_message
+
     def render(self, stream_generator: Iterator[dict], agent_name: str = "Orchestrator") -> Tuple[str, List, Any]:
         self._print_header(agent_name)
         start_time = time.perf_counter()
@@ -118,6 +155,11 @@ class StreamRenderer:
 
         return reasoning_live, reasoning_content, reasoning_buffer, reasoning_last_update_time, True
 
+    def _start_live(self) -> Live:
+        live = Live(Markdown(""), console=self.console, auto_refresh=False)
+        live.start()
+        return live
+
     def _start_text_section(self, reasoning_started: bool) -> Live:
         if reasoning_started:
             self.console.print()
@@ -125,9 +167,7 @@ class StreamRenderer:
 
         self.console.print("[bold green]✍️ Content:[/bold green]\n")
 
-        live = Live(Markdown(""), console=self.console, auto_refresh=False)
-        live.start()
-        return live
+        return self._start_live()
 
     def _process_block_commit(self, live: Live, full_text: str, current_buffer: str) -> Tuple[Live, str]:
         """

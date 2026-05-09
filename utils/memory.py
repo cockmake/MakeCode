@@ -10,9 +10,9 @@ from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.live import Live
 from rich.table import Table
 from init import WORKDIR
+from system.stream_render import StreamRenderer
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
 
@@ -389,20 +389,12 @@ def auto_compact(
 
     chunks: list[str] = []
     try:
-        # 使用 Live 创建一个可实时刷新的上下文
-        # refresh_per_second 可以控制刷新帧率，太高耗费性能，一般 10-15 足够流畅
-        with Live(Markdown(""), console=_compact_console, refresh_per_second=15) as live:
-            for event in llm_client.get_summary_stream_events(conversation_text, reason):
-                if event.get("type") == "text":
-                    chunks.append(event.get("content", ""))
-                    current_text = "".join(chunks)
-                    # 每次收到新内容，重新解析并更新 Live 视图
-                    live.update(Markdown(current_text))
-                elif event.get("type") == "done":
-                    text, tool_calls, raw_message = event.get("content")
-                    if not chunks and text:
-                        chunks.append(text)
-                        live.update(Markdown(text))
+        renderer = StreamRenderer(console=_compact_console, update_interval=0.1)
+        summary, _, _ = renderer.render_text_stream(
+            llm_client.get_summary_stream_events(conversation_text, reason)
+        )
+        if summary:
+            chunks.append(summary)
 
     except Exception as e:
         # 打印红色的错误提示，比原生的 print 更友好
