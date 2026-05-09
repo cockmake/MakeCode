@@ -26,7 +26,7 @@ MEMORY_DIR = MAKECODE_DIR / "memory"
 MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
 MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
 DEFAULT_MEMORY_SIZE = 30
-KEEP_RECENT_TOOL_CALL = 84
+KEEP_RECENT_TOOL_CALL = 100
 
 
 class AppendLongTermMemory(BaseModel):
