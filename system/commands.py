@@ -950,14 +950,14 @@ class CommandHandler:
         )
         table.add_column("ID", style="cyan", no_wrap=True)
         table.add_column("Category", style="green", no_wrap=True)
-        table.add_column("Created At", style="magenta", no_wrap=True)
-        table.add_column("Insight", style="white")
+        table.add_column("Updated At", style="magenta", no_wrap=True)
+        table.add_column("Insight", style="white", overflow="fold")
         table.add_column("Reuse Condition", style="white")
         for item in memories:
             table.add_row(
                 item.get("id", ""),
                 item.get("category", ""),
-                item.get("created_at", ""),
+                item.get("updated_at", ""),
                 item.get("insight", ""),
                 item.get("reuse_condition", ""),
             )
