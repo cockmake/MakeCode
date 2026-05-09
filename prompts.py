@@ -40,11 +40,6 @@ def _load_memory_entries() -> str:
         content = render_long_term_memory_markdown().strip()
         if not content:
             return ""
-        lines = content.splitlines()
-        if len(lines) > 200:
-            content = "\n".join(lines[:200]) + "\n\n[Truncated: memory entries exceed 200 lines]"
-        if len(content) > 25_000:
-            content = content[:25_000] + "\n\n[Truncated: memory entries exceed 25KB]"
         return content
     except Exception:
         return ""

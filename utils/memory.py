@@ -236,8 +236,9 @@ def render_long_term_memory_markdown() -> str:
     parts = []
     for record in records:
         parts.append(
-            f"## {record.get('id', '')} - {record.get('category', '')}\n"
-            f"- Created at: {record.get('created_at', '')}\n"
+            f"## {record.get('id', '')}\n"
+            f"- Category: {record.get('category', '')}\n"
+            f"- Updated at: {record.get('updated_at', '')}\n"
             f"- Insight: {record.get('insight', '')}\n"
             f"- Evidence: {record.get('evidence', '')}\n"
             f"- Reuse condition: {record.get('reuse_condition', '')}"
