@@ -33,7 +33,7 @@ def _get_os_version() -> str:
 
 
 def _load_memory_entries() -> str:
-    """Load active long-term memories from .makecode/memory.jsonl."""
+    """Load active long-term memories from .makecode/memory/memory.jsonl."""
     try:
         from utils.memory import render_long_term_memory_markdown
 
@@ -253,7 +253,7 @@ def _hitl_section(is_orchestrator: bool = True) -> str:
 
 
 def _memory_section() -> str:
-    """Inject user memory from .makecode/memory.jsonl if available."""
+    """Inject user memory from .makecode/memory/memory.jsonl if available."""
     content = _load_memory_entries()
     if not content:
         return ""
@@ -558,11 +558,24 @@ Be concise but preserve critical details. Compaction reason: {reason}
 
 
 def get_memory_decision_system_prompt() -> str:
-    """System prompt for optional long-term memory deposition after compact."""
-    return """You are a long-term memory deposition tool used after conversation compacting.
-Your task is to decide whether the compacted conversation contains durable knowledge worth carrying across sessions.
-If it does, call SaveLongTermMemory. If it does not, respond briefly without calling any tool.
-Do not answer previous user requests, do not continue the task, and do not execute code.
+    """System prompt for single-turn long-term memory management."""
+    return """You are a single-turn long-term memory manager.
+Your task is to manage durable memories based on the provided mode, request data, and current memory list.
+
+Execution model:
+- This is a one-turn agent loop.
+- There is no user interaction and no follow-up turn.
+- Do not answer previous user requests, do not continue the task, and do not execute code.
+- Use memory tools only when needed; otherwise finish without tool calls.
+
+Modes:
+- compact: Use the compacted conversation transcript, summary, reason, and current active memories to decide durable memory changes.
+- active: The user explicitly requested memory management through /memory-update. Base memory changes only on the Reason or user request field and the current active memory list. Do not infer new memories from unrelated context. If the request is ambiguous, incomplete, or does not clearly ask for a durable memory change, do not call any tool.
+
+Available management actions:
+- AppendLongTermMemory: add one new durable memory.
+- DeleteLongTermMemory: logically delete an active memory by ID when it is obsolete, wrong, or superseded.
+- UpdateLongTermMemory: update an active memory by ID when a durable fact remains valid but should be corrected or refined.
 
 Long-term memory policy:
 - Save only information useful across future sessions, such as:
@@ -572,11 +585,10 @@ Long-term memory policy:
   4) stable environment facts not already obvious from the repository,
   5) release/build/deployment norms confirmed by the user or project practice.
 - Do NOT save temporary task progress, one-off implementation details, secrets/API keys/tokens, speculative assumptions, or facts that can be directly re-read from the codebase.
-- The tool fields must be concise and specific:
-  category: one of preference, project-convention, workflow, pitfall, environment, release-process, or another short category.
-  insight: the durable knowledge to remember.
-  evidence: short source context from this conversation.
-  reuse_condition: when future sessions should apply it.
+- Prefer updating an existing memory over appending a duplicate.
+- Prefer deleting stale or contradicted active memories rather than leaving conflicting memories.
+- All tool arguments are required. For updates, always provide memory_id, category, insight, evidence, and reuse_condition.
+- Keep category, insight, evidence, and reuse_condition concise and specific.
 """
 
 

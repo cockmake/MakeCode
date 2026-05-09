@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
 from init import WORKDIR
+from system.console_render import _render_tool_call, _render_tool_output
 from system.stream_render import StreamRenderer
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
@@ -21,19 +22,15 @@ THRESHOLD = 1024 * 160
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-MEMORY_JSONL_FILE = MAKECODE_DIR / "memory.jsonl"
+MEMORY_DIR = MAKECODE_DIR / "memory"
+MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
+MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
+DEFAULT_MEMORY_SIZE = 30
 KEEP_RECENT_TOOL_CALL = 84
 
 
-class SaveLongTermMemory(BaseModel):
-    """
-    Save a durable memory entry to WORKDIR/.makecode/memory.jsonl during compact.
-
-    CALL ONLY DURING the post-compact memory decision step, and only when the
-    compacted conversation contains stable, reusable knowledge worth carrying
-    across sessions. Do not save temporary task progress, one-off details,
-    secrets, or facts that can be directly re-read from the repository.
-    """
+class AppendLongTermMemory(BaseModel):
+    """Append a durable memory entry to WORKDIR/.makecode/memory/memory.jsonl."""
 
     category: str = Field(
         ...,
@@ -56,22 +53,33 @@ class SaveLongTermMemory(BaseModel):
     )
 
 
+class DeleteLongTermMemory(BaseModel):
+    """Delete an active durable memory by ID using logical deletion."""
+
+    memory_id: str = Field(..., description="The active memory ID to delete.")
+
+
+class UpdateLongTermMemory(BaseModel):
+    """Update an active durable memory by ID."""
+
+    memory_id: str = Field(..., description="The active memory ID to update.")
+    category: str = Field(..., description="Updated memory category.")
+    insight: str = Field(..., description="Updated durable knowledge to remember.")
+    evidence: str = Field(..., description="Updated source context explaining why this memory is justified.")
+    reuse_condition: str = Field(..., description="Updated condition for when this memory should be applied.")
+
+
 LONG_TERM_MEMORY_TOOLS = [
-    pydantic_function_tool(SaveLongTermMemory),
+    pydantic_function_tool(AppendLongTermMemory),
+    pydantic_function_tool(DeleteLongTermMemory),
+    pydantic_function_tool(UpdateLongTermMemory),
 ]
 
 
-def save_long_term_memory(
-        category: str,
-        insight: str,
-        evidence: str,
-        reuse_condition: str,
-        **kwargs,
-) -> dict:
-    MEMORY_JSONL_FILE.parent.mkdir(parents=True, exist_ok=True)
+def _new_memory_record(category: str, insight: str, evidence: str, reuse_condition: str) -> dict:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     memory_id = f"mem_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    record = {
+    return {
         "id": memory_id,
         "created_at": timestamp,
         "updated_at": timestamp,
@@ -81,14 +89,113 @@ def save_long_term_memory(
         "reuse_condition": reuse_condition.strip(),
         "status": "active",
     }
-    with open(MEMORY_JSONL_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return {**record, "path": MEMORY_JSONL_FILE.as_posix()}
+
+
+def _memory_sort_key(record: dict) -> str:
+    return record.get("created_at") or record.get("updated_at") or ""
+
+
+def append_long_term_memory(
+        category: str,
+        insight: str,
+        evidence: str,
+        reuse_condition: str,
+        **kwargs,
+) -> dict:
+    records = _read_memory_records(include_deleted=True)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    active_records = [record for record in records if record.get("status") == "active"]
+    overflow_count = len(active_records) + 1 - get_memory_size()
+    deleted_ids = []
+    if overflow_count > 0:
+        for record in sorted(active_records, key=_memory_sort_key)[:overflow_count]:
+            record["status"] = "deleted"
+            record["updated_at"] = now
+            deleted_ids.append(record.get("id", ""))
+
+    record = _new_memory_record(category, insight, evidence, reuse_condition)
+    records.append(record)
+    _write_memory_records(records)
+    return {**record, "path": MEMORY_JSONL_FILE.as_posix(), "deleted_overflow_ids": deleted_ids}
+
+
+def delete_long_term_memory(memory_id: str) -> bool:
+    records = _read_memory_records(include_deleted=True)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    found = False
+    for record in records:
+        if record.get("id") == memory_id and record.get("status") == "active":
+            record["status"] = "deleted"
+            record["updated_at"] = now
+            found = True
+            break
+    if found:
+        _write_memory_records(records)
+    return found
+
+
+def update_long_term_memory(
+        memory_id: str,
+        category: str,
+        insight: str,
+        evidence: str,
+        reuse_condition: str,
+        **kwargs,
+) -> dict:
+    records = _read_memory_records(include_deleted=True)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for record in records:
+        if record.get("id") == memory_id and record.get("status") == "active":
+            record["updated_at"] = now
+            record["category"] = category.strip()
+            record["insight"] = insight.strip()
+            record["evidence"] = evidence.strip()
+            record["reuse_condition"] = reuse_condition.strip()
+            _write_memory_records(records)
+            return {**record, "path": MEMORY_JSONL_FILE.as_posix()}
+    return {"error": f"active memory not found: {memory_id}"}
 
 
 LONG_TERM_MEMORY_TOOL_HANDLERS = {
-    "SaveLongTermMemory": save_long_term_memory,
+    "AppendLongTermMemory": append_long_term_memory,
+    "DeleteLongTermMemory": lambda memory_id, **kwargs: {
+        "memory_id": memory_id,
+        "deleted": delete_long_term_memory(memory_id),
+    },
+    "UpdateLongTermMemory": update_long_term_memory,
 }
+
+
+def _validate_memory_size(size) -> int:
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+        raise ValueError("memory size must be a positive integer")
+    return size
+
+
+def get_memory_size() -> int:
+    if not MEMORY_CONFIG_FILE.exists():
+        return DEFAULT_MEMORY_SIZE
+    try:
+        with open(MEMORY_CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return DEFAULT_MEMORY_SIZE
+    try:
+        return _validate_memory_size(data.get("memory_size", DEFAULT_MEMORY_SIZE))
+    except ValueError:
+        return DEFAULT_MEMORY_SIZE
+
+
+def set_memory_size(size: int) -> int:
+    size = _validate_memory_size(size)
+    MEMORY_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(MEMORY_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"memory_size": size}, f, ensure_ascii=False, indent=2)
+    return size
+
+
+def get_active_memory_count() -> int:
+    return len(list_long_term_memories())
 
 
 def _read_memory_records(include_deleted: bool = False) -> list[dict]:
@@ -127,21 +234,6 @@ def list_long_term_memories() -> list[dict]:
     return _read_memory_records(include_deleted=False)
 
 
-def delete_long_term_memory(memory_id: str) -> bool:
-    records = _read_memory_records(include_deleted=True)
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    found = False
-    for record in records:
-        if record.get("id") == memory_id and record.get("status") == "active":
-            record["status"] = "deleted"
-            record["updated_at"] = now
-            found = True
-            break
-    if found:
-        _write_memory_records(records)
-    return found
-
-
 def render_long_term_memory_markdown() -> str:
     records = list_long_term_memories()
     if not records:
@@ -157,6 +249,74 @@ def render_long_term_memory_markdown() -> str:
             f"- Reuse condition: {record.get('reuse_condition', '')}"
         )
     return "\n\n".join(parts)
+
+
+def _parse_tool_arguments(arguments) -> dict:
+    if isinstance(arguments, dict):
+        return arguments
+    if not arguments:
+        return {}
+    return json.loads(arguments, strict=False)
+
+
+def memory_agent_loop(
+        conversation_text: str,
+        summary: str,
+        reason: str,
+        current_memory_content: str,
+        tools: list,
+        mode: str = "compact",
+) -> list[dict]:
+    _compact_console.print("\n[bold yellow]🧠 Managing long-term memory...[/bold yellow]")
+    _compact_console.rule("[bold yellow]Memory[/bold yellow]", style="yellow")
+    saved_outputs = []
+    try:
+        _, memory_tool_calls, _ = llm_client.get_memory_decision_stream(
+            conversation_text,
+            summary,
+            reason,
+            current_memory_content,
+            tools,
+            mode=mode,
+        )
+    except Exception as e:
+        _compact_console.print(f"[bold red]Memory manager error: {e}[/bold red]")
+        _compact_console.rule(style="yellow")
+        return saved_outputs
+
+    for tool_call in memory_tool_calls:
+        tool_name = tool_call.get("name")
+        handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_name)
+        if not handler:
+            continue
+        _render_tool_call(tool_name, tool_call.get("arguments"), identity="🧠 Memory Agent")
+        try:
+            arguments = _parse_tool_arguments(tool_call.get("arguments"))
+            output = handler(**arguments)
+        except Exception as e:
+            output = f"Error executing {tool_name}: {e}."
+        _render_tool_output(tool_name, output, identity="🧠 Memory Agent")
+        saved_outputs.append({"tool": tool_name, "output": output})
+
+    if not saved_outputs:
+        _compact_console.print("[yellow]No long-term memory changes.[/yellow]")
+    _compact_console.rule(style="yellow")
+    return saved_outputs
+
+
+def manual_memory_update(prompt: str) -> list[dict]:
+    prompt = prompt.strip()
+    return memory_agent_loop(
+        conversation_text=json.dumps(
+            [{"role": "user", "content": prompt}],
+            ensure_ascii=False,
+        ),
+        summary="Manual memory update request. Only use the user's request as the basis for memory changes.",
+        reason=prompt,
+        current_memory_content=render_long_term_memory_markdown(),
+        tools=LONG_TERM_MEMORY_TOOLS,
+        mode="active",
+    )
 
 
 def save_checkpoint(messages: list, filepath: Path = None, title: str = None) -> Path:
@@ -410,46 +570,13 @@ def auto_compact(
     _compact_console.rule(style="cyan")
     summary = "".join(chunks)
 
-    saved_memories = []
-    _compact_console.print("[dim]🧠 Analyzing whether this compact contains durable memory...[/dim]")
-    try:
-        text, memory_tool_calls, raw_message = llm_client.get_memory_decision(
-            conversation_text,
-            summary,
-            reason,
-            LONG_TERM_MEMORY_TOOLS,
-        )
-    except Exception as e:
-        _compact_console.print(f"[bold red]Memory decision error: {e}[/bold red]")
-        memory_tool_calls = []
-
-    for tool_call in memory_tool_calls:
-        handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_call.get("name"))
-        if not handler:
-            continue
-        try:
-            arguments = json.loads(tool_call.get("arguments") or "{}", strict=False)
-            output = handler(**arguments)
-            saved_memories.append(output)
-        except Exception as e:
-            _compact_console.print(f"[bold red]Memory tool error: {e}[/bold red]")
-
-    if saved_memories:
-        memory_table = Table(title="💾 Long-term memory saved", show_lines=False)
-        memory_table.add_column("ID", style="cyan", no_wrap=True)
-        memory_table.add_column("Category", style="green", no_wrap=True)
-        memory_table.add_column("Insight", style="white")
-        memory_table.add_column("Reuse condition", style="white")
-        memory_table.add_column("File", style="dim", no_wrap=True)
-        for item in saved_memories:
-            memory_table.add_row(
-                item.get("id", ""),
-                item.get("category", ""),
-                item.get("insight", ""),
-                item.get("reuse_condition", ""),
-                item.get("path", MEMORY_JSONL_FILE.as_posix()),
-            )
-        _compact_console.print(memory_table)
+    memory_agent_loop(
+        conversation_text=conversation_text,
+        summary=summary,
+        reason=reason,
+        current_memory_content=render_long_term_memory_markdown(),
+        tools=LONG_TERM_MEMORY_TOOLS,
+    )
 
     system_msgs = [m for m in messages if m.get("role") == "system"]
     if system_prompt_fn and system_msgs:

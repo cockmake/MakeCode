@@ -32,8 +32,12 @@ from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
 from utils.teams import list_team_histories, load_team_history, get_history_title
 from utils.memory import (
     delete_long_term_memory,
+    get_active_memory_count,
     get_checkpoint_title,
+    get_memory_size,
     list_long_term_memories,
+    manual_memory_update,
+    set_memory_size,
 )
 from system.updater import check_update, download_update, launch_updater
 
@@ -70,6 +74,8 @@ COMMAND_DESCRIPTIONS = {
     "/compact": "压缩当前对话上下文",
     "/memory-list": "列出当前保存的长期记忆",
     "/memory-delete": "按 ID 删除一条长期记忆，例如 /memory-delete mem_20260510_abc123",
+    "/memory-size": "查看或设置长期记忆容量，例如 /memory-size 或 /memory-size 30",
+    "/memory-update": "根据用户请求主动管理长期记忆，例如 /memory-update 记住：以后...",
     "/tools": "列出当前可用工具详细信息",
     "/tasks": "查看任务看板和当前执行进度",
     "/plan": "进入/退出 Plan Mode — 规划阶段只允许只读和任务规划工具",
@@ -970,6 +976,39 @@ class CommandHandler:
         self.console.print(f"\n[bold green]已删除长期记忆：{memory_id}[/bold green]")
         return new_checkpoint
 
+    def handle_memory_size(self, query: str) -> bool:
+        """处理 /memory-size [size] 命令"""
+        parts = query.split(maxsplit=1)
+        if len(parts) == 1:
+            self.console.print(
+                f"\n[bold cyan]长期记忆容量：{get_memory_size()}[/bold cyan] "
+                f"[dim](当前 active：{get_active_memory_count()})[/dim]"
+            )
+            return True
+
+        value = parts[1].strip()
+        try:
+            size = int(value)
+            set_memory_size(size)
+        except ValueError:
+            self.console.print("\n[bold yellow]记忆容量必须是正整数，例如：/memory-size 30[/bold yellow]")
+            return True
+
+        self.console.print(f"\n[bold green]长期记忆容量已设置为：{size}[/bold green]")
+        return True
+
+    def handle_memory_update(self, query: str, history: list) -> bool:
+        """处理 /memory-update <prompt> 命令"""
+        parts = query.split(maxsplit=1)
+        if len(parts) != 2 or not parts[1].strip():
+            self.console.print("\n[bold yellow]用法：/memory-update <memory update request>[/bold yellow]")
+            return True
+
+        outputs = manual_memory_update(parts[1].strip())
+        if outputs and history and history[0].get("role") == "system":
+            history[0]["content"] = self.get_system_prompt_fn()
+        return True
+
     def handle_load(
             self,
             history: list,
@@ -1213,6 +1252,16 @@ class CommandHandler:
         if query == "/memory-delete" or query.startswith("/memory-delete "):
             new_checkpoint = self.handle_memory_delete(query, history, current_checkpoint)
             return CommandResult(action=CommandAction.UPDATE_CHECKPOINT, payload=new_checkpoint)
+
+        # /memory-size [size] - 查看或设置长期记忆容量
+        if query == "/memory-size" or query.startswith("/memory-size "):
+            self.handle_memory_size(query)
+            return CommandResult(action=CommandAction.CONTINUE)
+
+        # /memory-update <prompt> - 主动管理长期记忆
+        if query == "/memory-update" or query.startswith("/memory-update "):
+            self.handle_memory_update(query, history)
+            return CommandResult(action=CommandAction.CONTINUE)
 
         # /load - 加载历史
         if query == "/load":

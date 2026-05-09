@@ -332,14 +332,16 @@ class ChatAPIClient(BaseLLMClient):
             if event.get("type") == "text":
                 yield event.get("content", "")
 
-    def get_memory_decision(self, conversation_text: str, summary: str, reason: str, tools: list) -> tuple[str, list, any]:
+    def get_memory_decision(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, tools: list, mode: str = "compact") -> tuple[str, list, any]:
         messages = [
             {"role": "system", "content": get_memory_decision_system_prompt()},
             {
                 "role": "user",
                 "content": (
-                    f"Compaction reason: {reason}\n\n"
-                    f"Summary produced during compact:\n{summary}\n\n"
+                    f"Memory management mode: {mode}\n\n"
+                    f"Reason or user request: {reason}\n\n"
+                    f"Current active long-term memories:\n{current_memory_content or '(none)'}\n\n"
+                    f"Summary:\n{summary}\n\n"
                     f"Conversation transcript JSON:\n{conversation_text}"
                 ),
             },
@@ -351,6 +353,25 @@ class ChatAPIClient(BaseLLMClient):
             reasoning_effort="medium",
         )
         return self.parse_response(res)
+
+    def get_memory_decision_stream(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, tools: list, mode: str = "compact"):
+        messages = [
+            {"role": "system", "content": get_memory_decision_system_prompt()},
+            {
+                "role": "user",
+                "content": (
+                    f"Memory management mode: {mode}\n\n"
+                    f"Reason or user request: {reason}\n\n"
+                    f"Current active long-term memories:\n{current_memory_content or '(none)'}\n\n"
+                    f"Summary:\n{summary}\n\n"
+                    f"Conversation transcript JSON:\n{conversation_text}"
+                ),
+            },
+        ]
+        for event in self.generate_stream(messages, self.format_tools(tools)):
+            if event.get("type") == "done":
+                return event["content"]
+        return "", [], None
 
 
 class AsyncChatAPIClient(ChatAPIClient, AsyncBaseLLMClient):
