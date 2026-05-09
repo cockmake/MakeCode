@@ -32,20 +32,19 @@ def _get_os_version() -> str:
         return f"Linux {platform.release()}"
 
 
-def _load_memory_file() -> str:
-    """Load .makecode/memory.md if it exists, truncated for safety."""
-    memory_file = WORKDIR / ".makecode" / "memory.md"
-    if not memory_file.exists():
-        return ""
+def _load_memory_entries() -> str:
+    """Load active long-term memories from .makecode/memory.jsonl."""
     try:
-        content = memory_file.read_text(encoding="utf-8").strip()
+        from utils.memory import render_long_term_memory_markdown
+
+        content = render_long_term_memory_markdown().strip()
         if not content:
             return ""
         lines = content.splitlines()
         if len(lines) > 200:
-            content = "\n".join(lines[:200]) + "\n\n[Truncated: memory file exceeds 200 lines]"
+            content = "\n".join(lines[:200]) + "\n\n[Truncated: memory entries exceed 200 lines]"
         if len(content) > 25_000:
-            content = content[:25_000] + "\n\n[Truncated: memory file exceeds 25KB]"
+            content = content[:25_000] + "\n\n[Truncated: memory entries exceed 25KB]"
         return content
     except Exception:
         return ""
@@ -254,8 +253,8 @@ def _hitl_section(is_orchestrator: bool = True) -> str:
 
 
 def _memory_section() -> str:
-    """Inject user memory from .makecode/memory.md if available."""
-    content = _load_memory_file()
+    """Inject user memory from .makecode/memory.jsonl if available."""
+    content = _load_memory_entries()
     if not content:
         return ""
     return f"""# User Memory
@@ -544,7 +543,7 @@ def get_summary_system_prompt() -> str:
     """System prompt for conversation summarization."""
     return """You are a conversation summarization tool.
 Your ONLY task is to read the provided conversation history JSON and generate a concise summary of what has happened so far.
-Do not execute any code, do not use tools, and do not answer the user's previous questions.
+Do not execute code, do not use tools, do not answer the user's previous questions, and do not continue the prior task.
 """
 
 
@@ -555,6 +554,29 @@ Do not answer any previous questions or execute any tasks.
 Your ONLY goal right now is to summarize this entire conversation history for continuity.
 Include: 1) What was accomplished, 2) Current state, 3) Key decisions made.
 Be concise but preserve critical details. Compaction reason: {reason}
+"""
+
+
+def get_memory_decision_system_prompt() -> str:
+    """System prompt for optional long-term memory deposition after compact."""
+    return """You are a long-term memory deposition tool used after conversation compacting.
+Your task is to decide whether the compacted conversation contains durable knowledge worth carrying across sessions.
+If it does, call SaveLongTermMemory. If it does not, respond briefly without calling any tool.
+Do not answer previous user requests, do not continue the task, and do not execute code.
+
+Long-term memory policy:
+- Save only information useful across future sessions, such as:
+  1) explicit user preferences,
+  2) project conventions or recurring workflow rules,
+  3) repeated pitfalls and how to avoid them,
+  4) stable environment facts not already obvious from the repository,
+  5) release/build/deployment norms confirmed by the user or project practice.
+- Do NOT save temporary task progress, one-off implementation details, secrets/API keys/tokens, speculative assumptions, or facts that can be directly re-read from the codebase.
+- The tool fields must be concise and specific:
+  category: one of preference, project-convention, workflow, pitfall, environment, release-process, or another short category.
+  insight: the durable knowledge to remember.
+  evidence: short source context from this conversation.
+  reuse_condition: when future sessions should apply it.
 """
 
 

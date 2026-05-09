@@ -18,6 +18,8 @@ nul
 .coverage
 htmlcov/
 cc.py
+RELEASE_LOG.md
+tests/test_ask_user.py
 # Build artifacts
 build/
 dist/
@@ -37,4 +39,3 @@ t.py
 ts_cache/libs
 *.dll
 ts_cache/.extracted_parsers-windows-x86_64.tar.zst
-tests

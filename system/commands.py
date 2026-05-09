@@ -30,7 +30,11 @@ from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
 from utils.teams import list_team_histories, load_team_history, get_history_title
-from utils.memory import get_checkpoint_title
+from utils.memory import (
+    delete_long_term_memory,
+    get_checkpoint_title,
+    list_long_term_memories,
+)
 from system.updater import check_update, download_update, launch_updater
 
 
@@ -64,6 +68,8 @@ COMMAND_DESCRIPTIONS = {
     "/skills-switch": "切换 skills 目录摘要注入状态 (开启/关闭)",
     "/skills-list": "列出当前工作区可用的 skills",
     "/compact": "压缩当前对话上下文",
+    "/memory-list": "列出当前保存的长期记忆",
+    "/memory-delete": "按 ID 删除一条长期记忆，例如 /memory-delete mem_20260510_abc123",
     "/tools": "列出当前可用工具详细信息",
     "/tasks": "查看任务看板和当前执行进度",
     "/plan": "进入/退出 Plan Mode — 规划阶段只允许只读和任务规划工具",
@@ -911,12 +917,58 @@ class CommandHandler:
 
     def handle_compact(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
         """处理 /compact 命令，返回 (should_continue, new_checkpoint)"""
-        self.auto_compact(history, reason="User triggered compact")
+        self.auto_compact(
+            history,
+            reason="User triggered compact",
+            system_prompt_fn=self.get_system_prompt_fn,
+        )
         self.console.print(
             "\n[bold green]✨ 当前对话上下文已成功压缩并保存！[/bold green]"
         )
         new_checkpoint = self.save_checkpoint(history, current_checkpoint)
         return True, new_checkpoint
+
+    def handle_memory_list(self) -> bool:
+        """处理 /memory-list 命令"""
+        memories = list_long_term_memories()
+        if not memories:
+            self.console.print("\n[bold yellow]暂无长期记忆。[/bold yellow]")
+            return True
+
+        table = Table(title="[bold cyan]长期记忆[/bold cyan]", box=box.ROUNDED, expand=True)
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Category", style="green", no_wrap=True)
+        table.add_column("Created At", style="magenta", no_wrap=True)
+        table.add_column("Insight", style="white")
+        table.add_column("Reuse Condition", style="white")
+        for item in memories:
+            table.add_row(
+                item.get("id", ""),
+                item.get("category", ""),
+                item.get("created_at", ""),
+                item.get("insight", ""),
+                item.get("reuse_condition", ""),
+            )
+        self.console.print(table)
+        return True
+
+    def handle_memory_delete(self, query: str, history: list, current_checkpoint: Optional[Path]) -> Optional[Path]:
+        """处理 /memory-delete <id> 命令"""
+        parts = query.split(maxsplit=1)
+        if len(parts) != 2 or not parts[1].strip():
+            self.console.print("\n[bold yellow]用法：/memory-delete <memory_id>[/bold yellow]")
+            return current_checkpoint
+
+        memory_id = parts[1].strip()
+        if not delete_long_term_memory(memory_id):
+            self.console.print(f"\n[bold yellow]未找到 active 长期记忆：{memory_id}[/bold yellow]")
+            return current_checkpoint
+
+        if history and history[0].get("role") == "system":
+            history[0]["content"] = self.get_system_prompt_fn()
+        new_checkpoint = self.save_checkpoint(history, current_checkpoint)
+        self.console.print(f"\n[bold green]已删除长期记忆：{memory_id}[/bold green]")
+        return new_checkpoint
 
     def handle_load(
             self,
@@ -1150,6 +1202,16 @@ class CommandHandler:
         # /compact - 压缩上下文
         if query == "/compact":
             _, new_checkpoint = self.handle_compact(history, current_checkpoint)
+            return CommandResult(action=CommandAction.UPDATE_CHECKPOINT, payload=new_checkpoint)
+
+        # /memory-list - 列出长期记忆
+        if query == "/memory-list":
+            self.handle_memory_list()
+            return CommandResult(action=CommandAction.CONTINUE)
+
+        # /memory-delete <id> - 删除长期记忆
+        if query == "/memory-delete" or query.startswith("/memory-delete "):
+            new_checkpoint = self.handle_memory_delete(query, history, current_checkpoint)
             return CommandResult(action=CommandAction.UPDATE_CHECKPOINT, payload=new_checkpoint)
 
         # /load - 加载历史

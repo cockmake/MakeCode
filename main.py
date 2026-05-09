@@ -309,7 +309,8 @@ def agent_loop(messages: list):
             f"{current_context_tokens} exceeded threshold {THRESHOLD}."
         )
         try:
-            auto_compact(messages, reason=compact_reason)
+            auto_compact(messages, reason=compact_reason, system_prompt_fn=get_dynamic_system_prompt)
+            CURRENT_CHECKPOINT = save_checkpoint(messages, CURRENT_CHECKPOINT)
             console.print(
                 "\n[bold green]✨ 当前对话上下文已成功压缩并保存！[/bold green]"
             )

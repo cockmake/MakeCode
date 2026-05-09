@@ -9,7 +9,7 @@ import openai._constants as _openai_consts
 _openai_consts.INITIAL_RETRY_DELAY = 10
 _openai_consts.MAX_RETRY_DELAY = 30
 
-from prompts import get_summary_system_prompt, get_summary_user_prompt
+from prompts import get_memory_decision_system_prompt, get_summary_system_prompt, get_summary_user_prompt
 
 
 def _extract_tool_info(raw_tool):
@@ -304,37 +304,53 @@ class ChatAPIClient(BaseLLMClient):
                 result.append({"type": "function", "function": func_def})
         return result
 
-    def get_summary(self, conversation_text: str, reason: str) -> str:
+    def get_summary(self, conversation_text: str, reason: str, tools: list = None) -> str:
         messages = [
             {"role": "system", "content": get_summary_system_prompt()},
             {"role": "user", "content": conversation_text},
             {"role": "user", "content": get_summary_user_prompt(reason)},
         ]
-        res = self.client.chat.completions.create(model=self.model, messages=messages, reasoning_effort="medium")
-        return res.choices[0].message.content or ""
+        kwargs = {"model": self.model, "messages": messages, "reasoning_effort": "medium"}
+        if tools:
+            kwargs["tools"] = self.format_tools(tools)
+        res = self.client.chat.completions.create(**kwargs)
+        text, tool_calls, raw_message = self.parse_response(res)
+        if tools:
+            return text, tool_calls, raw_message
+        return text
+
+    def get_summary_stream_events(self, conversation_text: str, reason: str, tools: list = None) -> Generator[dict, None, None]:
+        messages = [
+            {"role": "system", "content": get_summary_system_prompt()},
+            {"role": "user", "content": conversation_text},
+            {"role": "user", "content": get_summary_user_prompt(reason)},
+        ]
+        yield from self.generate_stream(messages, self.format_tools(tools) if tools else None)
 
     def get_summary_stream(self, conversation_text: str, reason: str) -> Generator[str, None, None]:
-        messages = [
-            {"role": "system", "content": get_summary_system_prompt()},
-            {"role": "user", "content": conversation_text},
-            {"role": "user", "content": get_summary_user_prompt(reason)},
-        ]
+        for event in self.get_summary_stream_events(conversation_text, reason):
+            if event.get("type") == "text":
+                yield event.get("content", "")
 
-        # 使用标准的 create 方法，开启 stream=True
-        response_stream = self.client.chat.completions.create(
+    def get_memory_decision(self, conversation_text: str, summary: str, reason: str, tools: list) -> tuple[str, list, any]:
+        messages = [
+            {"role": "system", "content": get_memory_decision_system_prompt()},
+            {
+                "role": "user",
+                "content": (
+                    f"Compaction reason: {reason}\n\n"
+                    f"Summary produced during compact:\n{summary}\n\n"
+                    f"Conversation transcript JSON:\n{conversation_text}"
+                ),
+            },
+        ]
+        res = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            stream=True,
-            reasoning_effort="medium"
+            tools=self.format_tools(tools),
+            reasoning_effort="medium",
         )
-
-        # 直接遍历返回的 stream 对象
-        for chunk in response_stream:
-            if chunk.choices:
-                # 获取 delta content
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
+        return self.parse_response(res)
 
 
 class AsyncChatAPIClient(ChatAPIClient, AsyncBaseLLMClient):

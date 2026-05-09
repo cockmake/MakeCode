@@ -4,11 +4,14 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from openai import pydantic_function_tool
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
+from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
+from rich.table import Table
 from init import WORKDIR
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
@@ -18,7 +21,142 @@ THRESHOLD = 1024 * 160
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
+MEMORY_JSONL_FILE = MAKECODE_DIR / "memory.jsonl"
 KEEP_RECENT_TOOL_CALL = 84
+
+
+class SaveLongTermMemory(BaseModel):
+    """
+    Save a durable memory entry to WORKDIR/.makecode/memory.jsonl during compact.
+
+    CALL ONLY DURING the post-compact memory decision step, and only when the
+    compacted conversation contains stable, reusable knowledge worth carrying
+    across sessions. Do not save temporary task progress, one-off details,
+    secrets, or facts that can be directly re-read from the repository.
+    """
+
+    category: str = Field(
+        ...,
+        description=(
+            "Memory category, e.g. 'preference', 'project-convention', "
+            "'workflow', 'pitfall', 'environment', or 'release-process'."
+        ),
+    )
+    insight: str = Field(
+        ...,
+        description="The durable lesson, user preference, convention, or reusable experience to remember.",
+    )
+    evidence: str = Field(
+        ...,
+        description="Brief source context from the compacted conversation explaining why this memory is justified.",
+    )
+    reuse_condition: str = Field(
+        ...,
+        description="When this memory should be applied in future sessions.",
+    )
+
+
+LONG_TERM_MEMORY_TOOLS = [
+    pydantic_function_tool(SaveLongTermMemory),
+]
+
+
+def save_long_term_memory(
+        category: str,
+        insight: str,
+        evidence: str,
+        reuse_condition: str,
+        **kwargs,
+) -> dict:
+    MEMORY_JSONL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    memory_id = f"mem_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    record = {
+        "id": memory_id,
+        "created_at": timestamp,
+        "updated_at": timestamp,
+        "category": category.strip(),
+        "insight": insight.strip(),
+        "evidence": evidence.strip(),
+        "reuse_condition": reuse_condition.strip(),
+        "status": "active",
+    }
+    with open(MEMORY_JSONL_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return {**record, "path": MEMORY_JSONL_FILE.as_posix()}
+
+
+LONG_TERM_MEMORY_TOOL_HANDLERS = {
+    "SaveLongTermMemory": save_long_term_memory,
+}
+
+
+def _read_memory_records(include_deleted: bool = False) -> list[dict]:
+    if not MEMORY_JSONL_FILE.exists():
+        return []
+
+    records = []
+    valid_records = []
+    had_invalid_line = False
+    with open(MEMORY_JSONL_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                had_invalid_line = True
+                continue
+            valid_records.append(record)
+            if include_deleted or record.get("status") == "active":
+                records.append(record)
+    if had_invalid_line:
+        _write_memory_records(valid_records)
+    return records
+
+
+def _write_memory_records(records: list[dict]) -> None:
+    MEMORY_JSONL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(MEMORY_JSONL_FILE, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def list_long_term_memories() -> list[dict]:
+    return _read_memory_records(include_deleted=False)
+
+
+def delete_long_term_memory(memory_id: str) -> bool:
+    records = _read_memory_records(include_deleted=True)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    found = False
+    for record in records:
+        if record.get("id") == memory_id and record.get("status") == "active":
+            record["status"] = "deleted"
+            record["updated_at"] = now
+            found = True
+            break
+    if found:
+        _write_memory_records(records)
+    return found
+
+
+def render_long_term_memory_markdown() -> str:
+    records = list_long_term_memories()
+    if not records:
+        return ""
+
+    parts = []
+    for record in records:
+        parts.append(
+            f"## {record.get('id', '')} - {record.get('category', '')}\n"
+            f"- Created at: {record.get('created_at', '')}\n"
+            f"- Insight: {record.get('insight', '')}\n"
+            f"- Evidence: {record.get('evidence', '')}\n"
+            f"- Reuse condition: {record.get('reuse_condition', '')}"
+        )
+    return "\n\n".join(parts)
 
 
 def save_checkpoint(messages: list, filepath: Path = None, title: str = None) -> Path:
@@ -224,8 +362,12 @@ def micro_compact(input_list: list) -> list:
     return input_list
 
 
-def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
-    TRANSCRIPT_DIR.mkdir(exist_ok=True)
+def auto_compact(
+        messages: list,
+        reason: str = "User triggered compact",
+        system_prompt_fn=None,
+) -> str:
+    TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
     transcript_path = TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
 
     with open(transcript_path, "w", encoding="utf-8") as f:
@@ -250,11 +392,17 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
         # 使用 Live 创建一个可实时刷新的上下文
         # refresh_per_second 可以控制刷新帧率，太高耗费性能，一般 10-15 足够流畅
         with Live(Markdown(""), console=_compact_console, refresh_per_second=15) as live:
-            for chunk in llm_client.get_summary_stream(conversation_text, reason):
-                chunks.append(chunk)
-                current_text = "".join(chunks)
-                # 每次收到新内容，重新解析并更新 Live 视图
-                live.update(Markdown(current_text))
+            for event in llm_client.get_summary_stream_events(conversation_text, reason):
+                if event.get("type") == "text":
+                    chunks.append(event.get("content", ""))
+                    current_text = "".join(chunks)
+                    # 每次收到新内容，重新解析并更新 Live 视图
+                    live.update(Markdown(current_text))
+                elif event.get("type") == "done":
+                    text, tool_calls, raw_message = event.get("content")
+                    if not chunks and text:
+                        chunks.append(text)
+                        live.update(Markdown(text))
 
     except Exception as e:
         # 打印红色的错误提示，比原生的 print 更友好
@@ -270,7 +418,51 @@ def auto_compact(messages: list, reason: str = "User triggered compact") -> str:
     _compact_console.rule(style="cyan")
     summary = "".join(chunks)
 
+    saved_memories = []
+    _compact_console.print("[dim]🧠 Analyzing whether this compact contains durable memory...[/dim]")
+    try:
+        text, memory_tool_calls, raw_message = llm_client.get_memory_decision(
+            conversation_text,
+            summary,
+            reason,
+            LONG_TERM_MEMORY_TOOLS,
+        )
+    except Exception as e:
+        _compact_console.print(f"[bold red]Memory decision error: {e}[/bold red]")
+        memory_tool_calls = []
+
+    for tool_call in memory_tool_calls:
+        handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_call.get("name"))
+        if not handler:
+            continue
+        try:
+            arguments = json.loads(tool_call.get("arguments") or "{}", strict=False)
+            output = handler(**arguments)
+            saved_memories.append(output)
+        except Exception as e:
+            _compact_console.print(f"[bold red]Memory tool error: {e}[/bold red]")
+
+    if saved_memories:
+        memory_table = Table(title="💾 Long-term memory saved", show_lines=False)
+        memory_table.add_column("ID", style="cyan", no_wrap=True)
+        memory_table.add_column("Category", style="green", no_wrap=True)
+        memory_table.add_column("Insight", style="white")
+        memory_table.add_column("Reuse condition", style="white")
+        memory_table.add_column("File", style="dim", no_wrap=True)
+        for item in saved_memories:
+            memory_table.add_row(
+                item.get("id", ""),
+                item.get("category", ""),
+                item.get("insight", ""),
+                item.get("reuse_condition", ""),
+                item.get("path", MEMORY_JSONL_FILE.as_posix()),
+            )
+        _compact_console.print(memory_table)
+
     system_msgs = [m for m in messages if m.get("role") == "system"]
+    if system_prompt_fn and system_msgs:
+        system_msgs = [{"role": "system", "content": system_prompt_fn()}]
+
     summary_msgs = [
         {
             "role": "user",

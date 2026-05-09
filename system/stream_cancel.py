@@ -50,6 +50,7 @@ def stop_cancel_listener():
     if _listener_thread is not None:
         _listener_thread.join(timeout=0.2)
         _listener_thread = None
+    stream_cancel_event.clear()
 
 
 def is_cancelled() -> bool:
