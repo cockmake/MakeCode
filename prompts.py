@@ -70,8 +70,6 @@ def _identity_section() -> str:
 
 def _environment_section(workdir: str, terminal_label: str) -> str:
     """Inject runtime environment information."""
-    from system.models import get_current_model_config
-
     items = [
         f"Primary working directory: {workdir}",
         f"Is a git repository: {'Yes' if _is_git_repo() else 'No'}",
@@ -79,13 +77,6 @@ def _environment_section(workdir: str, terminal_label: str) -> str:
         f"Shell: {terminal_label}",
         f"OS Version: {_get_os_version()}",
     ]
-
-    try:
-        model_config = get_current_model_config()
-        if model_config:
-            items.append(f"Model: {model_config.model_id} ({model_config.get_display_name()})")
-    except Exception:
-        pass
 
     return "# Environment\n" + "\n".join(f" - {item}" for item in items)
 
