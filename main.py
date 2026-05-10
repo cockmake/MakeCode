@@ -446,8 +446,8 @@ def _read_user_query(messages: list = None) -> str:
         with patch_stdout():
             return USER_SESSION.prompt(
                 [
-                    ("class:prompt", "🤖 User "),
-                    ("class:arrow", "❯❯ "),
+                    ("class:prompt", "User "),
+                    ("class:arrow", ">> "),
                 ],
                 # 原来的 rprompt=rprompt 替换为 bottom_toolbar
                 bottom_toolbar=bottom_toolbar_content,
