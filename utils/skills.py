@@ -112,7 +112,7 @@ class SkillLoader:
         """Render a system-prompt block describing currently available skills."""
         if not self.is_enabled:
             return (
-                "\n\n## Skills Catalog Status\n"
+                "\n\n# Skills Catalog Status\n"
                 "- Status: OFF\n"
                 "- Skills catalog injection into the system prompt is currently disabled.\n"
                 "- You may still use `LoadSkill` if the exact skill name is already known from prior context."
@@ -122,18 +122,18 @@ class SkillLoader:
         skills_path = self.skills_dir.absolute().as_posix()
         if not self.skills:
             return (
-                "\n\n## Skills Catalog Status\n"
+                "\n\n# Skills Catalog Status\n"
                 "- Status: ON\n"
                 f"- Source directory: `{skills_path}`\n"
                 "- No skills are currently available in this workspace."
             )
 
         return (
-            "\n\n## Skills Catalog Status\n"
+            "\n\n# Skills Catalog Status\n"
             "- Status: ON\n"
             f"- Source directory: `{skills_path}`\n"
             "- The following skills are preloaded into context. When relevant, call `LoadSkill` directly using the exact skill name below.\n\n"
-            "### Available Skills\n"
+            "## Available Skills\n"
             f"{self.get_descriptions()}"
         )
 
