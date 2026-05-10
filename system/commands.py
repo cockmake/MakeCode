@@ -949,10 +949,10 @@ class CommandHandler:
             show_lines=True,
         )
         table.add_column("ID", style="cyan", no_wrap=True)
-        table.add_column("Category", style="green", no_wrap=True)
-        table.add_column("Updated At", style="magenta", no_wrap=True)
+        table.add_column("Category", style="green", overflow="fold")
+        table.add_column("Updated At", style="magenta", overflow="fold")
         table.add_column("Insight", style="white", overflow="fold")
-        table.add_column("Reuse Condition", style="white")
+        table.add_column("Reuse Condition", style="white", overflow="fold")
         for item in memories:
             table.add_row(
                 item.get("id", ""),
@@ -1017,7 +1017,7 @@ class CommandHandler:
             self.console.print("\n[bold yellow]用法：/memory-update <memory update request>[/bold yellow]")
             return True
 
-        outputs = manual_memory_update(parts[1].strip())
+        outputs = manual_memory_update(parts[1].strip(), history)
         if outputs and history and history[0].get("role") == "system":
             history[0]["content"] = self.get_system_prompt_fn()
         return True

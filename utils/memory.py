@@ -261,37 +261,50 @@ def memory_agent_loop(
         current_memory_content: str,
         tools: list,
         mode: str = "compact",
+        max_iterations: int = 5,
 ) -> list[dict]:
     _compact_console.print("\n[bold yellow]🧠 Managing long-term memory...[/bold yellow]")
     _compact_console.rule("[bold yellow]Memory[/bold yellow]", style="yellow")
     saved_outputs = []
-    try:
-        _, memory_tool_calls, _ = llm_client.get_memory_decision_stream(
-            conversation_text,
-            summary,
-            reason,
-            current_memory_content,
-            tools,
-            mode=mode,
-        )
-    except Exception as e:
-        _compact_console.print(f"[bold red]Memory manager error: {e}[/bold red]")
-        _compact_console.rule(style="yellow")
-        return saved_outputs
+    messages = llm_client.get_memory_decision_messages(
+        conversation_text,
+        summary,
+        reason,
+        current_memory_content,
+        mode=mode,
+    )
 
-    for tool_call in memory_tool_calls:
-        tool_name = tool_call.get("name")
-        handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_name)
-        if not handler:
-            continue
-        _render_tool_call(tool_name, tool_call.get("arguments"), identity="🧠 Memory Agent")
+    for _ in range(max_iterations):
         try:
-            arguments = _parse_tool_arguments(tool_call.get("arguments"))
-            output = handler(**arguments)
+            _, memory_tool_calls, raw_message = llm_client.get_memory_decision_stream_messages(messages, tools)
         except Exception as e:
-            output = f"Error executing {tool_name}: {e}."
-        _render_tool_output(tool_name, output, identity="🧠 Memory Agent")
-        saved_outputs.append({"tool": tool_name, "output": output})
+            _compact_console.print(f"[bold red]Memory manager error: {e}[/bold red]")
+            _compact_console.rule(style="yellow")
+            return saved_outputs
+
+        if raw_message is not None:
+            llm_client.append_assistant_message(messages, raw_message)
+
+        if not memory_tool_calls:
+            break
+
+        for tool_call in memory_tool_calls:
+            tool_name = tool_call.get("name")
+            tool_id = tool_call.get("id")
+            handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_name)
+            if not handler:
+                output = f"Unknown memory tool: {tool_name}"
+            else:
+                _render_tool_call(tool_name, tool_call.get("arguments"), identity="🧠 Memory Agent")
+                try:
+                    arguments = _parse_tool_arguments(tool_call.get("arguments"))
+                    output = handler(**arguments)
+                except Exception as e:
+                    output = f"Error executing {tool_name}: {e}."
+                _render_tool_output(tool_name, output, identity="🧠 Memory Agent")
+            saved_outputs.append({"tool": tool_name, "output": output})
+            if tool_id:
+                messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
 
     if not saved_outputs:
         _compact_console.print("[yellow]No long-term memory changes.[/yellow]")
@@ -299,14 +312,16 @@ def memory_agent_loop(
     return saved_outputs
 
 
-def manual_memory_update(prompt: str) -> list[dict]:
+def manual_memory_update(prompt: str, history: list = None) -> list[dict]:
     prompt = prompt.strip()
+    conversation_messages = [msg for msg in (history or []) if msg.get("role") != "system"]
     return memory_agent_loop(
         conversation_text=json.dumps(
-            [{"role": "user", "content": prompt}],
+            conversation_messages,
             ensure_ascii=False,
+            default=str,
         ),
-        summary="Manual memory update request. Only use the user's request as the basis for memory changes.",
+        summary="",
         reason=prompt,
         current_memory_content=render_long_term_memory_markdown(),
         tools=LONG_TERM_MEMORY_TOOLS,

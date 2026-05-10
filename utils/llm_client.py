@@ -332,8 +332,8 @@ class ChatAPIClient(BaseLLMClient):
             if event.get("type") == "text":
                 yield event.get("content", "")
 
-    def get_memory_decision(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, tools: list, mode: str = "compact") -> tuple[str, list, any]:
-        messages = [
+    def get_memory_decision_messages(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, mode: str = "compact") -> list:
+        return [
             {"role": "system", "content": get_memory_decision_system_prompt()},
             {
                 "role": "user",
@@ -346,6 +346,15 @@ class ChatAPIClient(BaseLLMClient):
                 ),
             },
         ]
+
+    def get_memory_decision(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, tools: list, mode: str = "compact") -> tuple[str, list, any]:
+        messages = self.get_memory_decision_messages(
+            conversation_text,
+            summary,
+            reason,
+            current_memory_content,
+            mode=mode,
+        )
         res = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -355,19 +364,16 @@ class ChatAPIClient(BaseLLMClient):
         return self.parse_response(res)
 
     def get_memory_decision_stream(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, tools: list, mode: str = "compact"):
-        messages = [
-            {"role": "system", "content": get_memory_decision_system_prompt()},
-            {
-                "role": "user",
-                "content": (
-                    f"Memory management mode: {mode}\n\n"
-                    f"Reason or user request: {reason}\n\n"
-                    f"Current active long-term memories:\n{current_memory_content or '(none)'}\n\n"
-                    f"Summary:\n{summary}\n\n"
-                    f"Conversation transcript JSON:\n{conversation_text}"
-                ),
-            },
-        ]
+        messages = self.get_memory_decision_messages(
+            conversation_text,
+            summary,
+            reason,
+            current_memory_content,
+            mode=mode,
+        )
+        return self.get_memory_decision_stream_messages(messages, tools)
+
+    def get_memory_decision_stream_messages(self, messages: list, tools: list):
         for event in self.generate_stream(messages, self.format_tools(tools)):
             if event.get("type") == "done":
                 return event["content"]
