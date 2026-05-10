@@ -333,6 +333,7 @@ class ChatAPIClient(BaseLLMClient):
                 yield event.get("content", "")
 
     def get_memory_decision_messages(self, conversation_text: str, summary: str, reason: str, current_memory_content: str, mode: str = "compact") -> list:
+        summary_section = f"Summary:\n{summary}\n\n" if summary.strip() else ""
         return [
             {"role": "system", "content": get_memory_decision_system_prompt()},
             {
@@ -341,7 +342,7 @@ class ChatAPIClient(BaseLLMClient):
                     f"Memory management mode: {mode}\n\n"
                     f"Reason or user request: {reason}\n\n"
                     f"Current active long-term memories:\n{current_memory_content or '(none)'}\n\n"
-                    f"Summary:\n{summary}\n\n"
+                    f"{summary_section}"
                     f"Conversation transcript JSON:\n{conversation_text}"
                 ),
             },
