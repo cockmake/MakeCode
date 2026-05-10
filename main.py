@@ -181,9 +181,9 @@ def generate_title(user_query: str) -> str:
 
 def _stream_with_render(messages: list, current_tools: list):
     """
-    优化的流式请求渲染：
-    1. 思考阶段：使用原生 append 模式流式输出，配合 dim 样式，极致性能无闪烁。
-    2. 正文阶段：采用带『节流 (Throttle)』的 Live + Markdown 实时渲染。
+    流式请求渲染：
+    1. reasoning 和正文均交给 StreamRenderer 处理。
+    2. StreamRenderer 负责按完整 Markdown 段落增量输出，并返回工具调用信息。
     """
     from system.stream_cancel import start_cancel_listener, stop_cancel_listener, is_cancelled
 

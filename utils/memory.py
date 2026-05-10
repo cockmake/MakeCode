@@ -8,16 +8,14 @@ from openai import pydantic_function_tool
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field
-from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
 from init import WORKDIR
-from system.console_render import _render_tool_call, _render_tool_output
+from system.console_render import _render_tool_call, _render_tool_output, console as _compact_console
 from system.stream_render import StreamRenderer
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
 
-_compact_console = Console()
 THRESHOLD = 1024 * 160
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
@@ -576,7 +574,6 @@ def auto_compact(
         _compact_console.print(Markdown(fallback))
         chunks = [fallback]
 
-    # 不需要再单独 _compact_console.print() 换行，因为 Live 结束后自带换行效果
     _compact_console.rule(style="cyan")
     summary = "".join(chunks)
 
