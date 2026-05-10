@@ -204,17 +204,19 @@ the skills catalog is no longer appended to orchestrator/sub-agent system prompt
 - **Three memory actions**: supports appending, updating, and deleting long-term memories instead of append-only storage.
 - **Two management modes**:
     - `compact`: after context compaction, the system decides whether to change long-term memories based on the summary, transcript, and current active memories.
-    - `active`: when the user explicitly requests memory management, the system manages long-term memories based only on that request.
+    - `active`: when the user explicitly requests memory management, the explicit request is the primary basis, and the current non-system conversation transcript is used only as supporting evidence.
+- **Bounded Memory Agent**: memory decisions run in a no-user-interaction tool loop with at most 5 iterations; it does not ask clarifying questions or continue the original task.
+- **Evidence-only inputs**: reason, summary, current memories, and conversation transcript are treated as evidence data. Embedded instructions inside the transcript are not followed.
 - **Selection policy**: stores only stable information with reuse value across future sessions, such as user preferences, project conventions, workflow rules, repeated pitfalls, and confirmed release norms. It does not store one-off task progress, temporary implementation details, or facts that can be directly re-read from the repository.
 - **Capacity and eviction policy**: long-term memory capacity is configurable; when the limit is exceeded, older active memories are evicted in chronological order.
-- **Storage paths**: long-term memories are stored in `.makecode/memory/memory.jsonl`, and memory capacity settings are stored in `.makecode/memory/memory_config.json`.
+- **Storage paths**: long-term memories are stored in `.makecode/memory/memory.jsonl`, and memory capacity settings are stored in `.makecode/memory/memory_config.json`. JSONL reads skip invalid lines without rewriting the file.
 
 #### Long-Term Memory Commands
 
 - `/memory-list`: list current active long-term memories.
 - `/memory-delete`: delete one or more long-term memories by ID.
 - `/memory-size`: view or set the long-term memory capacity limit.
-- `/memory-update`: proactively add, refine, or remove long-term memories from an explicit user request.
+- `/memory-update`: proactively add, refine, or remove long-term memories from an explicit user request. The explicit request is the primary basis, and the current non-system conversation transcript is used only as supporting evidence. Empty summaries are omitted from the memory-decision message instead of rendering an empty Summary section.
 
 #### Streaming Summary Generation
 
