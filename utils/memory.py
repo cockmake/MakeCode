@@ -226,21 +226,23 @@ def list_long_term_memories() -> list[dict]:
     return _read_memory_records(include_deleted=False)
 
 
-def render_long_term_memory_markdown() -> str:
+def render_long_term_memory_markdown(include_evidence: bool = True) -> str:
     records = list_long_term_memories()
     if not records:
         return ""
 
     parts = []
     for record in records:
-        parts.append(
-            f"## {record.get('id', '')}\n"
-            f"- Category: {record.get('category', '')}\n"
-            f"- Updated at: {record.get('updated_at', '')}\n"
-            f"- Insight: {record.get('insight', '')}\n"
-            f"- Evidence: {record.get('evidence', '')}\n"
-            f"- Reuse condition: {record.get('reuse_condition', '')}"
-        )
+        lines = [
+            f"## {record.get('id', '')}",
+            f"- Category: {record.get('category', '')}",
+            f"- Updated at: {record.get('updated_at', '')}",
+            f"- Insight: {record.get('insight', '')}",
+        ]
+        if include_evidence:
+            lines.append(f"- Evidence: {record.get('evidence', '')}")
+        lines.append(f"- Reuse condition: {record.get('reuse_condition', '')}")
+        parts.append("\n".join(lines))
     return "\n\n".join(parts)
 
 

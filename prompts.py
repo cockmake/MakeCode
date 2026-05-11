@@ -37,7 +37,7 @@ def _load_memory_entries() -> str:
     try:
         from utils.memory import render_long_term_memory_markdown
 
-        content = render_long_term_memory_markdown().strip()
+        content = render_long_term_memory_markdown(include_evidence=False).strip()
         if not content:
             return ""
         return content
