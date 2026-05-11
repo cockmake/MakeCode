@@ -76,10 +76,8 @@ COMMAND_DESCRIPTIONS = {
     "/memory-delete": "按 ID 删除一条长期记忆，例如 /memory-delete mem_20260510_abc123",
     "/memory-size": "查看或设置长期记忆容量，例如 /memory-size 或 /memory-size 30",
     "/memory-update": "根据用户请求主动管理长期记忆，例如 /memory-update 记住：以后...",
-    "/tools": "列出当前可用工具详细信息",
     "/tasks": "查看任务看板和当前执行进度",
     "/plan": "进入/退出 Plan Mode — 规划阶段只允许只读和任务规划工具",
-    "/status": "汇报系统状态、已完成任务和下一步计划",
     "/sub-agent-console": "切换 Sub-Agent 的控制台输出状态，默认关闭",
     "/help": "显示使用帮助和自我介绍",
     "/new": "清空当前对话历史",
@@ -569,6 +567,31 @@ class CommandHandler:
         for cmd, desc in COMMAND_DESCRIPTIONS.items():
             table.add_row(cmd, desc)
         self.console.print(table)
+        return True
+
+    def handle_task_table(self) -> bool:
+        """处理 /tasks 命令"""
+        from utils.tasks import TASK_MANAGER
+
+        task_table = TASK_MANAGER.get_task_table()
+        rows = task_table.get("rows", [])
+        if not rows:
+            self.console.print("\n[bold yellow]当前任务计划为空。[/bold yellow]")
+            return True
+
+        tbl = Table(title="当前任务计划", show_lines=False)
+        tbl.add_column("ID", style="cyan", width=4)
+        tbl.add_column("Subject", style="white")
+        tbl.add_column("Status", style="green")
+        tbl.add_column("Runnable", style="yellow", width=8)
+        for row in rows:
+            tbl.add_row(
+                str(row["id"]),
+                row["subject"],
+                row["status"],
+                "✓" if row.get("is_runnable") else "",
+            )
+        self.console.print(tbl)
         return True
 
     def handle_update(self) -> bool:
@@ -1170,9 +1193,13 @@ class CommandHandler:
             self.handle_mcp_switch()
             return CommandResult(action=CommandAction.CONTINUE)
 
-        # /cmds - 列出命令
-        if query == "/cmds":
+        # /cmds, /help - 列出命令
+        if query in ["/cmds", "/help"]:
             self.handle_cmds()
+            return CommandResult(action=CommandAction.CONTINUE)
+
+        if query == "/tasks":
+            self.handle_task_table()
             return CommandResult(action=CommandAction.CONTINUE)
 
         if query == "/models":

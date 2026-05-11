@@ -137,6 +137,19 @@ def _interactive_choose_mode(cwd: Path) -> str:
 
 def _init_workdir() -> Path:
     cwd = Path.cwd()
+    env_workdir = os.getenv("MAKECODE_WORKDIR")
+    if env_workdir:
+        target_path = Path(env_workdir).expanduser().resolve()
+        if target_path.exists() and target_path.is_dir():
+            return target_path
+        log_error_traceback(
+            "init MAKECODE_WORKDIR invalid",
+            ValueError(f"MAKECODE_WORKDIR is not a directory: {target_path}"),
+        )
+        return cwd
+
+    if os.getenv("MAKECODE_NON_INTERACTIVE") == "1":
+        return cwd
 
     try:
         choice = _interactive_choose_mode(cwd)
