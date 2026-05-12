@@ -28,6 +28,7 @@ from system.console_render import (
     _render_token_usage,
     _render_startup_banner,
     _render_env_customization_hint,
+    render_current_task_plan,
     console,
 )
 from system.updater import check_update
@@ -366,11 +367,12 @@ def _init_user_session():
         @user_kb.add("c-p")
         def _toggle_plan_mode(event):
             from utils.plan_mode import toggle_plan_mode
+            current_text = event.current_buffer.text
             new_state = toggle_plan_mode()
             if new_state:
-                event.app.exit(result='__PLAN_MODE_ON__')
+                event.app.exit(result={"type": "plan_mode_toggle", "state": "on", "text": current_text})
             else:
-                event.app.exit(result='__PLAN_MODE_OFF__')
+                event.app.exit(result={"type": "plan_mode_toggle", "state": "off", "text": current_text})
 
         def prompt_continuation(width, line_number, is_soft_wrap):
             return " " * (width - 4) + " │  "
@@ -431,7 +433,7 @@ def _sanitize_user_query(query: str) -> str:
     return query.encode("utf-8", errors="replace").decode("utf-8")
 
 
-def _read_user_query(messages: list = None) -> str:
+def _read_user_query(messages: list = None, default_text: str = "") -> str:
     _init_user_session()
 
     console.print(
@@ -489,7 +491,10 @@ def _read_user_query(messages: list = None) -> str:
             query = USER_SESSION.prompt(
                 prompt_message,
                 bottom_toolbar=bottom_toolbar_content,
+                default=default_text,
             )
+            if not isinstance(query, str):
+                return query
             return _sanitize_user_query(query)
     except Exception as exc:
         log_error_traceback("main user input prompt failure", exc)
@@ -571,9 +576,11 @@ if __name__ == "__main__":
     )
 
     try:
+        pending_input = ""
         while True:
             try:
-                query = _read_user_query(history)
+                query = _read_user_query(history, default_text=pending_input)
+                pending_input = ""
             except (EOFError, KeyboardInterrupt) as exc:
                 log_error_traceback("main user input interrupted", exc)
                 console.print(
@@ -581,32 +588,15 @@ if __name__ == "__main__":
                 )
                 break
 
-            # Handle Tab toggle for Plan Mode
-            if query == '__PLAN_MODE_ON__':
-                console.print("[bold cyan]📋 Plan Mode 已启用[/bold cyan]")
-                console.print("[#aaaaaa]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/#aaaaaa]")
-                continue
-            elif query == '__PLAN_MODE_OFF__':
-                console.print("[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]")
-                # Show current task plan on exit
-                from utils.tasks import TASK_MANAGER
-                from rich.table import Table as RichTable
-                task_table = TASK_MANAGER.get_task_table()
-                rows = task_table.get("rows", [])
-                if rows:
-                    tbl = RichTable(title="当前任务计划", show_lines=False)
-                    tbl.add_column("ID", style="cyan", width=4)
-                    tbl.add_column("Subject", style="white")
-                    tbl.add_column("Status", style="green")
-                    tbl.add_column("Runnable", style="yellow", width=8)
-                    for row in rows:
-                        tbl.add_row(
-                            str(row["id"]),
-                            row["subject"],
-                            row["status"],
-                            "✓" if row.get("is_runnable") else "",
-                        )
-                    console.print(tbl)
+            # Handle Ctrl+P toggle for Plan Mode
+            if isinstance(query, dict) and query.get("type") == "plan_mode_toggle":
+                pending_input = query.get("text", "")
+                if query.get("state") == "on":
+                    console.print("[bold cyan]📋 Plan Mode 已启用[/bold cyan]")
+                    console.print("[#aaaaaa]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/#aaaaaa]")
+                else:
+                    console.print("[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]")
+                    render_current_task_plan(console)
                 continue
 
             query = query.strip()
