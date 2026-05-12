@@ -719,15 +719,34 @@ class CommandHandler:
         message = ["↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出"]
         kb = KeyBindings()
 
-        def refresh_models():
-            model_manager._reload_from_disk()
+        def find_current_model_index():
+            current_model = model_manager.get_current_model()
+            if current_model is None:
+                return None
+            current_key = current_model.key
+            for index, model in enumerate(model_manager.models):
+                if model.key == current_key:
+                    return index
+            return None
 
-        def clamp_selection():
-            refresh_models()
+        def focus_current_model():
+            current_index = find_current_model_index()
+            if current_index is not None:
+                selected_index[0] = current_index
+
+        def refresh_models(focus_current: bool = False):
+            model_manager._reload_from_disk()
+            if focus_current:
+                focus_current_model()
+            clamp_selection(refresh=False)
+
+        def clamp_selection(refresh: bool = True):
             if not model_manager.models:
                 selected_index[0] = 0
             else:
                 selected_index[0] = max(0, min(selected_index[0], len(model_manager.models) - 1))
+
+        refresh_models(focus_current=True)
 
         async def add_model_flow():
             def sync_input_flow():
@@ -764,13 +783,13 @@ class CommandHandler:
             added_models = model_manager.add_model(base_url, api_key, model_ids)
             clamp_selection()
             if added_models:
-                selected_index[0] = len(model_manager.models) - len(added_models)
+                selected_index[0] = max(0, len(model_manager.models) - len(added_models))
                 message[0] = f"✅ 已添加 {len(added_models)} 个模型。"
             else:
                 message[0] = "⚠️ 未添加任何新模型，可能都已存在。"
             app.invalidate()
 
-        async def confirm_delete_flow(delete_index: int, display_text: str):
+        async def confirm_delete_flow(delete_key: tuple[str, str, str], display_text: str):
             def sync_confirm_flow():
                 self.console.print(f"\n[bold yellow]⚠️ 确认删除模型[/bold yellow]\n{display_text}")
                 confirm = input("确认删除？输入 y 确认，其它任意键取消: ").strip().lower()
@@ -786,15 +805,16 @@ class CommandHandler:
                 app.invalidate()
                 return
 
-            if model_manager.delete_model_by_index(delete_index):
+            if model_manager.delete_model_by_key(delete_key):
                 clamp_selection()
                 message[0] = f"✅ 已删除模型: {display_text}"
             else:
-                message[0] = f"❌ 删除失败: {display_text}"
+                clamp_selection()
+                message[0] = f"⚠️ 模型已不存在: {display_text}"
             app.invalidate()
 
         def get_selected_model():
-            clamp_selection()
+            refresh_models()
             if not model_manager.models:
                 message[0] = "⚠️ 当前没有可操作的模型。"
                 return None
@@ -802,14 +822,14 @@ class CommandHandler:
 
         @kb.add("up")
         def _go_up(event):
-            refresh_models()
+            clamp_selection(refresh=False)
             if model_manager.models:
                 selected_index[0] = max(0, selected_index[0] - 1)
                 event.app.invalidate()
 
         @kb.add("down")
         def _go_down(event):
-            refresh_models()
+            clamp_selection(refresh=False)
             if model_manager.models:
                 selected_index[0] = min(len(model_manager.models) - 1, selected_index[0] + 1)
                 event.app.invalidate()
@@ -828,8 +848,8 @@ class CommandHandler:
                 event.app.invalidate()
                 return
             display_text = target_model.get_display_text()
-            delete_index = selected_index[0]
-            event.app.create_background_task(confirm_delete_flow(delete_index, display_text))
+            delete_key = target_model.key
+            event.app.create_background_task(confirm_delete_flow(delete_key, display_text))
             event.app.invalidate()
 
         @kb.add("f")
@@ -881,12 +901,14 @@ class CommandHandler:
             event.app.exit(result=True)
 
         def get_formatted_text():
-            clamp_selection()
+            clamp_selection(refresh=False)
             current_model = model_manager.get_current_model()
+            current_key = current_model.key if current_model else None
             result = [
                 ("class:title", "⚙️ 模型管理面板\n"),
                 ("class:hint",
-                 "↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出\n\n"),
+                 "↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出\n"),
+                ("class:hint", "✓ 当前终端模型   ♥ 常用模型   模型列表为共享配置\n\n"),
             ]
             if not model_manager.models:
                 result.append(("class:empty", "  暂无模型。按 A 添加模型，按 Q 退出。\n"))
@@ -894,7 +916,7 @@ class CommandHandler:
                 for index, model in enumerate(model_manager.models):
                     selected = index == selected_index[0]
                     markers = []
-                    if current_model is model:
+                    if model.key == current_key:
                         markers.append("✓")
                     if model.is_favorite:
                         markers.append("♥")

@@ -16,7 +16,7 @@ from system.stream_render import StreamRenderer
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
 
-THRESHOLD = 1024 * 160
+THRESHOLD = 1024 * 180
 MAKECODE_DIR = WORKDIR / ".makecode"
 TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
 CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"

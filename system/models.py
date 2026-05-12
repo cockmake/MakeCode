@@ -16,8 +16,11 @@ class ModelConfig:
     api_key: str
     model_id: str
     is_favorite: bool = False
-    selected: bool = False
     max_context: int = 128  # 单位: k (千tokens)
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.base_url, self.api_key, self.model_id)
 
     def get_display_name(self) -> str:
         """获取域名前缀用于显示"""
@@ -38,6 +41,22 @@ class ModelConfig:
         """转换为字典"""
         return asdict(self)
 
+    def to_identity_dict(self) -> dict:
+        return {
+            "base_url": self.base_url,
+            "api_key": self.api_key,
+            "model_id": self.model_id,
+        }
+
+    @classmethod
+    def key_from_dict(cls, data: dict) -> Optional[tuple[str, str, str]]:
+        base_url = data.get("base_url")
+        api_key = data.get("api_key")
+        model_id = data.get("model_id")
+        if not base_url or api_key is None or not model_id:
+            return None
+        return (base_url, api_key, model_id)
+
     @classmethod
     def from_dict(cls, data: dict) -> "ModelConfig":
         """从字典创建"""
@@ -46,7 +65,6 @@ class ModelConfig:
             api_key=data.get("api_key", ""),
             model_id=data.get("model_id", ""),
             is_favorite=data.get("is_favorite", False),
-            selected=data.get("selected", False),
             max_context=data.get("max_context", 128),
         )
 
@@ -58,82 +76,122 @@ class ModelManager:
         self.config_dir = config_dir
         self.config_file = config_dir / "model_config.json"
         self.models: list[ModelConfig] = []
+        self.current_model: Optional[ModelConfig] = None
+        self.current_model_key: Optional[tuple[str, str, str]] = None
+        self.last_selected_key: Optional[tuple[str, str, str]] = None
         self._load_config()
+        self._set_initial_current_model()
 
     def _sort_models(self):
         self.models.sort(key=lambda model: (not model.is_favorite, model.model_id.lower()))
 
-    def _normalize_selected(self):
-        selected_indexes = [index for index, model in enumerate(self.models) if model.selected]
-        if len(selected_indexes) > 1:
-            keep_index = selected_indexes[0]
-            for index, model in enumerate(self.models):
-                model.selected = index == keep_index
-        elif not selected_indexes:
+    def _get_model_by_key(self, key: Optional[tuple[str, str, str]]) -> Optional[ModelConfig]:
+        if key is None:
+            return None
+        for model in self.models:
+            if model.key == key:
+                return model
+        return None
+
+    def _get_default_model(self) -> Optional[ModelConfig]:
+        if not self.models:
+            return None
+        for model in self.models:
+            if model.is_favorite:
+                return model
+        return self.models[0]
+
+    def _set_current_model(self, model: Optional[ModelConfig]):
+        self.current_model = model
+        self.current_model_key = model.key if model else None
+
+    def _set_initial_current_model(self):
+        if self.current_model is not None:
             return
+        last_selected_model = self._get_model_by_key(self.last_selected_key)
+        if last_selected_model:
+            self._set_current_model(last_selected_model)
+            return
+        self._set_current_model(self._get_default_model())
 
     def _load_config(self):
-        """加载配置文件（纯列表结构）"""
+        """加载配置文件"""
         if not self.config_file.exists():
             self.models = []
+            self.last_selected_key = None
             return
 
         try:
             with open(self.config_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
+            self.last_selected_key = None
             if isinstance(data, list):
+                selected_item = next(
+                    (item for item in data if isinstance(item, dict) and item.get("selected")),
+                    None,
+                )
+                self.last_selected_key = ModelConfig.key_from_dict(selected_item) if selected_item else None
                 self.models = [ModelConfig.from_dict(item) for item in data if isinstance(item, dict)]
             elif isinstance(data, dict):
-                # 兼容旧结构
+                models_data = data.get("models", [])
+                self.last_selected_key = ModelConfig.key_from_dict(data.get("last_selected", {}))
+                if self.last_selected_key is None:
+                    selected_item = next(
+                        (item for item in models_data if isinstance(item, dict) and item.get("selected")),
+                        None,
+                    )
+                    self.last_selected_key = ModelConfig.key_from_dict(selected_item) if selected_item else None
                 self.models = [
                     ModelConfig.from_dict(item)
-                    for item in data.get("models", [])
+                    for item in models_data
                     if isinstance(item, dict)
                 ]
             else:
                 self.models = []
 
             self._sort_models()
-            self._normalize_selected()
         except Exception:
             self.models = []
+            self.last_selected_key = None
+
+    def _get_last_selected_payload(self) -> Optional[dict]:
+        model = self._get_model_by_key(self.last_selected_key)
+        if model is None:
+            model = self._get_default_model()
+            self.last_selected_key = model.key if model else None
+        return model.to_identity_dict() if model else None
 
     def _save_config(self):
-        """保存配置文件（纯列表结构）"""
+        """保存配置文件"""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self._sort_models()
-        self._normalize_selected()
-        data = [model.to_dict() for model in self.models]
+        payload = {
+            "version": 2,
+            "last_selected": self._get_last_selected_payload(),
+            "models": [model.to_dict() for model in self.models],
+        }
         with open(self.config_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+            json.dump(payload, f, ensure_ascii=False, indent=4)
 
     def _reload_from_disk(self):
         self._load_config()
 
     def is_configured(self) -> bool:
-        self._reload_from_disk()
         return len(self.models) > 0
 
     def get_favorite_models(self) -> list[ModelConfig]:
-        self._reload_from_disk()
         return [m for m in self.models if m.is_favorite]
 
     def get_current_model(self) -> Optional[ModelConfig]:
-        self._reload_from_disk()
-        selected_models = [model for model in self.models if model.selected]
-        if selected_models:
-            return selected_models[0]
-
-        return self.models[0] if self.models else None
+        return self.current_model
 
     def set_current_model_by_index(self, index: int) -> bool:
-        self._reload_from_disk()
         if not (0 <= index < len(self.models)):
             return False
 
-        for i, model in enumerate(self.models):
-            model.selected = i == index
+        self._set_current_model(self.models[index])
+        self.last_selected_key = self.current_model_key
         self._save_config()
         return True
 
@@ -159,11 +217,11 @@ class ModelManager:
                 api_key=api_key,
                 model_id=model_id.strip(),
                 is_favorite=False,
-                selected=False,
                 max_context=max_contexts[i] if i < len(max_contexts) else 128,
             )
             existing = any(
                 existing_model.base_url == model.base_url
+                and existing_model.api_key == model.api_key
                 and existing_model.model_id == model.model_id
                 for existing_model in self.models
             )
@@ -172,8 +230,8 @@ class ModelManager:
                 new_models.append(model)
 
         if new_models:
-            if not any(model.selected for model in self.models):
-                self.models[0].selected = True
+            if self.current_model is None:
+                self._set_initial_current_model()
             self._save_config()
 
         return new_models
@@ -183,11 +241,22 @@ class ModelManager:
         if not (0 <= index < len(self.models)):
             return False
 
-        was_selected = self.models[index].selected
-        del self.models[index]
+        return self.delete_model_by_key(self.models[index].key)
 
-        if self.models and was_selected and not any(model.selected for model in self.models):
-            self.models[0].selected = True
+    def delete_model_by_key(self, key: tuple[str, str, str]) -> bool:
+        self._reload_from_disk()
+        delete_index = next(
+            (index for index, model in enumerate(self.models) if model.key == key),
+            None,
+        )
+        if delete_index is None:
+            return False
+
+        deleted_model = self.models[delete_index]
+        del self.models[delete_index]
+
+        if self.last_selected_key == deleted_model.key:
+            self.last_selected_key = None
 
         self._save_config()
         return True
@@ -198,6 +267,8 @@ class ModelManager:
             return False
         self.models[index].is_favorite = not self.models[index].is_favorite
         self._save_config()
+        if self.current_model is None:
+            self._set_initial_current_model()
         return True
 
 
