@@ -143,6 +143,7 @@ def get_release_body(version_path: Path) -> str:
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     token = get_token()
     tag = f"v{CURRENT_VERSION}"
     dist_dir = Path("dist")

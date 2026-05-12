@@ -553,7 +553,7 @@ def auto_compact(
 
     _compact_console.print(
         f"\n[bold yellow]⚡️ Compacting context...[/bold yellow]  "
-        f"[dim]{reason}[/dim]"
+        f"[#aaaaaa]{reason}[/#aaaaaa]"
     )
     _compact_console.rule("[bold cyan]📝 Summary", style="cyan")
 

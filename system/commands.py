@@ -473,7 +473,7 @@ class CommandHandler:
         """处理 /mcp-switch 命令"""
         self.console.print(
             "\n[bold cyan]🔧 正在打开 MCP 开关面板...[/bold cyan]\n"
-            "[dim]操作说明：用 ↑/↓ 选择服务，按 Space 切换状态，移动到底部后按 Enter 选择确认或取消。[/dim]"
+            "[#aaaaaa]操作说明：用 ↑/↓ 选择服务，按 Space 切换状态，移动到底部后按 Enter 选择确认或取消。[/#aaaaaa]"
         )
         try:
             server_switches = self.mcp_manager.list_server_switches()
@@ -530,7 +530,7 @@ class CommandHandler:
 
         summary_lines = [
             "\n[bold green]✅ MCP 开关修改已保存到配置文件，并已尝试按变更增量启停服务。[/bold green]",
-            f"[dim]配置文件: {self.mcp_manager.get_status_info().get('config_path')}[/dim]",
+            f"[#aaaaaa]配置文件: {self.mcp_manager.get_status_info().get('config_path')}[/#aaaaaa]",
         ]
         if changed:
             summary_lines.append(
@@ -622,7 +622,7 @@ class CommandHandler:
 
         self.console.print(f"\n[bold yellow]📢 发现新版本: v{new_version}[/bold yellow]")
         if release_notes:
-            self.console.print(f"[dim]更新内容: {release_notes}[/dim]")
+            self.console.print(f"[#aaaaaa]更新内容: {release_notes}[/#aaaaaa]")
 
         # 确认是否更新
         from prompt_toolkit import prompt
@@ -632,7 +632,7 @@ class CommandHandler:
             answer = "n"
 
         if answer.lower() != 'y':
-            self.console.print("[dim]已取消更新[/dim]")
+            self.console.print("[#aaaaaa]已取消更新[/#aaaaaa]")
             return True
 
         self.console.print("[bold cyan]📥 正在下载更新...[/bold cyan]")
@@ -663,7 +663,7 @@ class CommandHandler:
 
         print()  # 换行
         self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
-        self.console.print("[dim]程序将自动退出并完成更新，更新后请手动重启程序[/dim]")
+        self.console.print("[#aaaaaa]程序将自动退出并完成更新，更新后请手动重启程序[/#aaaaaa]")
 
         try:
             launch_updater(new_exe_path)
@@ -954,7 +954,7 @@ class CommandHandler:
         """处理 /new 命令，返回 (should_continue, new_checkpoint)"""
         if not hitl_mod.get_hitl_status():
             hitl_mod.toggle_hitl(enabled=True)
-            self.console.print("[dim]🛡️ Human-in-the-Loop 已恢复为开启状态[/dim]")
+            self.console.print("[#aaaaaa]🛡️ Human-in-the-Loop 已恢复为开启状态[/#aaaaaa]")
         else:
             hitl_mod.SESSION_WHITELIST.clear()
             hitl_mod.PATH_WHITELIST.clear()
@@ -984,11 +984,11 @@ class CommandHandler:
         memories = list_long_term_memories()
         active_count = len(memories)
         if not memories:
-            self.console.print("\n[bold yellow]暂无长期记忆。[/bold yellow] [dim](active: 0)[/dim]")
+            self.console.print("\n[bold yellow]暂无长期记忆。[/bold yellow] [#aaaaaa](active: 0)[/#aaaaaa]")
             return True
 
         table = Table(
-            title=f"[bold cyan]长期记忆[/bold cyan] [dim](active: {active_count})[/dim]",
+            title=f"[bold cyan]长期记忆[/bold cyan] [#aaaaaa](active: {active_count})[/#aaaaaa]",
             box=box.ROUNDED,
             expand=True,
             show_lines=True,
@@ -1040,7 +1040,7 @@ class CommandHandler:
         if len(parts) == 1:
             self.console.print(
                 f"\n[bold cyan]长期记忆容量：{get_memory_size()}[/bold cyan] "
-                f"[dim](当前 active：{get_active_memory_count()})[/dim]"
+                f"[#aaaaaa](当前 active：{get_active_memory_count()})[/#aaaaaa]"
             )
             return True
 
@@ -1093,7 +1093,7 @@ class CommandHandler:
             selected_path = "abort"
 
         if selected_path == "abort":
-            self.console.print("[dim]已取消加载。[/dim]")
+            self.console.print("[#aaaaaa]已取消加载。[/#aaaaaa]")
             return history, current_checkpoint
 
         try:
@@ -1236,7 +1236,7 @@ class CommandHandler:
                     "\n[bold cyan]📋 Plan Mode 已启用[/bold cyan]"
                 )
                 self.console.print(
-                    "[dim]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/dim]"
+                    "[#aaaaaa]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/#aaaaaa]"
                 )
             else:
                 self.console.print(
@@ -1270,7 +1270,7 @@ class CommandHandler:
             status_color = "green" if new_state else "yellow"
             self.console.print(f"\n[bold]🛡️ Human-in-the-Loop 状态: [{status_color}]{status}[/{status_color}][/bold]")
             if not new_state:
-                self.console.print("[dim]⚠️ 警告：所有敏感操作将自动执行，不再需要确认[/dim]")
+                self.console.print("[#aaaaaa]⚠️ 警告：所有敏感操作将自动执行，不再需要确认[/#aaaaaa]")
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /sub-agent-console - 切换 Sub-Agent 的控制台输出状态

@@ -373,13 +373,15 @@ def _init_user_session():
                 event.app.exit(result='__PLAN_MODE_OFF__')
 
         def prompt_continuation(width, line_number, is_soft_wrap):
-            return " " * (width - 4) + " ┃  "
+            return " " * (width - 4) + " │  "
 
         custom_style = Style.from_dict(
             {
-                "prompt": "bold #00ff00",
-                "arrow": "#00ffff bold",
-                "bottom_toolbar": "bg:#3c3c3c fg:#e0e0e0",
+                "prompt": "bold #7dd3fc",
+                "mode-plan": "bold #f59e0b",
+                "mode-act": "bold #22c55e",
+                "arrow": "#a78bfa bold",
+                "bottom_toolbar": "bg:#1a1a2e fg:#e0e0e0",
             }
         )
 
@@ -404,10 +406,14 @@ def _read_user_query(messages: list = None) -> str:
     _init_user_session()
 
     console.print(
-        "\n[dim]💡 Tips：按 [bold]Enter[/bold] 发送消息，按 [bold]Ctrl+N[/bold] 换行，按 [bold]Ctrl+P[/bold] 切换 Plan/Act 模式。[/dim]"
+        "\n[#aaaaaa]Enter 发送 · Ctrl+N 换行 · Ctrl+P 切换 Plan/Act 模式 · 输入 / 使用命令补全[/#aaaaaa]"
     )
 
-    # 将 rprompt 变量名改为 bottom_toolbar
+    from utils.plan_mode import is_plan_mode as _is_plan_mode
+    border_prefix = "╭─ MakeCode "
+    border = border_prefix + "─" * max(1, console.size.width - len(border_prefix))
+    console.print(f"[cyan]{border}[/cyan]")
+
     bottom_toolbar_content = None
     if messages is not None:
         tokens = estimate_tokens(
@@ -416,42 +422,46 @@ def _read_user_query(messages: list = None) -> str:
         )
         pct = (tokens / THRESHOLD) * 100
         color = "ansigreen" if pct < 70 else "ansiyellow" if pct < 90 else "ansired"
-        # 组装 toolbar 内容
-        _tb_bg = "bg:#1a1a2e"
+        toolbar_bg = "bg:#1a1a2e"
         bottom_toolbar_content = []
 
-        # 追加当前模型信息
+        if _is_plan_mode():
+            bottom_toolbar_content.append((f"{toolbar_bg} fg:#ff8800 bold", "📋 Plan "))
+        else:
+            bottom_toolbar_content.append((f"{toolbar_bg} fg:#aaaaaa bold", "🎬 Act "))
+
         current_model = get_current_model_config()
         if current_model:
             model_text = current_model.get_display_text()
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#e0e0e0 bold", f"🤖 Model: {model_text} "))
+            bottom_toolbar_content.append((f"{toolbar_bg} fg:#e0e0e0 bold", f"🤖 Model: {model_text} "))
 
-        # 追加 Token 使用情况
-        bottom_toolbar_content.append((f"{_tb_bg} fg:{color} bold", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) "))
+        bottom_toolbar_content.append((f"{toolbar_bg} fg:{color} bold", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) "))
 
-        # 追加 Plan/Act 模式状态
-        from utils.plan_mode import is_plan_mode as _is_plan_mode
-        if _is_plan_mode():
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#ff8800 bold", "📋 Plan (Ctrl+P 切换) "))
-        else:
-            bottom_toolbar_content.append((f"{_tb_bg} fg:#aaaaaa bold", "🎬 Act (Ctrl+P 切换) "))
-
-        # 追加 HITL 状态
         hitl_on = get_hitl_status()
         hitl_color = "ansigreen" if hitl_on else "ansired"
         hitl_text = "ON" if hitl_on else "OFF"
-        bottom_toolbar_content.append((f"{_tb_bg} fg:{hitl_color} bold", f"🛡️ HITL: {hitl_text}"))
+        bottom_toolbar_content.append((f"{toolbar_bg} fg:{hitl_color} bold", f"🛡️ HITL: {hitl_text}"))
 
     try:
         with patch_stdout():
-            return USER_SESSION.prompt(
-                [
-                    ("class:prompt", " User "),
-                    ("class:arrow", ">> "),
-                ],
-                # 原来的 rprompt=rprompt 替换为 bottom_toolbar
+            if _is_plan_mode():
+                prompt_message = [
+                    ("class:prompt", "│ "),
+                    ("class:mode-plan", "PLAN "),
+                    ("class:arrow", "❯ "),
+                ]
+            else:
+                prompt_message = [
+                    ("class:prompt", "│ "),
+                    ("class:mode-act", "ACT "),
+                    ("class:arrow", "❯ "),
+                ]
+
+            query = USER_SESSION.prompt(
+                prompt_message,
                 bottom_toolbar=bottom_toolbar_content,
             )
+            return query.encode("utf-8", errors="replace").decode("utf-8")
     except Exception as exc:
         log_error_traceback("main user input prompt failure", exc)
         raise
@@ -545,7 +555,7 @@ if __name__ == "__main__":
             # Handle Tab toggle for Plan Mode
             if query == '__PLAN_MODE_ON__':
                 console.print("[bold cyan]📋 Plan Mode 已启用[/bold cyan]")
-                console.print("[dim]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/dim]")
+                console.print("[#aaaaaa]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/#aaaaaa]")
                 continue
             elif query == '__PLAN_MODE_OFF__':
                 console.print("[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]")

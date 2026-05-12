@@ -59,6 +59,7 @@ def upload_file(ftp: FTP, local_path: Path):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     config = load_config()
 
     # 检查文件是否存在

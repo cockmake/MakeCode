@@ -30,11 +30,11 @@ def _get_error_log_path() -> Path:
     return log_path
 
 
-# 确保在 Windows 控制台下可以正确打印 Emoji
+# 确保在 Windows 控制台下可以安全打印 Emoji
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML

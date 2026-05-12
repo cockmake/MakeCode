@@ -21,6 +21,7 @@ def get_sha256(file_path: Path) -> str:
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="生成 version.json 发布文件")
     parser.add_argument("--release_log", required=True, type=Path, help="发布日志文件路径（markdown 格式）")
     args = parser.parse_args()
