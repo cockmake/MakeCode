@@ -394,12 +394,41 @@ def _init_user_session():
             reserve_space_for_menu=5,
             complete_while_typing=True,
         )
+
+        normalizing_buffer = False
+
+        def _normalize_prompt_buffer(buffer):
+            nonlocal normalizing_buffer
+            if normalizing_buffer:
+                return
+
+            text = buffer.text
+            sanitized = _sanitize_user_query(text)
+            if sanitized == text:
+                return
+
+            cursor_position = len(_sanitize_user_query(text[:buffer.cursor_position]))
+            normalizing_buffer = True
+            try:
+                buffer.text = sanitized
+                buffer.cursor_position = cursor_position
+            finally:
+                normalizing_buffer = False
+
+        USER_SESSION.default_buffer.on_text_changed += _normalize_prompt_buffer
     except Exception as exc:
         log_error_traceback("main init user session", exc)
         print_formatted_text(
             HTML(f"\n<ansired>初始化提示会话失败: {exc}</ansired>")
         )
         sys.exit(1)
+
+
+def _sanitize_user_query(query: str) -> str:
+    query = query.encode("utf-16-le", errors="surrogatepass").decode(
+        "utf-16-le", errors="surrogatepass"
+    )
+    return query.encode("utf-8", errors="replace").decode("utf-8")
 
 
 def _read_user_query(messages: list = None) -> str:
@@ -461,7 +490,7 @@ def _read_user_query(messages: list = None) -> str:
                 prompt_message,
                 bottom_toolbar=bottom_toolbar_content,
             )
-            return query.encode("utf-8", errors="replace").decode("utf-8")
+            return _sanitize_user_query(query)
     except Exception as exc:
         log_error_traceback("main user input prompt failure", exc)
         raise

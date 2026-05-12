@@ -1,4 +1,4 @@
-CURRENT_VERSION = "3.6.12"
+CURRENT_VERSION = "3.6.13"
 
 UPDATE_SERVER_URL = "https://starvpn.forwardforever.top"
 VERSION_CHECK_URL = f"{UPDATE_SERVER_URL}/version.json"
