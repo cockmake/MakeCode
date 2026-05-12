@@ -8,9 +8,9 @@ from typing import Any
 
 import aiofiles
 from openai import AsyncOpenAI, pydantic_function_tool
-from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field, ValidationError, model_validator, field_validator
+from rich.text import Text
 
 from init import (
     WORKDIR,
@@ -29,6 +29,34 @@ from system.console_render import (
     _render_tool_output,
     get_sub_agent_console,
 )
+from system.tui_app import TuiRegion, post_tui
+
+
+_STYLE_MAP = {
+    "ansired": "red",
+    "ansigreen": "green",
+    "ansiyellow": "yellow",
+    "ansiblue": "blue",
+    "ansimagenta": "magenta",
+    "ansicyan": "cyan",
+}
+
+
+def _html_to_text(value) -> Text:
+    text = Text()
+    for style, fragment in value.__pt_formatted_text__():
+        rich_style = " ".join(
+            mapped
+            for token in style.replace("class:", "").split(",")
+            if (mapped := _STYLE_MAP.get(token) or ("bold" if token == "b" else ""))
+        )
+        text.append(fragment, style=rich_style or None)
+    return text
+
+
+def print_formatted_text(value):
+    post_tui(TuiRegion.SUB_AGENT, _html_to_text(value) if hasattr(value, "__pt_formatted_text__") else str(value))
+
 from tools.todo import TodoManager, TODO_TOOLS
 from utils.common import (
     COMMON_TOOLS,
@@ -619,9 +647,10 @@ class TeammateManager:
             # 回显子智能体的文本回复到主控制台（如果启用）
             if get_sub_agent_console():
                 kw_args = {
-                    'identity': f"Sub-Agent - #{plan_task_id} - {role}",
+                    'identity': role,
                     'text': text_content,
                     'response_time': response_time,
+                    'tui_region': TuiRegion.BACKGROUND,
                 }
                 await asyncio.to_thread(
                     _safe_render, _render_agent_response_message, **kw_args
@@ -639,7 +668,8 @@ class TeammateManager:
                     kw_args = {
                         'identity': f"Sub-Agent - #{plan_task_id} - {role}",
                         'name': tool_name,
-                        'arguments': tool_args
+                        'arguments': tool_args,
+                        'tui_region': TuiRegion.BACKGROUND,
                     }
                     await asyncio.to_thread(
                         _safe_render, _render_tool_call, **kw_args
@@ -673,6 +703,7 @@ class TeammateManager:
                         'identity': f"Sub-Agent - #{plan_task_id} - {role}",
                         'name': tool_name,
                         'output': output,
+                        'tui_region': TuiRegion.BACKGROUND,
                     }
                     await asyncio.to_thread(
                         _safe_render, _render_tool_output, **kw_args

@@ -1,22 +1,13 @@
 """
 斜杠命令模块 - 负责处理所有内置命令和交互式界面
 """
-import shutil
 import time
-from asyncio import CancelledError
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Any
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.containers import Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.layout import Layout
-from prompt_toolkit.styles import Style
 from rich import box
 from rich.console import Console
 from rich.markdown import Markdown
@@ -26,6 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -145,88 +137,14 @@ def interactive_choose_checkpoint(
 
         options.append((str(cp), desc))
 
-    selected_index = [0]
-    scroll_offset = [0]  # 视口偏移，支持列表滚动
+    choices = []
+    lookup = {}
+    for path_value, desc in options:
+        choices.append(desc)
+        lookup[desc] = path_value
 
-    def _calc_max_visible():
-        """根据终端高度计算可视区域最大选项数"""
-        term_height = shutil.get_terminal_size().lines
-        return max(3, term_height - 5)
-
-    def _adjust_scroll():
-        """确保选中项始终在视口内"""
-        max_vis = _calc_max_visible()
-        if selected_index[0] < scroll_offset[0]:
-            scroll_offset[0] = selected_index[0]
-        elif selected_index[0] >= scroll_offset[0] + max_vis:
-            scroll_offset[0] = selected_index[0] - max_vis + 1
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _go_up(event):
-        if selected_index[0] > 0:
-            selected_index[0] -= 1
-            _adjust_scroll()
-
-    @kb.add("down")
-    def _go_down(event):
-        if selected_index[0] < len(options) - 1:
-            selected_index[0] += 1
-            _adjust_scroll()
-
-    @kb.add("enter")
-    def _confirm(event):
-        event.app.exit(result=options[selected_index[0]][0])
-
-    @kb.add("q")
-    @kb.add("Q")
-    def _quit(event):
-        event.app.exit(result="abort")
-
-    @kb.add("c-c")
-    def _cancel(event):
-        event.app.exit(result="abort")
-
-    def get_formatted_text():
-        result = [("class:title", title)]
-        max_vis = _calc_max_visible()
-        start = scroll_offset[0]
-        end = min(start + max_vis, len(options))
-
-        if start > 0:
-            result.append(("class:indicator", f"     ⬆ ... 还有 {start} 项未显示\n"))
-
-        for i in range(start, end):
-            key, text = options[i]
-            if i == selected_index[0]:
-                result.append(("class:selected", f"👉 {text}\n"))
-            else:
-                result.append(("class:unselected", f"     {text}\n"))
-
-        if end < len(options):
-            remaining = len(options) - end
-            result.append(("class:indicator", f"     ⬇ ... 还有 {remaining} 项未显示\n"))
-
-        return result
-
-    max_vis = _calc_max_visible()
-    visible_count = min(len(options), max_vis)
-    control = FormattedTextControl(get_formatted_text)
-    window = Window(content=control, height=visible_count + 4)
-    layout = Layout(window)
-
-    style = Style(
-        [
-            ("title", "fg:ansicyan bold"),
-            ("selected", "fg:ansigreen bold"),
-            ("unselected", "fg:ansigray"),
-            ("indicator", "fg:ansiyellow"),
-        ]
-    )
-
-    app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
-    return app.run()
+    selected = choose_tui(title.strip(), choices)
+    return lookup.get(selected, "abort")
 
 
 # ============================================================================
@@ -237,117 +155,7 @@ def interactive_switch_mcp_servers(server_switches: list) -> str | dict:
     """交互式切换 MCP 服务启用/禁用状态"""
     if not server_switches:
         return "empty"
-
-    selected_index = [0]
-    scroll_offset = [0]  # 视口偏移，支持列表滚动
-    draft_states = {item["name"]: bool(item["disabled"]) for item in server_switches}
-
-    def _calc_max_visible():
-        """根据终端高度计算可视区域最大选项数"""
-        term_height = shutil.get_terminal_size().lines
-        return max(3, term_height - 7)  # 标题区约占4行 + 指示符 + 边距
-
-    def _adjust_scroll():
-        """确保选中项始终在视口内"""
-        max_vis = _calc_max_visible()
-        if selected_index[0] < scroll_offset[0]:
-            scroll_offset[0] = selected_index[0]
-        elif selected_index[0] >= scroll_offset[0] + max_vis:
-            scroll_offset[0] = selected_index[0] - max_vis + 1
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _go_up(event):
-        if selected_index[0] > 0:
-            selected_index[0] -= 1
-            _adjust_scroll()
-
-    @kb.add("down")
-    def _go_down(event):
-        if selected_index[0] < len(server_switches) - 1:
-            selected_index[0] += 1
-            _adjust_scroll()
-
-    @kb.add("tab")
-    def _toggle(event):
-        if selected_index[0] < len(server_switches):
-            server_name = server_switches[selected_index[0]]["name"]
-            draft_states[server_name] = not draft_states[server_name]
-
-    @kb.add("enter")
-    def _confirm(event):
-        event.app.exit(
-            result={
-                "action": "confirm",
-                "disabled_updates": dict(draft_states),
-            }
-        )
-
-    @kb.add("q")
-    @kb.add("Q")
-    def _quit(event):
-        event.app.exit(result={"action": "cancel"})
-
-    @kb.add("c-c")
-    def _cancel(event):
-        event.app.exit(result={"action": "cancel"})
-
-    def get_formatted_text():
-        lines = [
-            (
-                "class:title",
-                "\n🔀 MCP 服务开关面板\n"
-                " ↑/↓ 选择 | Tab 切换启用/禁用 | Enter 确认应用 | Q 取消\n\n"
-            )
-        ]
-
-        max_vis = _calc_max_visible()
-        start = scroll_offset[0]
-        end = min(start + max_vis, len(server_switches))
-
-        if start > 0:
-            lines.append(("class:indicator", f"     ⬆ ... 还有 {start} 项未显示\n"))
-
-        for i in range(start, end):
-            item = server_switches[i]
-            name = item["name"]
-            disabled = draft_states[name]
-            enabled = not disabled
-            loaded = item.get("loaded", False)
-            marker = "👉" if i == selected_index[0] else "  "
-            switch_box = "[√]" if enabled else "[×]"
-            runtime_txt = "已加载" if loaded else "未加载"
-            status_txt = "启用" if enabled else "禁用"
-            style = "class:selected" if i == selected_index[0] else "class:unselected"
-            lines.append(
-                (
-                    style,
-                    f" {marker}  {switch_box}  {name}    当前草稿: {status_txt}    运行态: {runtime_txt}\n",
-                )
-            )
-
-        if end < len(server_switches):
-            remaining = len(server_switches) - end
-            lines.append(("class:indicator", f"     ⬇ ... 还有 {remaining} 项未显示\n"))
-
-        return lines
-
-    max_vis = _calc_max_visible()
-    visible_count = min(len(server_switches), max_vis)
-    control = FormattedTextControl(get_formatted_text)
-    window = Window(content=control, height=visible_count + 7)
-    layout = Layout(window)
-    style = Style(
-        [
-            ("title", "fg:ansicyan bold"),
-            ("selected", "fg:ansigreen bold"),
-            ("unselected", "fg:ansigray"),
-            ("indicator", "fg:ansiyellow"),
-        ]
-    )
-    app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
-    return app.run()
+    return choose_mcp_switch_tui(server_switches)
 
 
 # ============================================================================
@@ -624,14 +432,9 @@ class CommandHandler:
         if release_notes:
             self.console.print(f"[#aaaaaa]更新内容: {release_notes}[/#aaaaaa]")
 
-        # 确认是否更新
-        from prompt_toolkit import prompt
-        try:
-            answer = prompt("\n是否下载并安装更新？(y/n): ")
-        except KeyboardInterrupt:
-            answer = "n"
+        answer = choose_tui("是否下载并安装更新？", ["是", "否"])
 
-        if answer.lower() != 'y':
+        if answer != '是':
             self.console.print("[#aaaaaa]已取消更新[/#aaaaaa]")
             return True
 
@@ -646,10 +449,10 @@ class CommandHandler:
                 bar_len = 30
                 filled = int(bar_len * downloaded / total)
                 bar = "█" * filled + "░" * (bar_len - filled)
-                progress_text[0] = f"\r  {bar} {pct:.1f}%  ({downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB)"
+                progress_text[0] = f"  {bar} {pct:.1f}%  ({downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB)"
             else:
-                progress_text[0] = f"\r  已下载: {downloaded // 1024 // 1024} MB"
-            print(progress_text[0], end="", flush=True)
+                progress_text[0] = f"  已下载: {downloaded // 1024 // 1024} MB"
+            self.console.print(progress_text[0])
 
         try:
             new_exe_path = download_update(version_info, progress_callback=_progress)
@@ -661,7 +464,6 @@ class CommandHandler:
             self.console.print("\n[bold red]❌ 下载失败，请稍后重试[/bold red]")
             return True
 
-        print()  # 换行
         self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
         self.console.print("[#aaaaaa]程序将自动退出并完成更新，更新后请手动重启程序[/#aaaaaa]")
 
@@ -715,236 +517,11 @@ class CommandHandler:
             self.console.print("\n[bold red]❌ 模型管理器未初始化。[/bold red]")
             return True
 
-        selected_index = [0]
-        message = ["↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出"]
-        kb = KeyBindings()
+        result = manage_models_tui(model_manager)
+        if result.startswith("selected:"):
+            selected_text = result.removeprefix("selected:")
+            self.console.print(f"\n[bold green]✅ 当前模型已切换为: {selected_text}[/bold green]")
 
-        def find_current_model_index():
-            current_model = model_manager.get_current_model()
-            if current_model is None:
-                return None
-            current_key = current_model.key
-            for index, model in enumerate(model_manager.models):
-                if model.key == current_key:
-                    return index
-            return None
-
-        def focus_current_model():
-            current_index = find_current_model_index()
-            if current_index is not None:
-                selected_index[0] = current_index
-
-        def refresh_models(focus_current: bool = False):
-            model_manager._reload_from_disk()
-            if focus_current:
-                focus_current_model()
-            clamp_selection(refresh=False)
-
-        def clamp_selection(refresh: bool = True):
-            if not model_manager.models:
-                selected_index[0] = 0
-            else:
-                selected_index[0] = max(0, min(selected_index[0], len(model_manager.models) - 1))
-
-        refresh_models(focus_current=True)
-
-        async def add_model_flow():
-            def sync_input_flow():
-                self.console.print("\n[bold cyan]➕ 添加模型[/bold cyan]")
-                base_url = input("Base URL: ").strip()
-                api_key = input("API Key: ").strip()
-                model_input = input("Model ID(s)（多个用逗号分隔）: ").strip()
-                return {
-                    "status": "ok",
-                    "base_url": base_url,
-                    "api_key": api_key,
-                    "model_input": model_input,
-                }
-
-            try:
-                result = await run_in_terminal(sync_input_flow)
-            except (EOFError, KeyboardInterrupt, CancelledError):
-                result = {"status": "cancel"}
-            if result.get("status") == "cancel":
-                message[0] = "⏭️ 已取消添加模型。"
-                app.invalidate()
-                return
-
-            base_url = result.get("base_url", "")
-            api_key = result.get("api_key", "")
-            model_input = result.get("model_input", "")
-            model_ids = [item.strip() for item in model_input.replace("，", ",").split(",") if item.strip()]
-
-            if not base_url or not api_key or not model_ids:
-                message[0] = "❌ base_url、api_key、model_id 不能为空。"
-                app.invalidate()
-                return
-
-            added_models = model_manager.add_model(base_url, api_key, model_ids)
-            clamp_selection()
-            if added_models:
-                selected_index[0] = max(0, len(model_manager.models) - len(added_models))
-                message[0] = f"✅ 已添加 {len(added_models)} 个模型。"
-            else:
-                message[0] = "⚠️ 未添加任何新模型，可能都已存在。"
-            app.invalidate()
-
-        async def confirm_delete_flow(delete_key: tuple[str, str, str], display_text: str):
-            def sync_confirm_flow():
-                self.console.print(f"\n[bold yellow]⚠️ 确认删除模型[/bold yellow]\n{display_text}")
-                confirm = input("确认删除？输入 y 确认，其它任意键取消: ").strip().lower()
-                return {"confirmed": confirm in {"y", "yes"}}
-
-            try:
-                result = await run_in_terminal(sync_confirm_flow)
-            except (EOFError, KeyboardInterrupt, CancelledError):
-                result = {"confirmed": False}
-
-            if not result.get("confirmed"):
-                message[0] = f"⏭️ 已取消删除: {display_text}"
-                app.invalidate()
-                return
-
-            if model_manager.delete_model_by_key(delete_key):
-                clamp_selection()
-                message[0] = f"✅ 已删除模型: {display_text}"
-            else:
-                clamp_selection()
-                message[0] = f"⚠️ 模型已不存在: {display_text}"
-            app.invalidate()
-
-        def get_selected_model():
-            refresh_models()
-            if not model_manager.models:
-                message[0] = "⚠️ 当前没有可操作的模型。"
-                return None
-            return model_manager.models[selected_index[0]]
-
-        @kb.add("up")
-        def _go_up(event):
-            clamp_selection(refresh=False)
-            if model_manager.models:
-                selected_index[0] = max(0, selected_index[0] - 1)
-                event.app.invalidate()
-
-        @kb.add("down")
-        def _go_down(event):
-            clamp_selection(refresh=False)
-            if model_manager.models:
-                selected_index[0] = min(len(model_manager.models) - 1, selected_index[0] + 1)
-                event.app.invalidate()
-
-        @kb.add("a")
-        @kb.add("A")
-        def _add(event):
-            event.app.create_background_task(add_model_flow())
-            event.app.invalidate()
-
-        @kb.add("d")
-        @kb.add("D")
-        def _delete(event):
-            target_model = get_selected_model()
-            if target_model is None:
-                event.app.invalidate()
-                return
-            display_text = target_model.get_display_text()
-            delete_key = target_model.key
-            event.app.create_background_task(confirm_delete_flow(delete_key, display_text))
-            event.app.invalidate()
-
-        @kb.add("f")
-        @kb.add("F")
-        def _favorite(event):
-            target_model = get_selected_model()
-            if target_model is None:
-                event.app.invalidate()
-                return
-            before = target_model.is_favorite
-            display_text = target_model.get_display_text()
-            if model_manager.toggle_favorite_by_index(selected_index[0]):
-                state = "设为常用" if not before else "取消常用"
-                message[0] = f"✅ 已{state}: {display_text}"
-            else:
-                message[0] = f"❌ 常用状态切换失败: {display_text}"
-            event.app.invalidate()
-
-        @kb.add("s")
-        @kb.add("S")
-        def _select(event):
-            target_model = get_selected_model()
-            if target_model is None:
-                event.app.invalidate()
-                return
-            display_text = target_model.get_display_text()
-            if model_manager.set_current_model_by_index(selected_index[0]):
-                message[0] = f"✅ 当前模型已切换为: {display_text}"
-            else:
-                message[0] = f"❌ 模型切换失败: {display_text}"
-            event.app.invalidate()
-
-        @kb.add("enter")
-        def _select_and_exit(event):
-            target_model = get_selected_model()
-            if target_model is None:
-                event.app.exit(result=True)
-                return
-            display_text = target_model.get_display_text()
-            model_manager.set_current_model_by_index(selected_index[0])
-            message[0] = f"✅ 当前模型已切换为: {display_text}"
-            event.app.invalidate()
-            event.app.exit(result=True)
-
-        @kb.add("q")
-        @kb.add("Q")
-        @kb.add("c-c")
-        def _quit(event):
-            event.app.exit(result=True)
-
-        def get_formatted_text():
-            clamp_selection(refresh=False)
-            current_model = model_manager.get_current_model()
-            current_key = current_model.key if current_model else None
-            result = [
-                ("class:title", "⚙️ 模型管理面板\n"),
-                ("class:hint",
-                 "↑/↓ 选择模型   A 添加   D 删除   F 常用切换   S 设为当前   Enter 选中并退出   Q 退出\n"),
-                ("class:hint", "✓ 当前终端模型   ♥ 常用模型   模型列表为共享配置\n\n"),
-            ]
-            if not model_manager.models:
-                result.append(("class:empty", "  暂无模型。按 A 添加模型，按 Q 退出。\n"))
-            else:
-                for index, model in enumerate(model_manager.models):
-                    selected = index == selected_index[0]
-                    markers = []
-                    if model.key == current_key:
-                        markers.append("✓")
-                    if model.is_favorite:
-                        markers.append("♥")
-                    marker_text = " ".join(markers) if markers else " "
-                    line = f"  {index + 1:>2}. [{marker_text:^3}] {model.get_display_text()}\n"
-                    result.append(("class:selected" if selected else "class:unselected", line))
-            result.append(("class:message", f"\n{message[0]}\n"))
-            return result
-
-        app = Application(
-            layout=Layout(Window(content=FormattedTextControl(get_formatted_text))),
-            key_bindings=kb,
-            style=Style.from_dict(
-                {
-                    "title": "bold #00ffff",
-                    "hint": "#aaaaaa",
-                    "selected": "bold #00ffff",
-                    "unselected": "#ffffff",
-                    "empty": "#ffff00",
-                    "message": "#ffff00",
-                }
-            ),
-            full_screen=False,
-        )
-        try:
-            app.run()
-        except KeyboardInterrupt:
-            pass
         current_model = model_manager.get_current_model()
         current_text = current_model.get_display_text() if current_model else "未选择"
         self.console.print(f"\n[bold cyan]已退出模型面板，当前模型：[/bold cyan][bold green]{current_text}[/bold green]")
@@ -961,6 +538,14 @@ class CommandHandler:
 
         history.clear()
         history.append({"role": "system", "content": self.get_system_prompt_fn()})
+        for region in (
+            TuiRegion.CONTENT,
+            TuiRegion.TOOLS,
+            TuiRegion.REASONING,
+            TuiRegion.BACKGROUND,
+            TuiRegion.SUB_AGENT,
+        ):
+            post_tui(region, "", clear=True)
         self.console.print(
             "\n[bold green]✨ 对话历史已清空，开启全新会话！[/bold green]"
         )

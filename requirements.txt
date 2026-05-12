@@ -6,6 +6,7 @@ python_frontmatter
 PyYAML
 Requests
 rich
+textual
 tiktoken
 aiofiles
 tree_sitter_language_pack

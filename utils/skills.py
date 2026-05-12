@@ -3,11 +3,15 @@ from pathlib import Path
 
 import frontmatter
 from openai import pydantic_function_tool
-from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field
 
 from init import WORKDIR
+from system.tui_app import TuiRegion, post_tui
+
+
+def print_formatted_text(value):
+    post_tui(TuiRegion.STATUS, str(value))
 
 SKILLS_DIR = WORKDIR / "skills"
 DEFAULT_SKILLS_PROMPT_ENABLED = True

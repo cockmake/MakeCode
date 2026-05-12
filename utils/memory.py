@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 
 from openai import pydantic_function_tool
-from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field
 from rich.markdown import Markdown
@@ -13,8 +12,13 @@ from rich.table import Table
 from init import WORKDIR
 from system.console_render import _render_tool_call, _render_tool_output, console as _compact_console
 from system.stream_render import StreamRenderer
+from system.tui_app import TuiRegion, post_tui
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
+
+
+def print_formatted_text(value):
+    post_tui(TuiRegion.STATUS, str(value))
 
 THRESHOLD = 1024 * 180
 MAKECODE_DIR = WORKDIR / ".makecode"
@@ -24,7 +28,7 @@ MEMORY_DIR = MAKECODE_DIR / "memory"
 MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
 MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
 DEFAULT_MEMORY_SIZE = 30
-KEEP_RECENT_TOOL_CALL = 100
+KEEP_RECENT_TOOL_CALL = 144
 
 
 class AppendLongTermMemory(BaseModel):
@@ -264,7 +268,7 @@ def memory_agent_loop(
         max_iterations: int = 5,
 ) -> list[dict]:
     _compact_console.print("\n[bold yellow]🧠 Managing long-term memory...[/bold yellow]")
-    _compact_console.rule("[bold yellow]Memory[/bold yellow]", style="yellow")
+    _compact_console.rule("[bold yellow]📓 Memory[/bold yellow]", style="yellow")
     saved_outputs = []
     messages = llm_client.get_memory_decision_messages(
         conversation_text,

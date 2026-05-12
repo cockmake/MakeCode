@@ -1,13 +1,11 @@
 import time
 from typing import Iterator, Tuple, List, Any
 
-from rich.align import Align
-from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
-from rich.rule import Rule
-from rich.padding import Padding
-from rich.spinner import Spinner
+from rich.text import Text
+
+from system.stream_cancel import is_cancelled
+from system.tui_app import TuiRegion, post_tui
 
 
 class StreamRenderer:
@@ -16,8 +14,8 @@ class StreamRenderer:
     思考过程与正文按完整 Markdown 段落增量输出，不使用强制刷新。
     """
 
-    def __init__(self, console: Console = None, update_interval: float = 0.05):
-        self.console = console or Console()
+    def __init__(self, console=None, update_interval: float = 0.05):
+        self.console = console
         self.update_interval = update_interval
 
     def render_text_stream(self, stream_generator: Iterator[dict]) -> Tuple[str, List, Any]:
@@ -29,6 +27,8 @@ class StreamRenderer:
 
         try:
             for event in stream_generator:
+                if is_cancelled():
+                    break
                 event_type = event.get("type")
 
                 if event_type == "text":
@@ -44,12 +44,14 @@ class StreamRenderer:
                         text_content = text_content_done
                         if text_content.startswith(emitted_text):
                             live_buffer = text_content[len(emitted_text):]
-                    if not live_buffer and text_content and not emitted_text:
-                        live_buffer = text_content
                     break
 
         finally:
-            self._safe_cleanup(live_buffer)
+            if live_buffer and not is_cancelled():
+                self._safe_cleanup(live_buffer)
+
+        if is_cancelled():
+            return "", [], None
 
         return text_content, tool_calls, raw_message
 
@@ -69,38 +71,35 @@ class StreamRenderer:
         reasoning_content = ""
         reasoning_buffer = ""
 
-        waiting_live = Live(
-            Align.center(Spinner("bouncingBar", text=f"[bold yellow]Awakening {agent_name}...[/bold yellow]")),
-            console=self.console,
-            transient=True,
-            refresh_per_second=4,
-        )
-        waiting_live.start()
+        post_tui(TuiRegion.STATUS, f"Awakening {agent_name}...")
 
         try:
             for event in stream_generator:
+                if is_cancelled():
+                    break
                 event_type = event.get("type")
 
                 if event_type == "reasoning":
-                    waiting_live.stop()
+                    post_tui(TuiRegion.STATUS, f"{agent_name} reasoning")
                     reasoning_content, reasoning_buffer, reasoning_started = self._handle_reasoning(
                         event["content"], reasoning_content, reasoning_buffer, reasoning_started
                     )
 
                 elif event_type == "text":
-                    if not text_started:
-                        waiting_live.stop()
-                        if reasoning_buffer:
-                            self._safe_cleanup(reasoning_buffer)
-                            reasoning_buffer = ""
-                        self._start_text_section(reasoning_started)
-                        text_started = True
-
                     chunk = event["content"]
                     text_content += chunk
                     live_buffer += chunk
-                    live_buffer, emitted_chunk = self._process_block_commit(text_content, live_buffer)
-                    emitted_text += emitted_chunk
+
+                    if not text_started and text_content.strip():
+                        if reasoning_buffer:
+                            self._safe_cleanup(reasoning_buffer, region=TuiRegion.REASONING)
+                            reasoning_buffer = ""
+                        self._start_text_section(agent_name, reasoning_started)
+                        text_started = True
+
+                    if text_started:
+                        live_buffer, emitted_chunk = self._process_block_commit(text_content, live_buffer)
+                        emitted_text += emitted_chunk
 
                 elif event_type == "done":
                     text_content_done, tool_calls, raw_message = event["content"]
@@ -111,43 +110,49 @@ class StreamRenderer:
                     break
 
         finally:
-            waiting_live.stop()
-            self._safe_cleanup(reasoning_buffer)
-            self._safe_cleanup(live_buffer)
+            self._safe_cleanup(reasoning_buffer, region=TuiRegion.REASONING)
+            if live_buffer and text_started and not is_cancelled():
+                self._safe_cleanup(live_buffer)
 
-        self._handle_fallback(text_content, reasoning_started, text_started)
+        if is_cancelled():
+            self._print_cancelled(agent_name, start_time)
+            return "", [], None
+
+        self._handle_fallback(agent_name, text_content, reasoning_started, text_started)
         self._print_footer(agent_name, start_time)
 
         return text_content, tool_calls, raw_message
     # ==================== 私有辅助方法 ====================
 
     def _print_header(self, name: str):
-        self.console.print()
-        self.console.rule(f"[bold magenta] 🧠 {name} [/bold magenta]", style="magenta")
+        post_tui(TuiRegion.STATUS, f"{name} started")
 
     def _print_footer(self, name: str, start_time: float):
         elapsed = time.perf_counter() - start_time
-        self.console.rule(f"[bold magenta] 🧠 {name} ({elapsed:.2f}s) [/bold magenta]", style="magenta")
-        self.console.print()
+        post_tui(TuiRegion.CONTENT, Text(f"✓ {name} completed in {elapsed:.2f}s", style="#aaaaaa"))
+        post_tui(TuiRegion.STATUS, f"{name} completed in {elapsed:.2f}s")
+
+    def _print_cancelled(self, name: str, start_time: float):
+        elapsed = time.perf_counter() - start_time
+        post_tui(TuiRegion.CONTENT, Text(f"⚠ {name} cancelled in {elapsed:.2f}s", style="#f59e0b"))
+        post_tui(TuiRegion.STATUS, f"{name} cancelled")
 
     def _handle_reasoning(self, content: str, reasoning_content: str, reasoning_buffer: str, is_started: bool):
         if not is_started:
-            self.console.print("[bold cyan]💭 Reasoning...[/bold cyan]\n")
+            post_tui(TuiRegion.REASONING, "[bold cyan]💭 Reasoning...[/bold cyan]")
 
         reasoning_content += content
         reasoning_buffer += content
-        reasoning_buffer, _ = self._process_block_commit(reasoning_content, reasoning_buffer)
+        reasoning_buffer, _ = self._process_block_commit(reasoning_content, reasoning_buffer, region=TuiRegion.REASONING)
 
         return reasoning_content, reasoning_buffer, True
 
-    def _start_text_section(self, reasoning_started: bool):
+    def _start_text_section(self, name: str, reasoning_started: bool):
         if reasoning_started:
-            self.console.print()
-            self.console.print(Padding(Rule(style="dim")))
+            post_tui(TuiRegion.CONTENT, "")
+        post_tui(TuiRegion.CONTENT, f"[bold cyan]💬 {name} Content...[/bold cyan]")
 
-        self.console.print("[bold green]✍️ Content:[/bold green]\n")
-
-    def _process_block_commit(self, full_text: str, current_buffer: str) -> tuple[str, str]:
+    def _process_block_commit(self, full_text: str, current_buffer: str, region: TuiRegion = TuiRegion.CONTENT) -> tuple[str, str]:
         """
         增量渲染逻辑：
         如果段落结束，将完整段落输出为 Markdown，并保留未完成的尾部 buffer。
@@ -159,23 +164,20 @@ class StreamRenderer:
             parts = current_buffer.rsplit("\n\n", 1)
             if len(parts) == 2:
                 complete_blocks, remaining_buffer = parts
-                self.console.print(Markdown(complete_blocks))
-                self.console.print()
+                post_tui(region, Markdown(complete_blocks))
                 return remaining_buffer, f"{complete_blocks}\n\n"
 
         return current_buffer, ""
 
-    def _safe_cleanup(self, buffer: str):
+    def _safe_cleanup(self, buffer: str, region: TuiRegion = TuiRegion.CONTENT):
         """流结束时输出剩余内容。"""
         if buffer.strip():
-            self.console.print(Markdown(buffer))
+            post_tui(region, Markdown(buffer))
 
-    def _handle_fallback(self, content: str, reasoning_started: bool, text_started: bool):
-        if not text_started and content:
-            if reasoning_started:
-                self.console.print()
-                self.console.print(Padding(Rule(style="dim"), (1, 0)))
-            self.console.print(Markdown(content))
+    def _handle_fallback(self, name: str, content: str, reasoning_started: bool, text_started: bool):
+        if not text_started and content.strip():
+            self._start_text_section(name, reasoning_started)
+            post_tui(TuiRegion.CONTENT, Markdown(content))
         elif not reasoning_started and not text_started:
-            self.console.print()
+            post_tui(TuiRegion.CONTENT, "")
 

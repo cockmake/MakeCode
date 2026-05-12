@@ -5,8 +5,36 @@ import threading
 from pathlib import Path
 
 from fastmcp import Client
-from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import HTML
+from rich.text import Text
+
+from system.tui_app import TuiRegion, post_tui
+
+
+_STYLE_MAP = {
+    "ansired": "red",
+    "ansigreen": "green",
+    "ansiyellow": "yellow",
+    "ansiblue": "blue",
+    "ansimagenta": "magenta",
+    "ansicyan": "cyan",
+}
+
+
+def _html_to_text(value) -> Text:
+    text = Text()
+    for style, fragment in value.__pt_formatted_text__():
+        rich_style = " ".join(
+            mapped
+            for token in style.replace("class:", "").split(",")
+            if (mapped := _STYLE_MAP.get(token) or ("bold" if token == "b" else ""))
+        )
+        text.append(fragment, style=rich_style or None)
+    return text
+
+
+def print_formatted_text(value):
+    post_tui(TuiRegion.BACKGROUND, _html_to_text(value) if hasattr(value, "__pt_formatted_text__") else str(value))
 
 # 使用安装目录的配置
 from init import INSTALL_MAKECODE_DIR

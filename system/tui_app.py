@@ -1,0 +1,1360 @@
+from __future__ import annotations
+
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future
+from dataclasses import dataclass
+from enum import StrEnum
+from queue import Queue
+from typing import Any
+
+from rich.console import RenderableType
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.events import Key, Resize
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static, TextArea
+
+
+class TuiRegion(StrEnum):
+    CONTENT = "content"
+    REASONING = "reasoning"
+    TOOLS = "tools"
+    BACKGROUND = "background"
+    SUB_AGENT = "sub_agent"
+    STATUS = "status"
+    RUNTIME_INFO = "runtime_info"
+
+
+@dataclass(frozen=True)
+class TuiEvent:
+    region: TuiRegion
+    payload: Any
+    clear: bool = False
+
+
+class TuiBridge:
+    def __init__(self) -> None:
+        self._app: MakeCodeTuiApp | None = None
+        self._app_thread_id: int | None = None
+        self._pending: Queue[TuiEvent] = Queue()
+        self._lock = threading.Lock()
+
+    def bind(self, app: "MakeCodeTuiApp") -> None:
+        with self._lock:
+            self._app = app
+            self._app_thread_id = threading.get_ident()
+            pending: list[TuiEvent] = []
+            while not self._pending.empty():
+                pending.append(self._pending.get())
+        for event in pending:
+            self._dispatch_event(app, event)
+
+    def unbind(self, app: "MakeCodeTuiApp") -> None:
+        with self._lock:
+            if self._app is app:
+                self._app = None
+                self._app_thread_id = None
+
+    def post(self, region: TuiRegion | str, payload: Any, *, clear: bool = False) -> None:
+        event = TuiEvent(TuiRegion(region), payload, clear)
+        with self._lock:
+            app = self._app
+            if app is None:
+                self._pending.put(event)
+                return
+        self._dispatch_event(app, event)
+
+    def choose(self, title: str, options: list[str], *, allow_custom: bool = False) -> str:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return "<cancelled>"
+        future: Future[str] = Future()
+        if self._is_app_thread():
+            app.open_choice_modal(title, options, allow_custom, future)
+        else:
+            app.call_from_thread(app.open_choice_modal, title, options, allow_custom, future)
+        return future.result()
+
+    def choose_add_model(self) -> dict[str, str] | None:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return None
+        future: Future[dict[str, str] | None] = Future()
+        if self._is_app_thread():
+            app.open_add_model_modal(future)
+        else:
+            app.call_from_thread(app.open_add_model_modal, future)
+        return future.result()
+
+    def choose_mcp_switch(self, server_switches: list[dict[str, Any]]) -> str | dict:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return {"action": "cancel"}
+        future: Future[str | dict] = Future()
+        if self._is_app_thread():
+            app.open_mcp_switch_modal(server_switches, future)
+        else:
+            app.call_from_thread(app.open_mcp_switch_modal, server_switches, future)
+        return future.result()
+
+    def manage_models(self, model_manager: Any) -> str:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return "<cancelled>"
+        future: Future[str] = Future()
+        if self._is_app_thread():
+            app.open_model_manager_modal(model_manager, future)
+        else:
+            app.call_from_thread(app.open_model_manager_modal, model_manager, future)
+        return future.result()
+
+    def _dispatch_event(self, app: "MakeCodeTuiApp", event: TuiEvent) -> None:
+        if self._is_app_thread():
+            app.handle_tui_event(event)
+        else:
+            app.call_from_thread(app.handle_tui_event, event)
+
+    def _is_app_thread(self) -> bool:
+        with self._lock:
+            return self._app_thread_id == threading.get_ident()
+
+    def set_agent_loop_active(self, active: bool) -> None:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return
+        if self._is_app_thread():
+            app.set_agent_loop_active(active)
+        else:
+            app.call_from_thread(app.set_agent_loop_active, active)
+
+
+TUI_BRIDGE = TuiBridge()
+
+
+class ChoiceModal(ModalScreen[str]):
+    CSS = """
+    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal {
+        align: center middle;
+    }
+
+    #choice-dialog {
+        width: 70%;
+        height: auto;
+        max-height: 80%;
+        border: round #f59e0b;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #choice-title {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #choice-list {
+        height: auto;
+        max-height: 16;
+    }
+
+    #custom-input {
+        margin-top: 1;
+    }
+
+    #custom-actions {
+        height: 3;
+        margin-top: 1;
+    }
+
+    #custom-cancel {
+        width: 14;
+    }
+
+    #model-form-dialog {
+        width: 72;
+        height: auto;
+        border: round #f59e0b;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    .model-form-label {
+        height: 1;
+        margin-top: 1;
+    }
+
+    .model-form-input {
+        margin-top: 0;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("q", "cancel", "Cancel", priority=True),
+        Binding("enter", "confirm", "Confirm", priority=True),
+    ]
+
+    def __init__(self, title: str, options: list[str], allow_custom: bool = False) -> None:
+        super().__init__()
+        self._title = title
+        self._options = options
+        self._allow_custom = allow_custom
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="choice-dialog"):
+            yield Label(self._title, id="choice-title")
+            if self._options:
+                yield ListView(*[ListItem(Label(option)) for option in self._options], id="choice-list")
+            if self._allow_custom:
+                yield Input(placeholder="自定义输入，Enter 提交", id="custom-input")
+                with Horizontal(id="custom-actions"):
+                    yield Button("取消", id="custom-cancel", variant="warning")
+
+    def on_mount(self) -> None:
+        if self._options:
+            choice_list = self.query_one("#choice-list", ListView)
+            choice_list.index = 0
+            choice_list.focus()
+        elif self._allow_custom:
+            self.query_one("#custom-input", Input).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.dismiss(self._options[event.list_view.index or 0])
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            self.action_confirm()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "escape":
+            self.action_cancel()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "q" and not isinstance(self.focused, Input):
+            self.action_cancel()
+            event.stop()
+            event.prevent_default()
+            return
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = event.value.strip()
+        self.dismiss(value if value else "<empty_input>")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "custom-cancel":
+            self.action_cancel()
+            return
+
+    def action_confirm(self) -> None:
+        focused = self.focused
+        if isinstance(focused, Input):
+            value = focused.value.strip()
+            self.dismiss(value if value else "<empty_input>")
+            return
+        if self._options:
+            choice_list = self.query_one("#choice-list", ListView)
+            index = choice_list.index if choice_list.index is not None else 0
+            self.dismiss(self._options[index])
+        elif self._allow_custom:
+            value = self.query_one("#custom-input", Input).value.strip()
+            self.dismiss(value if value else "<empty_input>")
+
+    def action_cancel(self) -> None:
+        self.dismiss("<cancelled>")
+
+
+class McpSwitchModal(ModalScreen[str | dict]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("enter", "confirm_or_toggle", "Toggle/Confirm", priority=True),
+        Binding("space", "toggle", "Toggle", priority=True),
+    ]
+
+    def __init__(self, server_switches: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self._server_switches = server_switches
+        self._draft_states = {item["name"]: bool(item["disabled"]) for item in server_switches}
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="choice-dialog"):
+            yield Label("🔀 MCP 服务开关面板\n选择服务可切换启用/禁用；选择确认应用保存。", id="choice-title")
+            yield ListView(*[ListItem(Label(label)) for label in self._labels()], id="choice-list")
+
+    def on_mount(self) -> None:
+        choice_list = self.query_one("#choice-list", ListView)
+        choice_list.index = 0
+        choice_list.focus()
+
+    def _labels(self) -> list[str]:
+        choices = []
+        for item in self._server_switches:
+            choices.append(self._server_label(item))
+        choices.extend(["确认应用", "取消"])
+        return choices
+
+    def _server_label(self, item: dict[str, Any]) -> str:
+        name = item["name"]
+        enabled = not self._draft_states[name]
+        loaded = item.get("loaded", False)
+        switch_box = "[√]" if enabled else "[×]"
+        runtime_txt = "已加载" if loaded else "未加载"
+        status_txt = "启用" if enabled else "禁用"
+        return f"{switch_box} {name}    当前草稿: {status_txt}    运行态: {runtime_txt}"
+
+    def _selected_index(self) -> int:
+        choice_list = self.query_one("#choice-list", ListView)
+        return choice_list.index if choice_list.index is not None else 0
+
+    def _refresh_server_row(self, index: int) -> None:
+        choice_list = self.query_one("#choice-list", ListView)
+        label = choice_list.children[index].query_one(Label)
+        label.update(self._server_label(self._server_switches[index]))
+        choice_list.index = index
+        choice_list.focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.action_confirm_or_toggle()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            self.action_confirm_or_toggle()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "space":
+            self.action_toggle()
+            event.stop()
+            event.prevent_default()
+            return
+
+    def action_confirm_or_toggle(self) -> None:
+        index = self._selected_index()
+        if index < len(self._server_switches):
+            self._toggle_index(index)
+            return
+        if index == len(self._server_switches):
+            self.dismiss({"action": "confirm", "disabled_updates": dict(self._draft_states)})
+            return
+        self.dismiss({"action": "cancel"})
+
+    def action_toggle(self) -> None:
+        index = self._selected_index()
+        if index < len(self._server_switches):
+            self._toggle_index(index)
+
+    def _toggle_index(self, index: int) -> None:
+        name = self._server_switches[index]["name"]
+        self._draft_states[name] = not self._draft_states[name]
+        self._refresh_server_row(index)
+
+
+class ModelPanelModal(ModalScreen[str]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("enter", "select", "Select", priority=True),
+        Binding("f", "favorite", "Favorite", priority=True),
+        Binding("d", "delete", "Delete", priority=True),
+    ]
+
+    def __init__(self, title: str, options: list[str]) -> None:
+        super().__init__()
+        self._title = title
+        self._options = options
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="choice-dialog"):
+            yield Label(self._title, id="choice-title")
+            yield ListView(*[ListItem(Label(option)) for option in self._options], id="choice-list")
+
+    def on_mount(self) -> None:
+        choice_list = self.query_one("#choice-list", ListView)
+        choice_list.index = 0
+        choice_list.focus()
+
+    def _selected_index(self) -> int:
+        choice_list = self.query_one("#choice-list", ListView)
+        return choice_list.index if choice_list.index is not None else 0
+
+    def _dismiss_action(self, action: str) -> None:
+        self.dismiss(f"{action}:{self._selected_index()}")
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.action_select()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            self.action_select()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "f":
+            self.action_favorite()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "d":
+            self.action_delete()
+            event.stop()
+            event.prevent_default()
+            return
+
+    def action_select(self) -> None:
+        self._dismiss_action("select")
+
+    def action_favorite(self) -> None:
+        self._dismiss_action("favorite")
+
+    def action_delete(self) -> None:
+        self._dismiss_action("delete")
+
+
+class ModelManagerModal(ModalScreen[str]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("enter", "select", "Select", priority=True),
+        Binding("f", "favorite", "Favorite", priority=True),
+        Binding("d", "delete", "Delete", priority=True),
+        Binding("y", "confirm_delete", "Confirm Delete", priority=True),
+        Binding("n", "cancel_delete", "Cancel Delete", priority=True),
+    ]
+
+    def __init__(self, model_manager: Any) -> None:
+        super().__init__()
+        self._model_manager = model_manager
+        self._model_keys: list[tuple[str, str, str] | None] = []
+        self._pending_delete_key: tuple[str, str, str] | None = None
+        self._pending_delete_index: int | None = None
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="choice-dialog"):
+            yield Label("⚙️ 模型管理面板\nEnter 选择当前模型并关闭；f 切换常用；d 删除；选择添加模型可新增配置。", id="choice-title")
+            yield ListView(id="choice-list")
+
+    def on_mount(self) -> None:
+        self._reload_rows(0)
+
+    def _selected_index(self) -> int:
+        choice_list = self.query_one("#choice-list", ListView)
+        return choice_list.index if choice_list.index is not None else 0
+
+    def _model_label(self, model: Any, current_key: tuple[str, str, str] | None) -> str:
+        markers = []
+        if model.key == current_key:
+            markers.append("✓")
+        if model.is_favorite:
+            markers.append("♥")
+        marker_text = " ".join(markers) if markers else " "
+        return f"[{marker_text:^3}] {model.get_display_text()}"
+
+    def _reload_rows(self, selected_index: int | None = None) -> None:
+        self._pending_delete_key = None
+        self._pending_delete_index = None
+        self._reset_title()
+        self._model_manager._reload_from_disk()
+        current_model = self._model_manager.get_current_model()
+        current_key = current_model.key if current_model else None
+        labels = ["➕ 添加模型"]
+        keys: list[tuple[str, str, str] | None] = [None]
+        for model in self._model_manager.models:
+            labels.append(self._model_label(model, current_key))
+            keys.append(model.key)
+        labels.append("退出")
+        keys.append(None)
+        self._model_keys = keys
+
+        choice_list = self.query_one("#choice-list", ListView)
+        choice_list.clear()
+
+        def _mount_rows() -> None:
+            choice_list.extend(ListItem(Label(label)) for label in labels)
+            max_index = max(len(labels) - 1, 0)
+            choice_list.index = min(selected_index or 0, max_index)
+            choice_list.focus()
+
+        self.call_after_refresh(_mount_rows)
+
+    def _refresh_model_row_by_key(self, model_key: tuple[str, str, str]) -> None:
+        index = next((index for index, key in enumerate(self._model_keys) if key == model_key), None)
+        if index is None:
+            return
+        model = next((model for model in self._model_manager.models if model.key == model_key), None)
+        if model is None:
+            return
+        current_model = self._model_manager.get_current_model()
+        current_key = current_model.key if current_model else None
+        choice_list = self.query_one("#choice-list", ListView)
+        label = choice_list.children[index].query_one(Label)
+        label.update(self._model_label(model, current_key))
+        choice_list.index = index
+        choice_list.focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.action_select()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            self.action_select()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "f":
+            self.action_favorite()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "d":
+            self.action_delete()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "y":
+            self.action_confirm_delete()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "n":
+            self.action_cancel_delete()
+            event.stop()
+            event.prevent_default()
+            return
+
+    def action_select(self) -> None:
+        index = self._selected_index()
+        if index == 0:
+            self._add_model(index)
+            return
+        if index == len(self._model_keys) - 1:
+            self.dismiss("exit")
+            return
+        model_key = self._model_keys[index]
+        if model_key is None:
+            return
+        target_index = self._target_index(model_key)
+        if target_index is None:
+            self._reload_rows(index)
+            return
+        selected_model = self._model_manager.models[target_index]
+        if self._model_manager.set_current_model_by_index(target_index):
+            self.dismiss(f"selected:{selected_model.get_display_text()}")
+
+    def action_favorite(self) -> None:
+        index = self._selected_index()
+        if index == 0 or index == len(self._model_keys) - 1:
+            return
+        model_key = self._model_keys[index]
+        if model_key is None:
+            return
+        target_index = self._target_index(model_key)
+        if target_index is None:
+            self._reload_rows(index)
+            return
+        if self._model_manager.toggle_favorite_by_index(target_index):
+            self._refresh_model_row_by_key(model_key)
+
+    def action_delete(self) -> None:
+        index = self._selected_index()
+        if index == 0 or index == len(self._model_keys) - 1:
+            return
+        model_key = self._model_keys[index]
+        if model_key is None:
+            return
+        target_index = self._target_index(model_key)
+        if target_index is None:
+            self._reload_rows(index)
+            return
+        selected_model = self._model_manager.models[target_index]
+        self._pending_delete_key = model_key
+        self._pending_delete_index = index
+        self.query_one("#choice-title", Label).update(
+            "⚠️ 确认删除模型？\n"
+            f"{selected_model.get_display_text()}\n"
+            "按 y 确认删除，按 n 取消。"
+        )
+
+    def action_confirm_delete(self) -> None:
+        if self._pending_delete_key is None:
+            return
+        selected_index = self._pending_delete_index or self._selected_index()
+        self._model_manager.delete_model_by_key(self._pending_delete_key)
+        self._reload_rows(selected_index)
+
+    def action_cancel_delete(self) -> None:
+        selected_index = self._pending_delete_index or self._selected_index()
+        self._pending_delete_key = None
+        self._pending_delete_index = None
+        self._reset_title()
+        choice_list = self.query_one("#choice-list", ListView)
+        choice_list.index = selected_index
+        choice_list.focus()
+
+    def _reset_title(self) -> None:
+        self.query_one("#choice-title", Label).update(
+            "⚙️ 模型管理面板\nEnter 选择当前模型并关闭；f 切换常用；d 删除；选择添加模型可新增配置。"
+        )
+
+    def _add_model(self, selected_index: int) -> None:
+        self.app.push_screen(AddModelModal(), lambda model_config: self._finish_add_model(model_config, selected_index))
+
+    def _finish_add_model(self, model_config: dict[str, str] | None, selected_index: int) -> None:
+        if model_config is None:
+            self._reload_rows(selected_index)
+            return
+        model_ids = [
+            item.strip()
+            for item in model_config["model_input"].replace("，", ",").split(",")
+            if item.strip()
+        ]
+        self._model_manager.add_model(model_config["base_url"], model_config["api_key"], model_ids)
+        self._reload_rows(selected_index)
+
+    def _target_index(self, model_key: tuple[str, str, str]) -> int | None:
+        return next(
+            (index for index, model in enumerate(self._model_manager.models) if model.key == model_key),
+            None,
+        )
+
+
+class AddModelModal(ModalScreen[dict[str, str] | None]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("enter", "submit", "Submit", priority=True),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="model-form-dialog"):
+            yield Label("➕ 添加模型", id="choice-title")
+            yield Label("Base URL", classes="model-form-label")
+            yield Input(placeholder="https://api.example.com/v1", id="model-base-url", classes="model-form-input")
+            yield Label("API Key", classes="model-form-label")
+            yield Input(placeholder="API Key", password=True, id="model-api-key", classes="model-form-input")
+            yield Label("Model ID(s)（多个用逗号分隔）", classes="model-form-label")
+            yield Input(placeholder="model-a, model-b", id="model-ids", classes="model-form-input")
+            with Horizontal(id="custom-actions"):
+                yield Button("取消", id="custom-cancel", variant="warning")
+
+    def on_mount(self) -> None:
+        self.query_one("#model-base-url", Input).focus()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            self.action_submit()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "escape":
+            self.action_cancel()
+            event.stop()
+            event.prevent_default()
+            return
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "custom-cancel":
+            self.action_cancel()
+
+    def action_submit(self) -> None:
+        base_url = self.query_one("#model-base-url", Input).value.strip()
+        api_key = self.query_one("#model-api-key", Input).value.strip()
+        model_input = self.query_one("#model-ids", Input).value.strip()
+        if not base_url or not api_key or not model_input:
+            return
+        self.dismiss({"base_url": base_url, "api_key": api_key, "model_input": model_input})
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class MakeCodeInput(TextArea):
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        app = self.app
+        if not isinstance(app, MakeCodeTuiApp):
+            return
+        app.update_input_height()
+
+    def _on_key(self, event: Key) -> None:
+        app = self.app
+        if not isinstance(app, MakeCodeTuiApp):
+            return
+        if event.key == "enter":
+            app.submit_current_input()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "ctrl+n":
+            app.action_insert_newline()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "ctrl+p":
+            app.action_toggle_plan_mode()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "ctrl+c":
+            app.action_cancel_response()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "escape":
+            app.action_cancel_response()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "tab":
+            app.complete_slash_command()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "up" and app.slash_hint_visible:
+            app.move_slash_selection(-1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "down" and app.slash_hint_visible:
+            app.move_slash_selection(1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "up":
+            if not app.should_navigate_input_history(-1):
+                return
+            app.navigate_input_history(-1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "down":
+            if not app.should_navigate_input_history(1):
+                return
+            app.navigate_input_history(1)
+            event.stop()
+            event.prevent_default()
+            return
+        self.call_after_refresh(app.update_input_height)
+        self.call_after_refresh(app.update_slash_hint)
+
+
+class MakeCodeTuiApp(App[None]):
+    ENABLE_COMMAND_PALETTE = False
+
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+
+    #main-grid {
+        height: 1fr;
+        min-height: 10;
+    }
+
+    #left-column {
+        width: 2fr;
+        height: 1fr;
+    }
+
+    #right-column {
+        width: 1fr;
+        height: 1fr;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    .pane {
+        border: round #3b82f6;
+        padding: 0 1;
+    }
+
+    #content-pane {
+        height: 1fr;
+    }
+
+    #tools-pane {
+        height: 1fr;
+    }
+
+    #reasoning-pane {
+        height: 1fr;
+    }
+
+    #background-pane {
+        height: 1fr;
+    }
+
+    #sub-agent-pane {
+        height: 1fr;
+    }
+
+    #bottom-grid {
+        height: auto;
+        min-height: 3;
+    }
+
+    #bottom-grid.hidden {
+        display: none;
+    }
+
+    #runtime-info-row {
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+    }
+
+    #runtime-info-bar {
+        width: 1fr;
+        height: 1;
+        background: #111827;
+        color: #e5e7eb;
+    }
+
+    #hitl-toggle {
+        width: 14;
+        min-width: 14;
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        background: #1f2937;
+        color: #e5e7eb;
+        border: none;
+    }
+
+    #slash-hints {
+        display: none;
+        height: 8;
+        max-height: 8;
+        border: round #f59e0b;
+        background: #111827;
+        color: #e5e7eb;
+        padding: 0 1;
+    }
+
+    #slash-hints.visible {
+        display: block;
+    }
+
+    #input-box {
+        height: 3;
+        min-height: 3;
+        max-height: 5;
+        border: round #22c55e;
+    }
+
+    #input-box.hidden {
+        display: none;
+    }
+    """
+
+    BINDINGS = [
+        Binding("ctrl+p", "toggle_plan_mode", "Toggle Plan/Act", priority=True),
+        Binding("ctrl+c", "cancel_response", "Cancel", priority=True),
+        Binding("escape", "cancel_response", "Cancel", priority=True),
+        Binding("ctrl+n", "insert_newline", "New line", priority=True),
+    ]
+
+    def __init__(
+        self,
+        submit_handler: Callable[[str], str | None] | None = None,
+        runtime_info_provider: Callable[[], str] | None = None,
+    ) -> None:
+        super().__init__()
+        self._logs: dict[TuiRegion, RichLog] = {}
+        self._status = "MakeCode ready"
+        self._runtime_info = ""
+        self._submit_handler = submit_handler
+        self._runtime_info_provider = runtime_info_provider
+        self._mode_label = "ACT"
+        self._agent_loop_active = False
+        self._slash_matches: list[tuple[str, str]] = []
+        self._slash_match_index = 0
+        self._slash_hint_visible = False
+        self._input_history: list[str] = []
+        self._input_history_index: int | None = None
+        self._input_history_draft = ""
+        self._modal_active = False
+        self._right_column_visible = True
+        self._last_responsive_width = 0
+        self.title = "MakeCode"
+        self.sub_title = "🎬 Act · Ready"
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with Horizontal(id="main-grid"):
+            with Vertical(id="left-column"):
+                yield RichLog(id="content-pane", classes="pane", markup=True, wrap=True, min_width=1)
+                yield RichLog(id="tools-pane", classes="pane", markup=True, wrap=True, min_width=1)
+            with Vertical(id="right-column"):
+                yield RichLog(id="reasoning-pane", classes="pane", markup=True, wrap=True, min_width=1)
+                yield RichLog(id="background-pane", classes="pane", markup=True, wrap=True, min_width=1)
+                yield RichLog(id="sub-agent-pane", classes="pane", markup=True, wrap=True, min_width=1)
+        with Vertical(id="bottom-grid"):
+            yield Static("", id="slash-hints")
+            yield MakeCodeInput(id="input-box", placeholder='Prompt here e.g. "整理当前项目的架构"')
+        with Horizontal(id="runtime-info-row"):
+            yield Static(self._runtime_info, id="runtime-info-bar")
+            yield Button("HITL", id="hitl-toggle")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._logs = {
+            TuiRegion.CONTENT: self.query_one("#content-pane", RichLog),
+            TuiRegion.REASONING: self.query_one("#reasoning-pane", RichLog),
+            TuiRegion.TOOLS: self.query_one("#tools-pane", RichLog),
+            TuiRegion.BACKGROUND: self.query_one("#background-pane", RichLog),
+            TuiRegion.SUB_AGENT: self.query_one("#sub-agent-pane", RichLog),
+        }
+        self.query_one("#content-pane", RichLog).border_title = "Content"
+        self.query_one("#reasoning-pane", RichLog).border_title = "Reasoning"
+        self.query_one("#tools-pane", RichLog).border_title = "Tools"
+        self.query_one("#background-pane", RichLog).border_title = "Background"
+        self.query_one("#sub-agent-pane", RichLog).border_title = "Sub-Agent"
+        self._update_header_status()
+        self._update_input_title()
+        self._update_hitl_button()
+        self._update_runtime_info()
+        self._update_responsive_layout()
+        self.set_interval(0.5, self._check_responsive_layout)
+        TUI_BRIDGE.bind(self)
+        self.query_one("#input-box", MakeCodeInput).focus()
+
+    def update_input_height(self) -> None:
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        content_width = max(input_box.size.width - 4, 1)
+        content_rows = 0
+        for line in input_box.text.split("\n") or [""]:
+            content_rows += max((len(line) + content_width - 1) // content_width, 1)
+        target_height = min(max(content_rows, 1), 3) + 2
+        if input_box.styles.height != target_height:
+            input_box.styles.height = target_height
+
+    def on_resize(self, event: Resize) -> None:
+        self._update_responsive_layout(event.size.width)
+
+    def _check_responsive_layout(self) -> None:
+        self._update_responsive_layout()
+
+    def _update_responsive_layout(self, width: int | None = None) -> None:
+        width = width or self.size.width
+        if width == self._last_responsive_width:
+            return
+        self._last_responsive_width = width
+        right_column = self.query_one("#right-column", Vertical)
+        should_show_right_column = width >= 140
+        if should_show_right_column == self._right_column_visible:
+            return
+        self._right_column_visible = should_show_right_column
+        right_column.set_class(not should_show_right_column, "hidden")
+
+    def on_unmount(self) -> None:
+        TUI_BRIDGE.unbind(self)
+
+    def handle_tui_event(self, event: TuiEvent) -> None:
+        if event.region == TuiRegion.STATUS:
+            self._runtime_info = str(event.payload)
+            self._update_runtime_info()
+            return
+        if event.region == TuiRegion.RUNTIME_INFO:
+            runtime_info = self.query_one("#runtime-info-bar", Static)
+            runtime_info.update(str(event.payload))
+            return
+
+        log = self._logs[event.region]
+        if event.clear:
+            log.clear()
+        if event.region in {TuiRegion.CONTENT, TuiRegion.REASONING, TuiRegion.TOOLS, TuiRegion.BACKGROUND, TuiRegion.SUB_AGENT}:
+            log.write(event.payload, expand=True, shrink=True)
+        else:
+            log.write(event.payload)
+        self._update_runtime_info()
+
+    def open_choice_modal(
+        self,
+        title: str,
+        options: list[str],
+        allow_custom: bool,
+        future: Future[str],
+    ) -> None:
+        def _done(value: str | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or "<cancelled>")
+
+        self._modal_active = True
+        self.push_screen(ChoiceModal(title, options, allow_custom), _done)
+
+    def open_model_panel_modal(
+        self,
+        title: str,
+        options: list[str],
+        future: Future[str],
+    ) -> None:
+        def _done(value: str | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or "<cancelled>")
+
+        self._modal_active = True
+        self.push_screen(ModelPanelModal(title, options), _done)
+
+    def open_mcp_switch_modal(self, server_switches: list[dict[str, Any]], future: Future[str | dict]) -> None:
+        def _done(value: str | dict | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or {"action": "cancel"})
+
+        self._modal_active = True
+        self.push_screen(McpSwitchModal(server_switches), _done)
+
+    def open_model_manager_modal(self, model_manager: Any, future: Future[str]) -> None:
+        def _done(value: str | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or "<cancelled>")
+
+        self._modal_active = True
+        self.push_screen(ModelManagerModal(model_manager), _done)
+
+    def open_add_model_modal(self, future: Future[dict[str, str] | None]) -> None:
+        def _done(value: dict[str, str] | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value)
+
+        self._modal_active = True
+        self.push_screen(AddModelModal(), _done)
+
+    def action_toggle_plan_mode(self) -> None:
+        from utils.plan_mode import toggle_plan_mode
+
+        new_state = toggle_plan_mode()
+        self._mode_label = "PLAN" if new_state else "ACT"
+        self._update_header_status()
+        self._update_input_title()
+        self._update_runtime_info()
+        self.handle_tui_event(TuiEvent(TuiRegion.STATUS, f"{self._mode_label} mode"))
+
+    def action_insert_newline(self) -> None:
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        input_box.insert("\n")
+
+    def _record_input_history(self, text: str) -> None:
+        if not self._input_history or self._input_history[-1] != text:
+            self._input_history.append(text)
+        self._input_history_index = None
+        self._input_history_draft = ""
+
+    def should_navigate_input_history(self, direction: int) -> bool:
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        if "\n" not in input_box.text:
+            return True
+        if direction < 0:
+            return input_box.cursor_at_first_line
+        return input_box.cursor_at_last_line
+
+    def navigate_input_history(self, direction: int) -> None:
+        if not self._input_history:
+            return
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        if self._input_history_index is None:
+            self._input_history_draft = input_box.text
+            if direction < 0:
+                self._input_history_index = len(self._input_history) - 1
+            else:
+                return
+        else:
+            next_index = self._input_history_index + direction
+            if next_index < 0:
+                next_index = 0
+            if next_index >= len(self._input_history):
+                self._input_history_index = None
+                input_box.load_text(self._input_history_draft)
+                input_box.cursor_location = input_box.document.end
+                self.update_slash_hint()
+                return
+            self._input_history_index = next_index
+
+        input_box.load_text(self._input_history[self._input_history_index])
+        input_box.cursor_location = input_box.document.end
+        self.update_slash_hint()
+
+    def on_key(self, event: Key) -> None:
+        if self._modal_active:
+            return
+        if event.key == "ctrl+p":
+            self.action_toggle_plan_mode()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "ctrl+n":
+            self.action_insert_newline()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "ctrl+c":
+            self.action_cancel_response()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "escape":
+            self.action_cancel_response()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "tab":
+            self.complete_slash_command()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "up" and self.slash_hint_visible:
+            self.move_slash_selection(-1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "down" and self.slash_hint_visible:
+            self.move_slash_selection(1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "up":
+            if not self.should_navigate_input_history(-1):
+                return
+            self.navigate_input_history(-1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "down":
+            if not self.should_navigate_input_history(1):
+                return
+            self.navigate_input_history(1)
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key != "enter":
+            self.update_input_height()
+            self.update_slash_hint()
+            return
+        self.submit_current_input()
+        event.stop()
+        event.prevent_default()
+
+    def submit_current_input(self) -> None:
+        if self.slash_hint_visible:
+            self.accept_slash_selection()
+            return
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        text = input_box.text.strip()
+        if not text:
+            return
+        self._record_input_history(text)
+        input_box.load_text("")
+        self.update_input_height()
+        self._slash_matches = []
+        self._slash_match_index = 0
+        self._hide_slash_hints()
+        from system.console_render import render_content_user_message
+
+        self.handle_tui_event(TuiEvent(TuiRegion.CONTENT, render_content_user_message(text)))
+        if self._submit_handler is not None:
+            threading.Thread(target=self._run_submit_handler, args=(text,), daemon=True).start()
+
+    def _run_submit_handler(self, text: str) -> None:
+        if self._submit_handler is None:
+            return
+        result = self._submit_handler(text)
+        if result == "exit":
+            self.call_from_thread(self.exit)
+
+    def set_agent_loop_active(self, active: bool) -> None:
+        self._agent_loop_active = active
+        self._update_header_status()
+        self._update_input_visibility()
+        self._update_runtime_info()
+
+    def _update_input_visibility(self) -> None:
+        bottom_grid = self.query_one("#bottom-grid", Vertical)
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        bottom_grid.set_class(self._agent_loop_active, "hidden")
+        input_box.set_class(self._agent_loop_active, "hidden")
+        if self._agent_loop_active:
+            self._hide_slash_hints()
+            return
+        self.update_input_height()
+        input_box.focus()
+
+    def _update_header_status(self) -> None:
+        mode_text = "📋 Plan" if self._mode_label == "PLAN" else "🎬 Act"
+        agent_text = "⚙️ Agent Running" if self._agent_loop_active else "Ready"
+        self.sub_title = f"{mode_text} · {agent_text}"
+
+    def _update_input_title(self) -> None:
+        self.query_one("#input-box", MakeCodeInput).border_title = f"MakeCode · {self._mode_label} · Enter 发送/选择 · Ctrl+C 取消回复 · Ctrl+N 换行 · Ctrl+P 切换 · ↑↓ 选择命令"
+
+    def action_cancel_response(self) -> None:
+        from system.stream_cancel import cancel_current_response
+
+        if cancel_current_response():
+            self.query_one("#input-box", MakeCodeInput).focus()
+
+    def action_toggle_hitl(self) -> None:
+        from utils.hitl import toggle_hitl
+
+        toggle_hitl()
+        self._update_hitl_button()
+        self._update_runtime_info()
+        self.query_one("#input-box", MakeCodeInput).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "hitl-toggle":
+            self.action_toggle_hitl()
+
+    def _update_hitl_button(self) -> None:
+        try:
+            from utils.hitl import get_hitl_status
+
+            enabled = get_hitl_status()
+        except Exception:
+            enabled = False
+        button = self.query_one("#hitl-toggle", Button)
+        button.label = "HITL ON" if enabled else "HITL OFF"
+
+    def _update_runtime_info(self) -> None:
+        if self._runtime_info_provider is None:
+            return
+        try:
+            value = self._runtime_info_provider()
+        except Exception:
+            return
+        runtime_info = self.query_one("#runtime-info-bar", Static)
+        if self._agent_loop_active:
+            value = f"⚙️ Agent: RUNNING  | {value}"
+        runtime_info.update(value)
+
+    def _get_slash_matches(self, text: str) -> list[tuple[str, str]]:
+        stripped = text.strip()
+        if not stripped.startswith("/") or " " in stripped:
+            return []
+        from system.commands import COMMAND_DESCRIPTIONS
+
+        return [
+            (command, description)
+            for command, description in COMMAND_DESCRIPTIONS.items()
+            if command.startswith(stripped)
+        ]
+
+    def update_slash_hint(self) -> None:
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        matches = self._get_slash_matches(input_box.text)
+        self._slash_matches = matches
+        self._slash_match_index = 0
+        if not matches:
+            self._hide_slash_hints()
+            return
+        self._show_slash_hints(matches)
+
+    def _show_slash_hints(self, matches: list[tuple[str, str]]) -> None:
+        hint_box = self.query_one("#slash-hints", Static)
+        selected = self._slash_match_index % len(matches)
+        window_size = 6
+        start = min(max(0, selected - window_size + 1), max(0, len(matches) - window_size))
+        end = min(len(matches), start + window_size)
+        lines = []
+        for index, (command, desc) in enumerate(matches[start:end], start=start):
+            marker = "❯ " if index == selected else "  "
+            lines.append(f"{marker}[bold cyan]{command}[/bold cyan]  [#aaaaaa]{desc}[/#aaaaaa]")
+        hint_box.update("\n".join(lines))
+        hint_box.add_class("visible")
+        self._slash_hint_visible = True
+
+    @property
+    def slash_hint_visible(self) -> bool:
+        return self._slash_hint_visible
+
+    def move_slash_selection(self, delta: int) -> None:
+        matches = self._slash_matches or self._get_slash_matches(self.query_one("#input-box", MakeCodeInput).text)
+        if not matches:
+            return
+        self._slash_matches = matches
+        self._slash_match_index = (self._slash_match_index + delta) % len(matches)
+        self._show_slash_hints(matches)
+
+    def accept_slash_selection(self) -> None:
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        matches = self._slash_matches or self._get_slash_matches(input_box.text)
+        if not matches:
+            return
+        command, _ = matches[self._slash_match_index % len(matches)]
+        input_box.load_text(command)
+        input_box.cursor_location = input_box.document.end
+        self._hide_slash_hints()
+        input_box.focus()
+
+    def _hide_slash_hints(self) -> None:
+        if not self._slash_hint_visible:
+            return
+        hint_box = self.query_one("#slash-hints", Static)
+        hint_box.update("")
+        hint_box.remove_class("visible")
+        self._slash_hint_visible = False
+
+    def complete_slash_command(self) -> None:
+        input_box = self.query_one("#input-box", MakeCodeInput)
+        matches = self._slash_matches or self._get_slash_matches(input_box.text)
+        if not matches:
+            return
+        command, _ = matches[self._slash_match_index % len(matches)]
+        input_box.load_text(command)
+        input_box.cursor_location = input_box.document.end
+        self._slash_matches = matches
+        self._slash_match_index = (self._slash_match_index + 1) % len(matches)
+        self._show_slash_hints(matches)
+
+
+def post_tui(region: TuiRegion | str, payload: RenderableType | str, *, clear: bool = False) -> None:
+    TUI_BRIDGE.post(region, payload, clear=clear)
+
+
+def set_agent_loop_active(active: bool) -> None:
+    TUI_BRIDGE.set_agent_loop_active(active)
+
+
+def choose_model_panel_tui(title: str, options: list[str]) -> str:
+    with TUI_BRIDGE._lock:
+        app = TUI_BRIDGE._app
+    if app is None:
+        return "<cancelled>"
+    future: Future[str] = Future()
+    if TUI_BRIDGE._is_app_thread():
+        app.open_model_panel_modal(title, options, future)
+    else:
+        app.call_from_thread(app.open_model_panel_modal, title, options, future)
+    return future.result()
+
+
+def manage_models_tui(model_manager: Any) -> str:
+    return TUI_BRIDGE.manage_models(model_manager)
+
+
+def choose_mcp_switch_tui(server_switches: list[dict[str, Any]]) -> str | dict:
+    return TUI_BRIDGE.choose_mcp_switch(server_switches)
+
+
+def choose_add_model_tui() -> dict[str, str] | None:
+    return TUI_BRIDGE.choose_add_model()
+
+
+def choose_tui(title: str, options: list[str], *, allow_custom: bool = False) -> str:
+    return TUI_BRIDGE.choose(title, options, allow_custom=allow_custom)

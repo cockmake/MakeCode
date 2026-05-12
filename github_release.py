@@ -57,15 +57,28 @@ def delete_release(token: str, release_id: int):
     resp.raise_for_status()
 
 
-def delete_all_releases(token: str):
-    """删除所有 Releases。"""
+def release_tag_matches_major(tag: str, major_version: str) -> bool:
+    """判断 tag 是否属于指定主版本。"""
+    version = tag[1:] if tag.startswith("v") else tag
+    parts = version.split(".")
+    return len(parts) == 3 and parts[0] == major_version
+
+
+def delete_releases_for_major(token: str, major_version: str):
+    """删除指定主版本线的 Releases。"""
     releases = get_all_releases(token)
-    if not releases:
-        print("   没有找到任何 Release")
+    matching_releases = [
+        release
+        for release in releases
+        if release_tag_matches_major(release["tag_name"], major_version)
+    ]
+
+    if not matching_releases:
+        print(f"   没有找到 {major_version}.x.x 版本线的 Release")
         return
 
-    print(f"   找到 {len(releases)} 个 Release，正在删除...")
-    for release in releases:
+    print(f"   找到 {len(matching_releases)} 个 {major_version}.x.x 版本线的 Release，正在删除...")
+    for release in matching_releases:
         tag = release["tag_name"]
         release_id = release["id"]
         print(f"   删除 {tag} (ID: {release_id})")
@@ -79,7 +92,7 @@ def delete_all_releases(token: str):
         }
         requests.delete(tag_url, headers=headers)
 
-    print("   [OK] 所有 Release 已删除")
+    print(f"   [OK] {major_version}.x.x 版本线的 Release 已删除")
 
 
 def create_release(token: str, tag: str, name: str, body: str) -> dict:
@@ -159,9 +172,10 @@ def main():
         print(f"❌ 找不到 {version_path}，请先运行 python release.py")
         sys.exit(1)
 
-    # 删除所有旧 Release
-    print("[清理] 删除旧 Releases...")
-    delete_all_releases(token)
+    # 删除当前主版本线的旧 Release，保留其他主版本线的稳定版本
+    major_version = CURRENT_VERSION.split(".", 1)[0]
+    print(f"[清理] 删除 {major_version}.x.x 版本线的旧 Releases...")
+    delete_releases_for_major(token, major_version)
 
     # 生成 Release 介绍内容
     body = get_release_body(version_path)

@@ -29,6 +29,7 @@ from system.console_render import (
     _render_startup_banner,
     _render_env_customization_hint,
     render_current_task_plan,
+    format_runtime_info,
     console,
 )
 from system.updater import check_update
@@ -42,6 +43,7 @@ from utils.plan_mode import (
 )
 from system.stream_render import StreamRenderer
 from system.ts_validator import init_ts_cache
+from system.tui_app import MakeCodeTuiApp, post_tui, TuiRegion, set_agent_loop_active
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
@@ -247,7 +249,7 @@ def agent_loop(messages: list):
             console.print(f"[bold red]⚠️ {error_msg}[/bold red]")
             break
 
-        # 用户按 ESC 取消：丢弃部分文本，不执行工具调用，回到输入等待
+        # 用户取消：丢弃部分模型回复，不执行工具调用，回到输入等待
         if cancelled:
             break
 
@@ -537,15 +539,93 @@ def _background_update_check():
             return
         new_version = version_info.get('version', '未知')
         release_log = version_info.get('release_log', '')
-        from io import StringIO
-        buf = StringIO()
-        tmp = Console(file=buf, force_terminal=True)
-        tmp.print(f"\n[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]\n")
+        post_tui(TuiRegion.BACKGROUND, f"[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]")
         if release_log:
-            tmp.print(Markdown(release_log))
-        print_formatted_text(ANSI(buf.getvalue()))
+            post_tui(TuiRegion.BACKGROUND, Markdown(release_log))
     except Exception:
         pass  # 静默失败，不影响正常使用
+
+
+def _process_user_query(query: str, history: list, command_handler: CommandHandler) -> str | None:
+    global CURRENT_CHECKPOINT, _pending_title
+
+    query = query.strip()
+    if not query:
+        return None
+
+    command_result = command_handler.process_command(
+        query=query,
+        history=history,
+        current_checkpoint=CURRENT_CHECKPOINT,
+        render_banner_fn=_render_startup_banner,
+        render_hint_fn=_render_env_customization_hint,
+        render_history_fn=_render_history,
+    )
+
+    if command_result.action == CommandAction.EXIT:
+        return "exit"
+    if command_result.action == CommandAction.CONTINUE:
+        return None
+    if command_result.action == CommandAction.RUN_AGENT:
+        history.append({"role": "user", "content": command_result.payload})
+
+        if CURRENT_CHECKPOINT is None and any(msg['role'] == 'user' for msg in history):
+            CURRENT_CHECKPOINT = save_checkpoint(history)
+
+            def _title_worker():
+                global _pending_title
+                try:
+                    title = generate_title(query)
+                    if title:
+                        _pending_title = title
+                except Exception as exc:
+                    log_error_traceback("Failed to generate title", exc)
+
+            _title_thread = threading.Thread(target=_title_worker, daemon=True)
+            _title_thread.start()
+        else:
+            _title_thread = None
+
+        try:
+            set_agent_loop_active(True)
+            agent_loop(history)
+        except RuntimeError as exc:
+            console.print(f"[bold yellow]⚠️ {exc}[/bold yellow]")
+        finally:
+            set_agent_loop_active(False)
+        if _title_thread is not None:
+            _title_thread.join(timeout=10)
+        _apply_pending_title()
+        return None
+    if command_result.action == CommandAction.RESET_CHECKPOINT:
+        CURRENT_CHECKPOINT = None
+        _pending_title = None
+    elif command_result.action == CommandAction.LOAD_HISTORY:
+        history[:], CURRENT_CHECKPOINT = command_result.payload
+        _pending_title = None
+    elif command_result.action == CommandAction.UPDATE_CHECKPOINT:
+        CURRENT_CHECKPOINT = command_result.payload
+    elif command_result.action == CommandAction.UPDATE_SYSTEM_PROMPT:
+        history[0] = {"role": "system", "content": command_result.payload}
+    return None
+
+
+def _run_textual_main(history: list, command_handler: CommandHandler) -> None:
+    def submit_handler(query: str) -> str | None:
+        return _process_user_query(query, history, command_handler)
+
+    def runtime_info_provider() -> str:
+        tokens = estimate_tokens(
+            history,
+            tools_definition=get_current_tools_definition(),
+        )
+        return format_runtime_info(tokens, THRESHOLD)
+
+    app = MakeCodeTuiApp(
+        submit_handler=submit_handler,
+        runtime_info_provider=runtime_info_provider,
+    )
+    app.run()
 
 
 if __name__ == "__main__":
@@ -576,87 +656,6 @@ if __name__ == "__main__":
     )
 
     try:
-        pending_input = ""
-        while True:
-            try:
-                query = _read_user_query(history, default_text=pending_input)
-                pending_input = ""
-            except (EOFError, KeyboardInterrupt) as exc:
-                log_error_traceback("main user input interrupted", exc)
-                console.print(
-                    "\n[bold yellow]👋 正在退出 MakeCode CLI。再见！[/bold yellow]"
-                )
-                break
-
-            # Handle Ctrl+P toggle for Plan Mode
-            if isinstance(query, dict) and query.get("type") == "plan_mode_toggle":
-                pending_input = query.get("text", "")
-                if query.get("state") == "on":
-                    console.print("[bold cyan]📋 Plan Mode 已启用[/bold cyan]")
-                    console.print("[#aaaaaa]📋 只允许只读和规划工具。使用 /plan 或 Ctrl+P 切回执行模式。[/#aaaaaa]")
-                else:
-                    console.print("[bold green]✅ Plan Mode 已退出，所有工具已恢复。[/bold green]")
-                    render_current_task_plan(console)
-                continue
-
-            query = query.strip()
-            if not query:
-                continue
-
-            # 处理命令
-            command_result = command_handler.process_command(
-                query=query,
-                history=history,
-                current_checkpoint=CURRENT_CHECKPOINT,
-                render_banner_fn=_render_startup_banner,
-                render_hint_fn=_render_env_customization_hint,
-                render_history_fn=_render_history,
-            )
-
-            if command_result.action == CommandAction.EXIT:
-                break
-            elif command_result.action == CommandAction.CONTINUE:
-                continue
-            elif command_result.action == CommandAction.RUN_AGENT:
-                history.append({"role": "user", "content": command_result.payload})
-                
-                # Generate title on first user message (parallel with agent_loop)
-                if CURRENT_CHECKPOINT is None and any(msg['role'] == 'user' for msg in history):
-                    # Save initial checkpoint without title — fast, no blocking
-                    CURRENT_CHECKPOINT = save_checkpoint(history)
-
-                    # Kick off title generation in a background thread
-                    def _title_worker():
-                        global _pending_title
-                        try:
-                            title = generate_title(query)
-                            if title:
-                                _pending_title = title
-                        except Exception as exc:
-                            log_error_traceback("Failed to generate title", exc)
-
-                    _title_thread = threading.Thread(target=_title_worker, daemon=True)
-                    _title_thread.start()
-                else:
-                    _title_thread = None
-                
-                try:
-                    agent_loop(history)
-                except RuntimeError as exc:
-                    console.print(f"[bold yellow]⚠️ {exc}[/bold yellow]")
-                # Wait for title generation to finish, then apply rename
-                if _title_thread is not None:
-                    _title_thread.join(timeout=10)
-                _apply_pending_title()
-            elif command_result.action == CommandAction.RESET_CHECKPOINT:
-                CURRENT_CHECKPOINT = None
-                _pending_title = None
-            elif command_result.action == CommandAction.LOAD_HISTORY:
-                history, CURRENT_CHECKPOINT = command_result.payload
-                _pending_title = None
-            elif command_result.action == CommandAction.UPDATE_CHECKPOINT:
-                CURRENT_CHECKPOINT = command_result.payload
-            elif command_result.action == CommandAction.UPDATE_SYSTEM_PROMPT:
-                history[0] = {"role": "system", "content": command_result.payload}
+        _run_textual_main(history, command_handler)
     finally:
         GLOBAL_MCP_MANAGER.stop()

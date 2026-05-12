@@ -9,10 +9,12 @@ from rich import box
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.text import Text
 from rich.theme import Theme
 
 from init import log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
+from system.tui_app import TuiRegion, post_tui
 
 
 def render_current_task_plan(target_console: Console) -> None:
@@ -36,7 +38,7 @@ def render_current_task_plan(target_console: Console) -> None:
             row["status"],
             "✓" if row.get("is_runnable") else "",
         )
-    target_console.print(tbl)
+    target_console.print(tbl, tui_region=TuiRegion.CONTENT)
 
 # 自定义主题：覆盖默认深色调，h1 金色醒目、h2-4 蓝青色系层次分明
 _custom_theme = Theme({
@@ -47,7 +49,29 @@ _custom_theme = Theme({
     "markdown.h4": "steel_blue1 italic",
 })
 
-console = Console(force_terminal=True, theme=_custom_theme)
+class TuiConsole(Console):
+    def print(self, *objects: Any, **kwargs: Any) -> None:
+        region = kwargs.pop("tui_region", TuiRegion.CONTENT)
+        sep = kwargs.get("sep", " ")
+        end = kwargs.get("end", "\n")
+        if not objects:
+            post_tui(region, "")
+            return
+        for obj in objects:
+            post_tui(region, obj)
+        if end and end != "\n":
+            post_tui(region, end.rstrip("\n"))
+
+    def rule(self, title: str = "", **kwargs: Any) -> None:
+        style = kwargs.get("style", "")
+        text = f"[bold]{title}[/bold]" if title else "─" * 24
+        post_tui(TuiRegion.CONTENT, Text.from_markup(text))
+
+    def clear(self) -> None:
+        post_tui(TuiRegion.CONTENT, "", clear=True)
+
+
+console = TuiConsole(force_terminal=True, theme=_custom_theme)
 
 # 线程锁：用于多子智能体并发输出时保护控制台，防止输出交错
 console_lock = threading.Lock()
@@ -71,6 +95,34 @@ def toggle_sub_agent_console() -> bool:
 def get_sub_agent_console():
     """获取当前 Sub-Agent 控制台输出状态"""
     return SHOW_SUB_AGENT_CONSOLE
+
+
+def _content_panel(body: Any, title: str, border_style: str) -> Panel:
+    return Panel(
+        body,
+        title=title,
+        title_align="left",
+        border_style=border_style,
+        box=box.ROUNDED,
+        padding=(0, 1),
+        expand=True,
+    )
+
+
+def render_content_user_message(text: str) -> Panel:
+    return _content_panel(
+        Text(text, style="white"),
+        "[bold #22c55e]You[/bold #22c55e]",
+        "#22c55e",
+    )
+
+
+def render_content_assistant_message(text: str, identity: str = "Assistant") -> Panel:
+    return _content_panel(
+        Markdown(text),
+        f"[bold #a78bfa]{identity}[/bold #a78bfa]",
+        "#a78bfa",
+    )
 
 
 MAKECODE_ASCII = r"""
@@ -143,31 +195,25 @@ def _format_readable_ui(data: Any, indent_level: int = 0) -> List[Text]:
     return renderables
 
 
-def _render_agent_response_message(text: str, identity: str = "🧠 Orchestrator", response_time: float = None):
-    """渲染 Orchestrator 的消息"""
+def _render_agent_response_message(
+        text: str,
+        identity: str = "Assistant",
+        response_time: float = None,
+        tui_region: TuiRegion = TuiRegion.CONTENT,
+):
+    """渲染 Agent 的消息"""
     if not text:
         return
-    
-    # 构建标题，包含响应时间（如果提供）
-    if response_time is not None:
-        time_str = f"({response_time:.2f}s)"
-    else:
-        time_str = ""
-    
-    title = f"[bold magenta] {identity} {time_str} [/bold magenta] "
-    
-    console.print(
-        Panel(
-            Markdown(text),
-            title=title,
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-    )
+
+    console.print(render_content_assistant_message(text, identity), tui_region=tui_region)
 
 
-def _render_tool_call(name: str, arguments: Any, identity: str = "🧠 Orchestrator"):
+def _render_tool_call(
+        name: str,
+        arguments: Any,
+        identity: str = "🧠 Orchestrator",
+        tui_region: TuiRegion = TuiRegion.TOOLS,
+):
     """渲染工具调用"""
     display_data = arguments
     is_complex = False
@@ -200,11 +246,18 @@ def _render_tool_call(name: str, arguments: Any, identity: str = "🧠 Orchestra
             border_style="cyan",
             box=box.ROUNDED,
             padding=(1, 2),
-        )
+            expand=True,
+        ),
+        tui_region=tui_region,
     )
 
 
-def _render_tool_output(name: str, output: Any, identity: str = "🧠 Orchestrator"):
+def _render_tool_output(
+        name: str,
+        output: Any,
+        identity: str = "🧠 Orchestrator",
+        tui_region: TuiRegion = TuiRegion.TOOLS,
+):
     """渲染工具输出"""
     text = _stringify_output(output).strip()
 
@@ -237,7 +290,9 @@ def _render_tool_output(name: str, output: Any, identity: str = "🧠 Orchestrat
             border_style="green",
             box=box.ROUNDED,
             padding=(1, 2),
-        )
+            expand=True,
+        ),
+        tui_region=tui_region,
     )
 
 
@@ -245,15 +300,7 @@ def _render_user_message(text: str):
     """渲染用户消息"""
     if not text:
         return
-    console.print(
-        Panel(
-            Text(text),
-            title="[bold green]👤 User[/bold green]",
-            border_style="green",
-            box=box.ROUNDED,
-            padding=(0, 1),
-        )
-    )
+    console.print(render_content_user_message(text), tui_region=TuiRegion.CONTENT)
 
 
 def _render_history(messages: list):
@@ -296,6 +343,23 @@ def _render_history(messages: list):
                 _render_tool_output(name, content)
 
 
+def format_runtime_info(tokens: int | None = None, threshold: int = 80000) -> str:
+    from system.models import get_current_model_config
+    from utils.hitl import get_hitl_status
+    from utils.plan_mode import is_plan_mode
+
+    mode_text = "📋 Plan" if is_plan_mode() else "🎬 Act"
+    current_model = get_current_model_config()
+    model_text = current_model.get_display_text() if current_model else "未选择"
+    token_text = "N/A" if tokens is None else f"{tokens}/{threshold} ({(tokens / threshold) * 100:.1f}%)"
+    hitl_text = "ON" if get_hitl_status() else "OFF"
+    return f"{mode_text} | 🤖 Model: {model_text} | 📈 Tokens: {token_text} | 🛡️ HITL: {hitl_text}"
+
+
+def _render_runtime_info(tokens: int | None = None, threshold: int = 80000) -> None:
+    post_tui(TuiRegion.RUNTIME_INFO, format_runtime_info(tokens, threshold))
+
+
 def _render_token_usage(
         messages: list,
         tools_definition: Any = None,
@@ -316,11 +380,8 @@ def _render_token_usage(
         tools_definition=tools_definition,
     )
     pct = (tokens / threshold) * 100
-    color = "green" if pct < 70 else "yellow" if pct < 90 else "red"
-    console.print()
-    console.print(
-        f"[{color}]📈 Context: {tokens}/{threshold} Tokens ({pct:.1f}%)[/]"
-    )
+    post_tui(TuiRegion.STATUS, f"📈 Context: {tokens}/{threshold} Tokens ({pct:.1f}%)")
+    _render_runtime_info(tokens, threshold)
 
 
 def _render_startup_banner():
@@ -336,7 +397,9 @@ def _render_startup_banner():
             subtitle=subtitle,
             subtitle_align="center",
             padding=(1, 4),
-        )
+            expand=True,
+        ),
+        tui_region=TuiRegion.CONTENT,
     )
 
 
@@ -353,5 +416,7 @@ def _render_env_customization_hint():
             border_style="yellow",
             box=box.ROUNDED,
             padding=(1, 2),
-        )
+            expand=True,
+        ),
+        tui_region=TuiRegion.CONTENT,
     )

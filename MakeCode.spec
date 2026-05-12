@@ -29,7 +29,8 @@ a = Analysis(
         'tiktoken_ext.openai_public', 
         'tiktoken_ext', 
         'prompt_toolkit', 
-        'rich', 
+        'rich',
+        'textual',
         'pyzstd',
         'tree_sitter',
         'tree_sitter_language_pack'

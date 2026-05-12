@@ -165,7 +165,7 @@ python github_release.py
 ```
 
 该脚本会：
-1. 删除仓库中所有现有 Releases 和对应 tags
+1. 删除仓库中当前主版本线的现有 Releases 和对应 tags（例如发布 `4.0.0` 时只清理 `4.x.x`，保留 `3.x.x`）
 2. 创建新的 Release（tag 为 `v{版本号}`），body 包含版本和 commit 信息（markdown 格式）
 3. 上传 `MakeCode.exe` 和 `version.json`
 
@@ -175,7 +175,8 @@ python github_release.py
 - Token 需要 `repo` 权限
 
 **注意事项**：
-- 每次发布会清除所有历史 Release，只保留最新版本
+- 每次发布只会清除当前主版本线的历史 Release，只保留该主版本线的最新版本
+- 发布新的主版本（如 `4.0.0`）时，必须保留上一主版本线的稳定版本（如 `3.x.x` 最后一个版本）
 - Token 权限不足会导致 404 错误，需确保勾选 `repo` 权限
 
 ### 3.4 发布检查清单
