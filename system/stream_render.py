@@ -20,13 +20,21 @@ class StreamRenderer:
         self.tail_update_interval = 0.5
         self._last_tail_update_at: dict[TuiRegion, float] = {}
 
-    def render_text_stream(self, stream_generator: Iterator[dict]) -> Tuple[str, List, Any]:
+    def render_text_stream(
+            self,
+            stream_generator: Iterator[dict],
+            region: TuiRegion = TuiRegion.CONTENT,
+            render_live: bool = True,
+            set_active: bool = False,
+    ) -> Tuple[str, List, Any]:
         text_content = ""
         emitted_text = ""
         live_buffer = ""
         tool_calls = []
         raw_message = None
 
+        if set_active:
+            self._set_active(region, True)
         try:
             for event in stream_generator:
                 if is_cancelled():
@@ -36,23 +44,27 @@ class StreamRenderer:
                 if event_type == "text":
                     chunk = event["content"]
                     text_content += chunk
-                    live_buffer += chunk
-                    live_buffer, emitted_chunk = self._process_block_commit(text_content, live_buffer)
-                    emitted_text += emitted_chunk
-                    self._update_tail(live_buffer, force=bool(emitted_chunk))
+                    if render_live:
+                        live_buffer += chunk
+                        live_buffer, emitted_chunk = self._process_block_commit(text_content, live_buffer, region=region)
+                        emitted_text += emitted_chunk
+                        self._update_tail(live_buffer, region=region, force=bool(emitted_chunk))
 
                 elif event_type == "done":
                     text_content_done, tool_calls, raw_message = event["content"]
                     if text_content_done:
                         text_content = text_content_done
-                        if text_content.startswith(emitted_text):
+                        if render_live and text_content.startswith(emitted_text):
                             live_buffer = text_content[len(emitted_text):]
                     break
 
         finally:
-            if live_buffer and not is_cancelled():
-                self._safe_cleanup(live_buffer)
-            self._clear_tail()
+            if render_live:
+                if live_buffer and not is_cancelled():
+                    self._safe_cleanup(live_buffer, region=region)
+                self._clear_tail(region)
+            if set_active:
+                self._set_active(region, False)
 
         if is_cancelled():
             return "", [], None
@@ -74,6 +86,7 @@ class StreamRenderer:
 
         reasoning_content = ""
         reasoning_buffer = ""
+        tool_calls_started = False
 
         post_tui(TuiRegion.STATUS, f"Awakening {agent_name}...")
 
@@ -88,6 +101,11 @@ class StreamRenderer:
                     reasoning_content, reasoning_buffer, reasoning_started = self._handle_reasoning(
                         event["content"], reasoning_content, reasoning_buffer, reasoning_started
                     )
+
+                elif event_type == "tool_calls":
+                    if not tool_calls_started:
+                        self._handle_tool_calls_generation(agent_name)
+                        tool_calls_started = True
 
                 elif event_type == "text":
                     chunk = event["content"]
@@ -113,6 +131,11 @@ class StreamRenderer:
                         text_content = text_content_done
                         if text_started and text_content.startswith(emitted_text):
                             live_buffer = text_content[len(emitted_text):]
+                    if tool_calls:
+                        if not tool_calls_started:
+                            self._handle_tool_calls_generation(agent_name)
+                            tool_calls_started = True
+                        self._handle_tool_calls_generated(agent_name)
                     break
 
         finally:
@@ -127,6 +150,8 @@ class StreamRenderer:
                 self._set_active(TuiRegion.CONTENT, False)
 
         if is_cancelled():
+            if tool_calls_started:
+                self._set_active(TuiRegion.BACKGROUND, False)
             self._print_cancelled(agent_name, start_time)
             return "", [], None
 
@@ -141,12 +166,12 @@ class StreamRenderer:
 
     def _print_footer(self, name: str, start_time: float):
         elapsed = time.perf_counter() - start_time
-        post_tui(TuiRegion.CONTENT, Text(f"✓ {name} completed in {elapsed:.2f}s", style="#aaaaaa"))
+        post_tui(TuiRegion.BACKGROUND, Text(f"✓ {name} completed in {elapsed:.2f}s", style="#aaaaaa"))
         post_tui(TuiRegion.STATUS, f"{name} completed in {elapsed:.2f}s")
 
     def _print_cancelled(self, name: str, start_time: float):
         elapsed = time.perf_counter() - start_time
-        post_tui(TuiRegion.CONTENT, Text(f"⚠ {name} cancelled in {elapsed:.2f}s", style="#f59e0b"))
+        post_tui(TuiRegion.BACKGROUND, Text(f"⚠ {name} cancelled in {elapsed:.2f}s", style="#f59e0b"))
         post_tui(TuiRegion.STATUS, f"{name} cancelled")
 
     def _handle_reasoning(self, content: str, reasoning_content: str, reasoning_buffer: str, is_started: bool):
@@ -159,6 +184,14 @@ class StreamRenderer:
         self._update_tail(reasoning_buffer, region=TuiRegion.REASONING, force=bool(emitted_chunk))
 
         return reasoning_content, reasoning_buffer, True
+
+    def _handle_tool_calls_generation(self, name: str):
+        post_tui(TuiRegion.BACKGROUND, active=True)
+        post_tui(TuiRegion.BACKGROUND, f"[#aaaaaa]🛠️ {name} 正在生成 tool_calls...[/#aaaaaa]")
+
+    def _handle_tool_calls_generated(self, name: str):
+        post_tui(TuiRegion.BACKGROUND, f"[bold green]🛠️ {name} tool_calls 生成完成[/bold green]")
+        post_tui(TuiRegion.BACKGROUND, active=False)
 
     def _start_text_section(self, name: str, reasoning_started: bool):
         if reasoning_started:

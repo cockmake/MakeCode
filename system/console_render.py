@@ -58,15 +58,23 @@ class TuiConsole(Console):
         if not objects:
             post_tui(region, "", tool_result_delta=tool_result_delta)
             return
-        for index, obj in enumerate(objects):
-            post_tui(region, obj, tool_result_delta=tool_result_delta if index == 0 else 0)
-        if end and end != "\n":
-            post_tui(region, end.rstrip("\n"))
+        post_tui(region, active=True)
+        try:
+            for index, obj in enumerate(objects):
+                post_tui(region, obj, tool_result_delta=tool_result_delta if index == 0 else 0)
+            if end and end != "\n":
+                post_tui(region, end.rstrip("\n"))
+        finally:
+            post_tui(region, active=False)
 
     def rule(self, title: str = "", **kwargs: Any) -> None:
         style = kwargs.get("style", "")
         text = f"[bold]{title}[/bold]" if title else "─" * 24
-        post_tui(TuiRegion.CONTENT, Text.from_markup(text))
+        post_tui(TuiRegion.CONTENT, active=True)
+        try:
+            post_tui(TuiRegion.CONTENT, Text.from_markup(text))
+        finally:
+            post_tui(TuiRegion.CONTENT, active=False)
 
     def clear(self) -> None:
         post_tui(TuiRegion.CONTENT, "", clear=True)

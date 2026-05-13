@@ -229,6 +229,9 @@ class ChatAPIClient(BaseLLMClient):
             if reasoning_val:
                 yield {"type": "reasoning", "content": reasoning_val}
 
+            if getattr(delta, "tool_calls", None):
+                yield {"type": "tool_calls", "content": None}
+
             # 流结束：统一解析所有累积的 delta，构建 done 事件
             if choice.finish_reason in ("tool_calls", "stop"):
                 yield _build_done_event()

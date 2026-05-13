@@ -9,7 +9,7 @@ from typing import Optional, Any
 
 from prompt_toolkit.completion import Completer, Completion
 from rich import box
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
@@ -17,7 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
-from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, manage_memory_config_tui, set_agent_loop_active, refresh_status, refresh_tools_title
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, manage_memory_config_tui, show_info_panel_tui, set_agent_loop_active, refresh_status, refresh_tools_title
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -246,12 +246,12 @@ class CommandHandler:
             expand=True,
         )
         table.add_column(
-            "服务节点 (Loaded Server)", style="bold magenta", justify="left"
+            "服务节点", style="bold magenta", justify="left", no_wrap=True
         )
         table.add_column(
-            "工具名称 (Tool Name)", style="bold green", justify="left"
+            "工具名称", style="bold green", justify="left", overflow="fold"
         )
-        table.add_column("描述 (Description)", style="white")
+        table.add_column("描述", style="white", overflow="fold")
 
         for tool in status["tools"]:
             table.add_row(
@@ -260,21 +260,23 @@ class CommandHandler:
                 tool["description"],
             )
 
-        self.console.print(table)
-        self.console.print(summary_table)
-
+        notices = []
         if not status.get("is_running"):
-            self.console.print(
-                f"\n[bold yellow]⚠️ MCP 后台管理器未运行。\n   配置路径: {status.get('config_path', '未配置')}[/bold yellow]"
+            notices.append(
+                f"[bold yellow]⚠️ MCP 后台管理器未运行。\n配置路径: {status.get('config_path', '未配置')}[/bold yellow]"
             )
-            return True
 
         if status.get("tool_count", 0) == 0:
-            self.console.print(
-                f"\n[bold yellow]⚠️ MCP 服务为空，暂无可用工具。\n   配置路径: {status.get('config_path', '未配置')}[/bold yellow]"
+            notices.append(
+                f"[bold yellow]⚠️ MCP 服务为空，暂无可用工具。\n配置路径: {status.get('config_path', '未配置')}[/bold yellow]"
             )
-            return True
 
+        panel_items = [summary_table, table]
+        if notices:
+            panel_items.append(Text.from_markup("\n\n".join(notices)))
+        content = Group(*panel_items)
+        if show_info_panel_tui("🔌 MCP 状态与工具", content) == "<cancelled>":
+            self.console.print(content)
         return True
 
     def handle_mcp_restart(self) -> bool:
@@ -379,7 +381,8 @@ class CommandHandler:
         table.add_column("描述 (Description)", style="white")
         for cmd, desc in COMMAND_DESCRIPTIONS.items():
             table.add_row(cmd, desc)
-        self.console.print(table)
+        if show_info_panel_tui("🛠️ 可用内置命令列表", table) == "<cancelled>":
+            self.console.print(table)
         return True
 
     def handle_task_table(self) -> bool:
@@ -389,10 +392,12 @@ class CommandHandler:
         task_table = TASK_MANAGER.get_task_table()
         rows = task_table.get("rows", [])
         if not rows:
-            self.console.print("\n[bold yellow]当前任务计划为空。[/bold yellow]")
+            content = Text("当前任务计划为空。", style="bold yellow")
+            if show_info_panel_tui("当前任务计划", content) == "<cancelled>":
+                self.console.print(content)
             return True
 
-        tbl = Table(title="当前任务计划", show_lines=False)
+        tbl = Table(title="当前任务计划", show_lines=False, box=box.ROUNDED, expand=True)
         tbl.add_column("ID", style="cyan", width=4)
         tbl.add_column("Subject", style="white")
         tbl.add_column("Status", style="green")
@@ -404,7 +409,8 @@ class CommandHandler:
                 row["status"],
                 "✓" if row.get("is_runnable") else "",
             )
-        self.console.print(tbl)
+        if show_info_panel_tui("当前任务计划", tbl) == "<cancelled>":
+            self.console.print(tbl)
         return True
 
     def handle_update(self) -> Path | None:
@@ -510,14 +516,9 @@ class CommandHandler:
     def handle_skills_list(self) -> bool:
         """处理 /skills-list 命令"""
         skills_list_text = self.skill_loader.get_descriptions()
-        self.console.print(
-            Panel(
-                Markdown(f"### 当前可用技能列表\n\n{skills_list_text}"),
-                title="[bold cyan]📚 Skills List[/bold cyan]",
-                border_style="cyan",
-                box=box.ROUNDED,
-            )
-        )
+        content = Markdown(f"### 当前可用技能列表\n\n{skills_list_text}")
+        if show_info_panel_tui("📚 Skills List", content) == "<cancelled>":
+            self.console.print(content)
         return True
 
     def handle_models(self) -> bool:

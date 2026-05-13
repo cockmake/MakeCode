@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
+from datetime import datetime
 from queue import Queue
 from typing import Any
 
@@ -11,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Key, Resize
-from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Static, TextArea
+from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
 from system.tui_types import (
     TuiEvent,
@@ -23,6 +24,7 @@ from system.tui_types import (
 from system.tui_modals import (
     AddModelModal,
     ChoiceModal,
+    InfoPanelModal,
     LayoutModal,
     McpSwitchModal,
     MemoryConfigModal,
@@ -108,6 +110,18 @@ class TuiBridge:
             app.open_mcp_switch_modal(server_switches, future)
         else:
             app.call_from_thread(app.open_mcp_switch_modal, server_switches, future)
+        return future.result()
+
+    def show_info_panel(self, title: str, content: RenderableType) -> str:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return "<cancelled>"
+        future: Future[str] = Future()
+        if self._is_app_thread():
+            app.open_info_panel_modal(title, content, future)
+        else:
+            app.call_from_thread(app.open_info_panel_modal, title, content, future)
         return future.result()
 
     def manage_models(self, model_manager: Any) -> str:
@@ -284,6 +298,71 @@ class MakeCodeTuiApp(App[None]):
         min-height: 10;
     }
 
+    #top-bar {
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        background: #1f2937;
+    }
+
+    #top-title {
+        width: auto;
+        min-width: 10;
+        height: 1;
+        color: #e5e7eb;
+        text-style: bold;
+        content-align: left middle;
+    }
+
+    #top-status {
+        width: 1fr;
+        height: 1;
+        color: #e5e7eb;
+        content-align: right middle;
+    }
+
+    #top-clock {
+        width: 10;
+        min-width: 10;
+        height: 1;
+        color: #e5e7eb;
+        content-align: right middle;
+    }
+
+    #quick-panel-shell {
+        height: auto;
+        min-height: 0;
+        background: #111827;
+    }
+
+    #quick-panel-toggle {
+        width: 18;
+        min-width: 18;
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        background: #374151;
+        color: #e5e7eb;
+        border: none;
+    }
+
+    #quick-panel-buttons {
+        height: auto;
+        padding: 0 1;
+        background: #111827;
+    }
+
+    #quick-panel-buttons.hidden {
+        display: none;
+    }
+
+    .quick-panel-button {
+        width: 1fr;
+        min-width: 12;
+        height: 3;
+        margin: 0 1 1 0;
+    }
+
     #left-column {
         width: 2fr;
         height: 1fr;
@@ -438,11 +517,27 @@ class MakeCodeTuiApp(App[None]):
         self._tool_result_count = 0
         self._tool_result_keep_limit = self._load_tool_result_keep_limit()
         self._pane_active_counts: dict[TuiRegion, int] = {}
+        self._quick_panel_expanded = False
         self.title = "MakeCode"
         self.sub_title = "🎬 Act · Ready"
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        with Horizontal(id="top-bar"):
+            yield Static("MakeCode", id="top-title")
+            yield Button("▸ 快捷面板", id="quick-panel-toggle")
+            yield Static("", id="top-status")
+            yield Static("", id="top-clock")
+        with Vertical(id="quick-panel-shell"):
+            with Horizontal(id="quick-panel-buttons", classes="hidden"):
+                yield Button("📋 任务", id="quick-tasks", classes="quick-panel-button")
+                yield Button("🧠 记忆", id="quick-memory", classes="quick-panel-button")
+                yield Button("📚 技能", id="quick-skills", classes="quick-panel-button")
+                yield Button("🔌 MCP", id="quick-mcp", classes="quick-panel-button")
+                yield Button("🛠️ 命令", id="quick-commands", classes="quick-panel-button")
+                yield Button("🤖 模型", id="quick-models", classes="quick-panel-button")
+                yield Button("⚙️ 记忆配置", id="quick-memory-config", classes="quick-panel-button")
+                yield Button("🧩 布局", id="quick-layout", classes="quick-panel-button")
+                yield Button("🔀 MCP配置", id="quick-mcp-config", classes="quick-panel-button")
         with Horizontal(id="main-grid"):
             with Vertical(id="left-column"):
                 with Vertical(id="content-pane", classes="pane"):
@@ -501,8 +596,10 @@ class MakeCodeTuiApp(App[None]):
         self._update_input_title()
         self._update_hitl_button()
         self._update_runtime_info()
+        self._update_clock()
         self._update_responsive_layout()
         self.set_interval(0.5, self._check_responsive_layout)
+        self.set_interval(1.0, self._update_clock)
         TUI_BRIDGE.bind(self)
         self.query_one("#input-box", MakeCodeInput).focus()
 
@@ -636,6 +733,9 @@ class MakeCodeTuiApp(App[None]):
         if event.tool_result_delta:
             self._tool_result_count += event.tool_result_delta
             self._update_tools_title()
+        if event.region == TuiRegion.CONTENT and event.payload == "":
+            self._update_runtime_info()
+            return
         if event.payload is not None and event.region in {TuiRegion.CONTENT, TuiRegion.REASONING, TuiRegion.TOOLS, TuiRegion.BACKGROUND, TuiRegion.SUB_AGENT}:
             should_scroll_end = self._is_log_at_bottom(log)
             log.write(event.payload, expand=True, shrink=True, scroll_end=should_scroll_end)
@@ -682,6 +782,15 @@ class MakeCodeTuiApp(App[None]):
 
         self._modal_active = True
         self.push_screen(McpSwitchModal(server_switches), _done)
+
+    def open_info_panel_modal(self, title: str, content: RenderableType, future: Future[str]) -> None:
+        def _done(value: str | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or "<cancelled>")
+
+        self._modal_active = True
+        self.push_screen(InfoPanelModal(title, content), _done)
 
     def open_model_manager_modal(self, model_manager: Any, future: Future[str]) -> None:
         def _done(value: str | None) -> None:
@@ -904,7 +1013,18 @@ class MakeCodeTuiApp(App[None]):
                 header_info = ""
             if header_info:
                 parts.append(header_info)
-        self.sub_title = " · ".join(parts)
+        status_text = " · ".join(parts)
+        self.sub_title = status_text
+        try:
+            self.query_one("#top-status", Static).update(status_text)
+        except Exception:
+            pass
+
+    def _update_clock(self) -> None:
+        try:
+            self.query_one("#top-clock", Static).update(datetime.now().strftime("%H:%M:%S"))
+        except Exception:
+            pass
 
     def _update_input_title(self) -> None:
         self.query_one("#input-box", MakeCodeInput).border_title = f"MakeCode · {self._mode_label} · Enter 发送/选择 · Ctrl+C 取消回复 · Ctrl+N 换行 · Ctrl+P 切换 · ↑↓ 选择命令"
@@ -923,9 +1043,43 @@ class MakeCodeTuiApp(App[None]):
         self._update_runtime_info()
         self.query_one("#input-box", MakeCodeInput).focus()
 
+    def action_toggle_quick_panel(self) -> None:
+        self._quick_panel_expanded = not self._quick_panel_expanded
+        self._update_quick_panel()
+
+    def _update_quick_panel(self) -> None:
+        toggle = self.query_one("#quick-panel-toggle", Button)
+        buttons = self.query_one("#quick-panel-buttons", Horizontal)
+        toggle.label = "▾ 快捷面板" if self._quick_panel_expanded else "▸ 快捷面板"
+        buttons.set_class(not self._quick_panel_expanded, "hidden")
+
+    def _run_quick_command(self, command: str) -> None:
+        if self._submit_handler is None:
+            return
+        threading.Thread(target=self._run_submit_handler, args=(command,), daemon=True).start()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "hitl-toggle":
+        button_id = event.button.id
+        if button_id == "hitl-toggle":
             self.action_toggle_hitl()
+            return
+        if button_id == "quick-panel-toggle":
+            self.action_toggle_quick_panel()
+            return
+        quick_commands = {
+            "quick-tasks": "/tasks",
+            "quick-memory": "/memory-panel",
+            "quick-skills": "/skills-list",
+            "quick-mcp": "/mcp-view",
+            "quick-commands": "/cmds",
+            "quick-models": "/models",
+            "quick-memory-config": "/memory-config",
+            "quick-layout": "/layout",
+            "quick-mcp-config": "/mcp-switch",
+        }
+        command = quick_commands.get(button_id or "")
+        if command is not None:
+            self._run_quick_command(command)
 
     def _update_hitl_button(self) -> None:
         try:
@@ -1098,6 +1252,10 @@ def manage_memory_config_tui(values: dict[str, int]) -> str | dict[str, int]:
 
 def choose_mcp_switch_tui(server_switches: list[dict[str, Any]]) -> str | dict:
     return TUI_BRIDGE.choose_mcp_switch(server_switches)
+
+
+def show_info_panel_tui(title: str, content: RenderableType) -> str:
+    return TUI_BRIDGE.show_info_panel(title, content)
 
 
 def choose_add_model_tui() -> dict[str, str] | None:

@@ -10,12 +10,20 @@ from pydantic import BaseModel, Field
 from rich.markdown import Markdown
 from rich.table import Table
 from init import WORKDIR
-from system.console_render import _render_tool_call, _render_tool_output, console as _compact_console
+from system.console_render import (
+    _render_agent_response_message,
+    _render_tool_call,
+    _render_tool_output,
+    console as _compact_console,
+)
 from system.stream_render import StreamRenderer
 from system.tui_app import TuiRegion, post_tui
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
 from settings import KEEP_RECENT_TOOL_CALL, MEMORY_AGENT_MAX_ITERATIONS
+
+
+MEMORY_AGENT_IDENTITY = "🧠 记忆代理"
 
 
 def print_formatted_text(value):
@@ -320,67 +328,82 @@ def memory_agent_loop(
         mode: str = "compact",
         max_iterations: int = MEMORY_AGENT_MAX_ITERATIONS,
 ) -> list[dict]:
-    _compact_console.print("\n[bold yellow]🧠 正在管理长期记忆...[/bold yellow]")
-    _compact_console.rule("[bold yellow]📓 记忆[/bold yellow]", style="yellow")
+    post_tui(TuiRegion.BACKGROUND, active=True)
     saved_outputs = []
-    messages = llm_client.get_memory_decision_messages(
-        conversation_text,
-        summary,
-        reason,
-        current_memory_content,
-        mode=mode,
-    )
+    try:
+        post_tui(TuiRegion.BACKGROUND, "\n[bold yellow]🧠 正在管理长期记忆...[/bold yellow]")
+        post_tui(TuiRegion.BACKGROUND, "[bold yellow]📓 记忆[/bold yellow]")
+        messages = llm_client.get_memory_decision_messages(
+            conversation_text,
+            summary,
+            reason,
+            current_memory_content,
+            mode=mode,
+        )
 
-    for round_index in range(max_iterations):
-        try:
-            _, memory_tool_calls, raw_message = llm_client.get_memory_decision_stream_messages(messages, tools)
-        except Exception as e:
-            _compact_console.print(f"[bold red]记忆管理器错误：{e}[/bold red]")
-            _compact_console.print("[#aaaaaa]记忆管理流程已结束。[/#aaaaaa]")
-            return saved_outputs
+        for round_index in range(max_iterations):
+            try:
+                text_content, memory_tool_calls, raw_message = StreamRenderer().render_text_stream(
+                    llm_client.generate_stream(messages, llm_client.format_tools(tools)),
+                    region=TuiRegion.BACKGROUND,
+                    render_live=False,
+                    set_active=True,
+                )
+            except Exception as e:
+                post_tui(TuiRegion.BACKGROUND, f"[bold red]记忆管理器错误：{e}[/bold red]")
+                post_tui(TuiRegion.BACKGROUND, "[#aaaaaa]记忆管理流程已结束。[/#aaaaaa]")
+                return saved_outputs
 
-        if raw_message is not None:
-            llm_client.append_assistant_message(messages, raw_message)
+            if raw_message is not None:
+                llm_client.append_assistant_message(messages, raw_message)
 
-        if not memory_tool_calls:
-            break
+            _render_agent_response_message(
+                text_content,
+                identity=MEMORY_AGENT_IDENTITY,
+                tui_region=TuiRegion.BACKGROUND,
+            )
 
-        for tool_call in memory_tool_calls:
-            tool_name = tool_call.get("name")
-            tool_id = tool_call.get("id")
-            handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_name)
-            if not handler:
-                output = f"未知记忆工具：{tool_name}"
-            else:
-                _render_tool_call(tool_name, tool_call.get("arguments"), identity="🧠 记忆代理")
-                try:
-                    arguments = _parse_tool_arguments(tool_call.get("arguments"))
-                    output = handler(**arguments)
-                except Exception as e:
-                    output = f"执行 {tool_name} 出错：{e}。"
-                _render_tool_output(tool_name, output, identity="🧠 记忆代理")
-            saved_outputs.append({"tool": tool_name, "output": output})
-            if tool_id:
-                messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
+            if not memory_tool_calls:
+                break
 
-        current_round = round_index + 1
-        remaining_rounds = max_iterations - current_round
-        if remaining_rounds > 0:
-            messages.append({
-                "role": "user",
-                "content": (
-                    f"[auto generated] current_round={current_round} / max_round={max_iterations}. "
-                    f"Remaining rounds: {remaining_rounds}. "
-                    "The memory management loop will exit automatically when the max round is reached, "
-                    "regardless of whether all memory operations are complete. "
-                    "Please finish memory management as soon as possible."
-                ),
-            })
+            for tool_call in memory_tool_calls:
+                tool_name = tool_call.get("name")
+                tool_id = tool_call.get("id")
+                handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_name)
+                if not handler:
+                    output = f"未知记忆工具：{tool_name}"
+                else:
+                    _render_tool_call(tool_name, tool_call.get("arguments"), identity=MEMORY_AGENT_IDENTITY)
+                    try:
+                        arguments = _parse_tool_arguments(tool_call.get("arguments"))
+                        output = handler(**arguments)
+                    except Exception as e:
+                        output = f"执行 {tool_name} 出错：{e}。"
+                    _render_tool_output(tool_name, output, identity=MEMORY_AGENT_IDENTITY)
+                saved_outputs.append({"tool": tool_name, "output": output})
+                if tool_id:
+                    messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
 
-    if not saved_outputs:
-        _compact_console.print("[yellow]长期记忆没有变更。[/yellow]")
-    _compact_console.print("[#aaaaaa]记忆管理流程已结束。[/#aaaaaa]")
-    return saved_outputs
+            current_round = round_index + 1
+            remaining_rounds = max_iterations - current_round
+            if remaining_rounds > 0:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"[auto generated] current_round={current_round} / max_round={max_iterations}. "
+                        f"Remaining rounds: {remaining_rounds}. "
+                        "The memory management loop will exit automatically when the max round is reached, "
+                        "regardless of whether all memory operations are complete. "
+                        "Please finish memory management as soon as possible."
+                    ),
+                })
+
+        if not saved_outputs:
+            post_tui(TuiRegion.BACKGROUND, "[yellow]长期记忆没有变更。[/yellow]")
+        post_tui(TuiRegion.BACKGROUND, "[#aaaaaa]记忆管理流程已结束。[/#aaaaaa]")
+        return saved_outputs
+    finally:
+        post_tui(TuiRegion.BACKGROUND, active=False)
 
 
 def manual_memory_update(prompt: str, history: list = None) -> list[dict]:
@@ -633,7 +656,8 @@ def auto_compact(
     try:
         renderer = StreamRenderer(console=_compact_console, update_interval=0.1)
         summary, _, _ = renderer.render_text_stream(
-            llm_client.get_summary_stream_events(conversation_text, reason)
+            llm_client.get_summary_stream_events(conversation_text, reason),
+            set_active=True,
         )
         if summary:
             chunks.append(summary)

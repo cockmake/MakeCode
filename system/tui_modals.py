@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.console import RenderableType
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -19,8 +20,33 @@ from system.tui_types import (
 
 class ChoiceModal(ModalScreen[str]):
     CSS = """
-    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal, MemoryConfigModal {
+    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal, MemoryConfigModal, InfoPanelModal {
         align: center middle;
+    }
+
+    #info-dialog {
+        width: 88%;
+        height: auto;
+        max-height: 86%;
+        border: round #f59e0b;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #info-content {
+        height: auto;
+        max-height: 28;
+        min-height: 1;
+        margin-top: 1;
+    }
+
+    #info-actions {
+        height: 3;
+        margin-top: 1;
+    }
+
+    #info-close {
+        width: 16;
     }
 
     #choice-dialog {
@@ -229,6 +255,44 @@ class ChoiceModal(ModalScreen[str]):
 
     def action_cancel(self) -> None:
         self.dismiss("<cancelled>")
+
+
+class InfoPanelModal(ModalScreen[str]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("q", "close", "Close", priority=True),
+    ]
+
+    def __init__(self, title: str, content: RenderableType) -> None:
+        super().__init__()
+        self._title = title
+        self._content = content
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="info-dialog"):
+            yield Label(f"{self._title}\nq 关闭。", id="choice-title")
+            yield RichLog(id="info-content", markup=True, wrap=True, min_width=1)
+            with Horizontal(id="info-actions"):
+                yield Button("关闭", id="info-close", variant="primary")
+
+    def on_mount(self) -> None:
+        content = self.query_one("#info-content", RichLog)
+        content.write(self._content, expand=True, shrink=True, scroll_end=False)
+        content.focus()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "q":
+            self.action_close()
+            event.stop()
+            event.prevent_default()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "info-close":
+            self.action_close()
+
+    def action_close(self) -> None:
+        self.dismiss("closed")
 
 
 class McpSwitchModal(ModalScreen[str | dict]):
