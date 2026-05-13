@@ -17,7 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
-from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, set_agent_loop_active, refresh_status
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, manage_memory_config_tui, set_agent_loop_active, refresh_status, refresh_tools_title
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -26,9 +26,11 @@ from utils.memory import (
     delete_long_term_memory,
     get_active_memory_count,
     get_checkpoint_title,
+    get_keep_recent_tool_call,
     get_memory_size,
     list_long_term_memories,
     manual_memory_update,
+    set_keep_recent_tool_call,
     set_memory_size,
 )
 from system.updater import check_update, download_update
@@ -69,7 +71,7 @@ COMMAND_DESCRIPTIONS = {
     "/memory-list": "列出当前保存的长期记忆",
     "/memory-panel": "打开长期记忆交互面板，可查看详情并二次确认删除",
     "/memory-delete": "按 ID 删除一条长期记忆，例如 /memory-delete mem_20260510_abc123",
-    "/memory-size": "查看或设置长期记忆容量，例如 /memory-size 或 /memory-size 30",
+    "/memory-config": "打开记忆配置面板，修改 memory_size 和 keep_recent_tool_call",
     "/memory-update": "根据用户请求主动管理长期记忆，例如 /memory-update 记住：以后...",
     "/tasks": "查看任务看板和当前执行进度",
     "/plan": "进入/退出 Plan Mode — 规划阶段只允许只读和任务规划工具",
@@ -658,25 +660,32 @@ class CommandHandler:
         self.console.print(f"\n[bold green]已删除长期记忆：{', '.join(deleted_ids)}[/bold green]")
         return new_checkpoint
 
-    def handle_memory_size(self, query: str) -> bool:
-        """处理 /memory-size [size] 命令"""
-        parts = query.split(maxsplit=1)
-        if len(parts) == 1:
-            self.console.print(
-                f"\n[bold cyan]长期记忆容量：{get_memory_size()}[/bold cyan] "
-                f"[#aaaaaa](当前 active：{get_active_memory_count()})[/#aaaaaa]"
-            )
+    def handle_memory_config(self, query: str) -> bool:
+        """处理 /memory-config 命令"""
+        if query.strip() != "/memory-config":
+            self.console.print("\n[bold yellow]用法：/memory-config[/bold yellow]")
             return True
 
-        value = parts[1].strip()
-        try:
-            size = int(value)
-            set_memory_size(size)
-        except ValueError:
-            self.console.print("\n[bold yellow]记忆容量必须是正整数，例如：/memory-size 30[/bold yellow]")
+        current_values = {
+            "memory_size": get_memory_size(),
+            "keep_recent_tool_call": get_keep_recent_tool_call(),
+        }
+        result = manage_memory_config_tui(current_values)
+        if result == "<cancelled>":
+            self.console.print("\n[#aaaaaa]已取消记忆配置修改。[/#aaaaaa]")
+            return True
+        if not isinstance(result, dict):
             return True
 
-        self.console.print(f"\n[bold green]长期记忆容量已设置为：{size}[/bold green]")
+        set_memory_size(result["memory_size"])
+        set_keep_recent_tool_call(result["keep_recent_tool_call"])
+        refresh_tools_title()
+        self.console.print(
+            "\n[bold green]记忆配置已更新[/bold green]\n"
+            f"  memory_size: {result['memory_size']} "
+            f"[#aaaaaa](当前 active：{get_active_memory_count()})[/#aaaaaa]\n"
+            f"  keep_recent_tool_call: {result['keep_recent_tool_call']}"
+        )
         return True
 
     def handle_memory_update(self, query: str, history: list) -> bool:
@@ -946,9 +955,9 @@ class CommandHandler:
             new_checkpoint = self.handle_memory_delete(query, history, current_checkpoint)
             return CommandResult(action=CommandAction.UPDATE_CHECKPOINT, payload=new_checkpoint)
 
-        # /memory-size [size] - 查看或设置长期记忆容量
-        if query == "/memory-size" or query.startswith("/memory-size "):
-            self.handle_memory_size(query)
+        # /memory-config - 查看或设置记忆配置
+        if query == "/memory-config" or query.startswith("/memory-config "):
+            self.handle_memory_config(query)
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /memory-update <prompt> - 主动管理长期记忆

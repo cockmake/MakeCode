@@ -19,7 +19,7 @@ from system.tui_types import (
 
 class ChoiceModal(ModalScreen[str]):
     CSS = """
-    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal {
+    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal, MemoryConfigModal {
         align: center middle;
     }
 
@@ -47,6 +47,33 @@ class ChoiceModal(ModalScreen[str]):
         border: round #f59e0b;
         background: $surface;
         padding: 1 2;
+    }
+
+    #memory-config-dialog {
+        width: 76;
+        height: auto;
+        border: round #f59e0b;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    .memory-config-label {
+        height: 1;
+        margin-top: 1;
+    }
+
+    .memory-config-input {
+        margin-top: 0;
+    }
+
+    #memory-config-actions {
+        height: 3;
+        margin-top: 1;
+    }
+
+    .memory-config-button {
+        width: 1fr;
+        margin: 0 1;
     }
 
     #memory-list {
@@ -744,6 +771,96 @@ class MemoryPanelModal(ModalScreen[list[str]]):
 
     def action_close(self) -> None:
         self.dismiss(list(self._deleted_ids))
+
+
+class MemoryConfigModal(ModalScreen[str | dict[str, int]]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("enter", "submit", "Submit", priority=True),
+    ]
+
+    _FIELDS = {
+        "memory_size": {
+            "label": "长期记忆容量上限",
+            "input_id": "memory-config-memory-size",
+        },
+        "keep_recent_tool_call": {
+            "label": "近期工具调用结果保留数量",
+            "input_id": "memory-config-keep-recent-tool-call",
+        },
+    }
+
+    def __init__(self, values: dict[str, int]) -> None:
+        super().__init__()
+        self._values = values
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="memory-config-dialog"):
+            yield Label(
+                "🧠 记忆配置\n修改后按 Enter 或点击确认应用；配置值必须是大于 0 的整数。",
+                id="choice-title",
+            )
+            for field, meta in self._FIELDS.items():
+                yield Label(f"{meta['label']} ({field})", classes="memory-config-label")
+                yield Input(
+                    value=str(self._values[field]),
+                    id=meta["input_id"],
+                    classes="memory-config-input",
+                )
+            with Horizontal(id="memory-config-actions"):
+                yield Button("确认应用", id="memory-config-apply", variant="success", classes="memory-config-button")
+                yield Button("取消", id="memory-config-cancel", variant="warning", classes="memory-config-button")
+
+    def on_mount(self) -> None:
+        self.query_one("#memory-config-memory-size", Input).focus()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            self.action_submit()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "escape":
+            self.action_cancel()
+            event.stop()
+            event.prevent_default()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "memory-config-apply":
+            self.action_submit()
+            return
+        if event.button.id == "memory-config-cancel":
+            self.action_cancel()
+
+    def action_submit(self) -> None:
+        values = {}
+        for field, meta in self._FIELDS.items():
+            raw_value = self.query_one(f"#{meta['input_id']}", Input).value.strip()
+            try:
+                value = int(raw_value)
+            except ValueError:
+                self._show_error(f"{meta['label']} 必须是大于 0 的整数。")
+                return
+            if value <= 0:
+                self._show_error(f"{meta['label']} 必须是大于 0 的整数。")
+                return
+            values[field] = value
+        self.dismiss(values)
+
+    def action_cancel(self) -> None:
+        self.dismiss("<cancelled>")
+
+    def _show_error(self, message: str) -> None:
+        self.query_one("#choice-title", Label).update(
+            "🧠 记忆配置\n"
+            f"[bold yellow]{message}[/bold yellow]\n"
+            "修改后按 Enter 或点击确认应用；配置值必须是大于 0 的整数。"
+        )
 
 
 class AddModelModal(ModalScreen[dict[str, str] | None]):

@@ -13,7 +13,6 @@ from textual.containers import Horizontal, Vertical
 from textual.events import Key, Resize
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Static, TextArea
 
-from settings import KEEP_RECENT_TOOL_CALL
 from system.tui_types import (
     TuiEvent,
     TuiRegion,
@@ -26,6 +25,7 @@ from system.tui_modals import (
     ChoiceModal,
     LayoutModal,
     McpSwitchModal,
+    MemoryConfigModal,
     MemoryPanelModal,
     ModelManagerModal,
     ModelPanelModal,
@@ -146,6 +146,18 @@ class TuiBridge:
             app.call_from_thread(app.open_memory_panel_modal, memory_provider, future)
         return future.result()
 
+    def manage_memory_config(self, values: dict[str, int]) -> str | dict[str, int]:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return "<cancelled>"
+        future: Future[str | dict[str, int]] = Future()
+        if self._is_app_thread():
+            app.open_memory_config_modal(values, future)
+        else:
+            app.call_from_thread(app.open_memory_config_modal, values, future)
+        return future.result()
+
     def _dispatch_event(self, app: "MakeCodeTuiApp", event: TuiEvent) -> None:
         if self._is_app_thread():
             app.handle_tui_event(event)
@@ -175,6 +187,16 @@ class TuiBridge:
             app.refresh_status()
         else:
             app.call_from_thread(app.refresh_status)
+
+    def refresh_tools_title(self) -> None:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return
+        if self._is_app_thread():
+            app.refresh_tools_title()
+        else:
+            app.call_from_thread(app.refresh_tools_title)
 
 
 TUI_BRIDGE = TuiBridge()
@@ -368,9 +390,9 @@ class MakeCodeTuiApp(App[None]):
     }
 
     #input-box {
-        height: 3;
-        min-height: 3;
-        max-height: 5;
+        height: 4;
+        min-height: 4;
+        max-height: 6;
         border: round #22c55e;
     }
 
@@ -414,7 +436,7 @@ class MakeCodeTuiApp(App[None]):
         self._last_responsive_width = 0
         self._layout_ratios = load_layout_ratios()
         self._tool_result_count = 0
-        self._tool_result_keep_limit = KEEP_RECENT_TOOL_CALL
+        self._tool_result_keep_limit = self._load_tool_result_keep_limit()
         self._pane_active_counts: dict[TuiRegion, int] = {}
         self.title = "MakeCode"
         self.sub_title = "🎬 Act · Ready"
@@ -486,8 +508,8 @@ class MakeCodeTuiApp(App[None]):
 
     def update_input_height(self) -> None:
         input_box = self.query_one("#input-box", MakeCodeInput)
-        content_rows = max(input_box.wrapped_document.height, 1)
-        target_height = min(content_rows, 3) + 2
+        content_rows = min(max(input_box.wrapped_document.height, 2), 4)
+        target_height = content_rows + 2
         if input_box.styles.height != target_height:
             input_box.styles.height = target_height
 
@@ -532,10 +554,20 @@ class MakeCodeTuiApp(App[None]):
     def on_unmount(self) -> None:
         TUI_BRIDGE.unbind(self)
 
+    @staticmethod
+    def _load_tool_result_keep_limit() -> int:
+        from utils.memory import get_keep_recent_tool_call
+
+        return get_keep_recent_tool_call()
+
     def _update_tools_title(self) -> None:
         self.query_one("#tools-pane", Vertical).border_title = (
             f"Tools · Results: {self._tool_result_count}/{self._tool_result_keep_limit}"
         )
+
+    def refresh_tools_title(self) -> None:
+        self._tool_result_keep_limit = self._load_tool_result_keep_limit()
+        self._update_tools_title()
 
     def _set_pane_active(self, region: TuiRegion, active: bool) -> None:
         pane = self._panes.get(region)
@@ -691,6 +723,15 @@ class MakeCodeTuiApp(App[None]):
 
         self._modal_active = True
         self.push_screen(MemoryPanelModal(memory_provider), _done)
+
+    def open_memory_config_modal(self, values: dict[str, int], future: Future[str | dict[str, int]]) -> None:
+        def _done(value: str | dict[str, int] | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or "<cancelled>")
+
+        self._modal_active = True
+        self.push_screen(MemoryConfigModal(values), _done)
 
     def action_toggle_plan_mode(self) -> None:
         from utils.plan_mode import toggle_plan_mode
@@ -1022,6 +1063,10 @@ def refresh_status() -> None:
     TUI_BRIDGE.refresh_status()
 
 
+def refresh_tools_title() -> None:
+    TUI_BRIDGE.refresh_tools_title()
+
+
 def choose_model_panel_tui(title: str, options: list[str]) -> str:
     with TUI_BRIDGE._lock:
         app = TUI_BRIDGE._app
@@ -1045,6 +1090,10 @@ def manage_layout_tui() -> str | dict[str, int]:
 
 def manage_memories_tui(memory_provider: Any) -> list[str]:
     return TUI_BRIDGE.manage_memories(memory_provider)
+
+
+def manage_memory_config_tui(values: dict[str, int]) -> str | dict[str, int]:
+    return TUI_BRIDGE.manage_memory_config(values)
 
 
 def choose_mcp_switch_tui(server_switches: list[dict[str, Any]]) -> str | dict:

@@ -667,13 +667,17 @@ def _run_textual_main(history: list, command_handler: CommandHandler) -> None:
         except Exception:
             memory_count = 0
         try:
+            skills_count = len(SKILL_LOADER.skills)
+        except Exception:
+            skills_count = 0
+        try:
             mcp_status = GLOBAL_MCP_MANAGER.get_status_info()
             server_count = len(mcp_status.get("loaded_servers", []))
             tool_count = int(mcp_status.get("tool_count", 0))
         except Exception:
             server_count = 0
             tool_count = 0
-        return f"💬 {session_turns} · 🧠 {memory_count} · MCP {server_count}S/{tool_count}T"
+        return f"💬 {session_turns} · 🧠 {memory_count} · 📚 Skills {skills_count} · MCP {server_count}S/{tool_count}T"
 
     app = MakeCodeTuiApp(
         submit_handler=submit_handler,

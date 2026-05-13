@@ -187,14 +187,14 @@ Team 模块支持：
 - **筛选原则**：仅保存对未来会话有复用价值的稳定信息，例如用户偏好、项目约定、工作流规则、常见陷阱和已确认的发布规范；不保存一次性任务进度、临时实现细节或可直接从仓库重新读取的事实。
 - **决策消息生成**：当摘要为空时，记忆决策消息会省略 Summary 段落，而不是渲染空的 Summary 区块。
 - **容量与淘汰策略**：长期记忆容量可配置；超出上限时，系统会按时间顺序淘汰较旧的 active 记忆。
-- **存储位置**：长期记忆保存于 `.makecode/memory/memory.jsonl`，容量配置保存于 `.makecode/memory/memory_config.json`。
+- **存储位置**：长期记忆保存于 `.makecode/memory/memory.jsonl`，记忆配置保存于 `.makecode/memory/memory_config.json`。
 - **容错读取**：读取记忆 JSONL 时会跳过无效行，并保持原文件内容不被重写。
 
 #### 长期记忆命令
 
 - `/memory-list`：列出当前 active 长期记忆。
 - `/memory-delete`：按 ID 删除一条或多条长期记忆。
-- `/memory-size`：查看或设置长期记忆容量上限。
+- `/memory-config`：打开记忆配置面板，可修改 `memory_size` 和 `keep_recent_tool_call`。
 - `/memory-update`：根据用户提供的请求主动新增、修正或清理长期记忆。
 
 #### 流式摘要生成

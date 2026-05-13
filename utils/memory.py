@@ -29,6 +29,7 @@ MEMORY_DIR = MAKECODE_DIR / "memory"
 MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
 MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
 DEFAULT_MEMORY_SIZE = 30
+_MEMORY_CONFIG_CACHE: dict | None = None
 
 
 class AppendLongTermMemory(BaseModel):
@@ -174,25 +175,77 @@ def _validate_memory_size(size) -> int:
     return size
 
 
-def get_memory_size() -> int:
+def _validate_keep_recent_tool_call(size) -> int:
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+        raise ValueError("keep recent tool call must be a positive integer")
+    return size
+
+
+def _load_memory_config_from_disk() -> dict:
     if not MEMORY_CONFIG_FILE.exists():
-        return DEFAULT_MEMORY_SIZE
+        return {}
     try:
         with open(MEMORY_CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return DEFAULT_MEMORY_SIZE
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _get_memory_config_cache() -> dict:
+    global _MEMORY_CONFIG_CACHE
+    if _MEMORY_CONFIG_CACHE is None:
+        _MEMORY_CONFIG_CACHE = _load_memory_config_from_disk()
+    return _MEMORY_CONFIG_CACHE
+
+
+def _write_memory_config_field(field: str, value) -> None:
+    data = dict(_get_memory_config_cache())
+    data[field] = value
+    MEMORY_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(MEMORY_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    _get_memory_config_cache()[field] = value
+
+
+def _get_memory_config_field(field: str, default, validator):
+    data = _get_memory_config_cache()
+    if field not in data:
+        _write_memory_config_field(field, default)
+        return default
     try:
-        return _validate_memory_size(data.get("memory_size", DEFAULT_MEMORY_SIZE))
+        return validator(data[field])
     except ValueError:
-        return DEFAULT_MEMORY_SIZE
+        return default
+
+
+def get_memory_size() -> int:
+    return _get_memory_config_field(
+        "memory_size",
+        DEFAULT_MEMORY_SIZE,
+        _validate_memory_size,
+    )
 
 
 def set_memory_size(size: int) -> int:
     size = _validate_memory_size(size)
-    MEMORY_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(MEMORY_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"memory_size": size}, f, ensure_ascii=False, indent=2)
+    _write_memory_config_field("memory_size", size)
+    return size
+
+
+def get_keep_recent_tool_call() -> int:
+    return _get_memory_config_field(
+        "keep_recent_tool_call",
+        KEEP_RECENT_TOOL_CALL,
+        _validate_keep_recent_tool_call,
+    )
+
+
+def set_keep_recent_tool_call(size: int) -> int:
+    size = _validate_keep_recent_tool_call(size)
+    _write_memory_config_field("keep_recent_tool_call", size)
     return size
 
 
@@ -495,7 +548,8 @@ def micro_compact(input_list: list) -> list:
         if msg.get("type") == "function_call_output" or msg.get("role") == "tool":
             tool_results.append(msg)
 
-    if len(tool_results) <= KEEP_RECENT_TOOL_CALL:
+    keep_recent_tool_call = get_keep_recent_tool_call()
+    if len(tool_results) <= keep_recent_tool_call:
         return input_list
 
     tool_call_info_map = {}
@@ -532,7 +586,7 @@ def micro_compact(input_list: list) -> list:
                             "arguments": tc_args,
                         }
 
-    to_clear = tool_results[:-KEEP_RECENT_TOOL_CALL]
+    to_clear = tool_results[:-keep_recent_tool_call]
     for result in to_clear:
         call_id = result.get("call_id") or result.get("tool_call_id")
         info = tool_call_info_map.get(call_id, {})

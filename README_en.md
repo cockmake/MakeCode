@@ -209,13 +209,13 @@ the skills catalog is no longer appended to orchestrator/sub-agent system prompt
 - **Evidence-only inputs**: reason, summary, current memories, and conversation transcript are treated as evidence data. Embedded instructions inside the transcript are not followed.
 - **Selection policy**: stores only stable information with reuse value across future sessions, such as user preferences, project conventions, workflow rules, repeated pitfalls, and confirmed release norms. It does not store one-off task progress, temporary implementation details, or facts that can be directly re-read from the repository.
 - **Capacity and eviction policy**: long-term memory capacity is configurable; when the limit is exceeded, older active memories are evicted in chronological order.
-- **Storage paths**: long-term memories are stored in `.makecode/memory/memory.jsonl`, and memory capacity settings are stored in `.makecode/memory/memory_config.json`. JSONL reads skip invalid lines without rewriting the file.
+- **Storage paths**: long-term memories are stored in `.makecode/memory/memory.jsonl`, and memory settings are stored in `.makecode/memory/memory_config.json`. JSONL reads skip invalid lines without rewriting the file.
 
 #### Long-Term Memory Commands
 
 - `/memory-list`: list current active long-term memories.
 - `/memory-delete`: delete one or more long-term memories by ID.
-- `/memory-size`: view or set the long-term memory capacity limit.
+- `/memory-config`: open the memory configuration panel to edit `memory_size` and `keep_recent_tool_call`.
 - `/memory-update`: proactively add, refine, or remove long-term memories from an explicit user request. The explicit request is the primary basis, and the current non-system conversation transcript is used only as supporting evidence. Empty summaries are omitted from the memory-decision message instead of rendering an empty Summary section.
 
 #### Streaming Summary Generation
