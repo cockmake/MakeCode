@@ -17,7 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
-from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, set_agent_loop_active
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -57,6 +57,7 @@ class CommandResult:
 COMMAND_DESCRIPTIONS = {
     "/cmds": "列出所有的可用命令和功能描述",
     "/models": "管理模型配置：添加、删除、标记常用、选择当前模型",
+    "/layout": "调整 TUI 面板高度比例：左侧 Content/Tools，右侧 Reasoning/Background/Sub-Agent",
     "/mcp-view": "查看当前已加载的 MCP 服务器和工具",
     "/mcp-restart": "重新启动 MCP 管理器并加载配置",
     "/mcp-switch": "交互式切换 MCP 服务启用/禁用状态，并支持确认或取消保存",
@@ -527,6 +528,17 @@ class CommandHandler:
         self.console.print(f"\n[bold cyan]已退出模型面板，当前模型：[/bold cyan][bold green]{current_text}[/bold green]")
         return True
 
+    def handle_layout(self) -> bool:
+        """处理 /layout 命令"""
+        result = manage_layout_tui()
+        if isinstance(result, dict):
+            self.console.print(
+                "\n[bold green]✅ Layout 已应用：[/bold green]"
+                f"左侧 Content/Tools = {result['content']}/{result['tools']}；"
+                f"右侧 Reasoning/Background/Sub-Agent = {result['reasoning']}/{result['background']}/{result['sub_agent']}"
+            )
+        return True
+
     def handle_new(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
         """处理 /new 命令，返回 (should_continue, new_checkpoint)"""
         if not hitl_mod.get_hitl_status():
@@ -553,16 +565,20 @@ class CommandHandler:
 
     def handle_compact(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
         """处理 /compact 命令，返回 (should_continue, new_checkpoint)"""
-        self.auto_compact(
-            history,
-            reason="User triggered compact",
-            system_prompt_fn=self.get_system_prompt_fn,
-        )
-        self.console.print(
-            "\n[bold green]✨ 当前对话上下文已成功压缩并保存！[/bold green]"
-        )
-        new_checkpoint = self.save_checkpoint(history, current_checkpoint)
-        return True, new_checkpoint
+        set_agent_loop_active(True)
+        try:
+            self.auto_compact(
+                history,
+                reason="User triggered compact",
+                system_prompt_fn=self.get_system_prompt_fn,
+            )
+            self.console.print(
+                "\n[bold green]✨ 当前对话上下文已成功压缩并保存！[/bold green]"
+            )
+            new_checkpoint = self.save_checkpoint(history, current_checkpoint)
+            return True, new_checkpoint
+        finally:
+            set_agent_loop_active(False)
 
     def handle_memory_list(self) -> bool:
         """处理 /memory-list 命令"""
@@ -647,9 +663,13 @@ class CommandHandler:
             self.console.print("\n[bold yellow]用法：/memory-update <memory update request>[/bold yellow]")
             return True
 
-        outputs = manual_memory_update(parts[1].strip(), history)
-        if outputs and history and history[0].get("role") == "system":
-            history[0]["content"] = self.get_system_prompt_fn()
+        set_agent_loop_active(True)
+        try:
+            outputs = manual_memory_update(parts[1].strip(), history)
+            if outputs and history and history[0].get("role") == "system":
+                history[0]["content"] = self.get_system_prompt_fn()
+        finally:
+            set_agent_loop_active(False)
         return True
 
     def handle_load(
@@ -811,6 +831,10 @@ class CommandHandler:
 
         if query == "/models":
             self.handle_models()
+            return CommandResult(action=CommandAction.CONTINUE)
+
+        if query == "/layout":
+            self.handle_layout()
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /plan - 切换 Plan Mode

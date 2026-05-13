@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -15,6 +16,8 @@ from textual.containers import Horizontal, Vertical
 from textual.events import Key, Resize
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static, TextArea
+
+from init import INSTALL_MAKECODE_DIR
 
 
 class TuiRegion(StrEnum):
@@ -32,6 +35,68 @@ class TuiEvent:
     region: TuiRegion
     payload: Any
     clear: bool = False
+
+
+LAYOUT_CONFIG_FILE = INSTALL_MAKECODE_DIR / "layout_config.json"
+LAYOUT_DEFAULT_RATIOS: dict[str, int] = {
+    "content": 1,
+    "tools": 1,
+    "reasoning": 2,
+    "background": 2,
+    "sub_agent": 1,
+}
+LAYOUT_LEFT_KEYS = ("content", "tools")
+LAYOUT_RIGHT_KEYS = ("reasoning", "background", "sub_agent")
+
+
+def normalize_layout_ratios(data: Any) -> dict[str, int]:
+    source = data if isinstance(data, dict) else {}
+    ratios: dict[str, int] = {}
+    for key, default in LAYOUT_DEFAULT_RATIOS.items():
+        try:
+            value = int(source.get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        ratios[key] = min(max(value, 0), 10)
+    return ratios
+
+
+def load_layout_ratios() -> dict[str, int]:
+    try:
+        data = json.loads(LAYOUT_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(LAYOUT_DEFAULT_RATIOS)
+    return normalize_layout_ratios(data)
+
+
+def save_layout_ratios(ratios: dict[str, int]) -> None:
+    LAYOUT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LAYOUT_CONFIG_FILE.write_text(
+        json.dumps(normalize_layout_ratios(ratios), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def input_visual_line_count(text: str, content_width: int) -> int:
+    width = max(content_width, 1)
+    rows = 0
+    for line in text.split("\n") or [""]:
+        rows += max((len(line) + width - 1) // width, 1)
+    return rows
+
+
+def input_cursor_visual_line_index(text: str, cursor_line: int, cursor_column: int, content_width: int) -> tuple[int, int]:
+    width = max(content_width, 1)
+    lines = text.split("\n") or [""]
+    line_index = min(max(cursor_line, 0), len(lines) - 1)
+    visual_index = 0
+    for line in lines[:line_index]:
+        visual_index += max((len(line) + width - 1) // width, 1)
+    current_line = lines[line_index]
+    current_rows = max((len(current_line) + width - 1) // width, 1)
+    column = min(max(cursor_column, 0), len(current_line))
+    visual_index += min(column // width, current_rows - 1)
+    return visual_index, input_visual_line_count(text, width)
 
 
 class TuiBridge:
@@ -114,6 +179,18 @@ class TuiBridge:
             app.call_from_thread(app.open_model_manager_modal, model_manager, future)
         return future.result()
 
+    def manage_layout(self) -> str | dict[str, int]:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return "<cancelled>"
+        future: Future[str | dict[str, int]] = Future()
+        if self._is_app_thread():
+            app.open_layout_modal(future)
+        else:
+            app.call_from_thread(app.open_layout_modal, future)
+        return future.result()
+
     def _dispatch_event(self, app: "MakeCodeTuiApp", event: TuiEvent) -> None:
         if self._is_app_thread():
             app.handle_tui_event(event)
@@ -140,7 +217,7 @@ TUI_BRIDGE = TuiBridge()
 
 class ChoiceModal(ModalScreen[str]):
     CSS = """
-    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal {
+    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal {
         align: center middle;
     }
 
@@ -151,6 +228,38 @@ class ChoiceModal(ModalScreen[str]):
         border: round #f59e0b;
         background: $surface;
         padding: 1 2;
+    }
+
+    #layout-dialog {
+        width: 76;
+        height: auto;
+        border: round #f59e0b;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #layout-columns {
+        height: auto;
+    }
+
+    .layout-column {
+        width: 1fr;
+        height: auto;
+    }
+
+    .layout-button {
+        width: 100%;
+        margin: 0 1;
+    }
+
+    #layout-actions {
+        height: 3;
+        margin-top: 1;
+    }
+
+    .layout-action-button {
+        width: 1fr;
+        margin: 0 1;
     }
 
     #choice-title {
@@ -679,6 +788,106 @@ class AddModelModal(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
+class LayoutModal(ModalScreen[str | dict[str, int]]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("q", "cancel", "Cancel", priority=True),
+        Binding("space", "increment_focused", "Increment", priority=True),
+    ]
+
+    _LABELS = {
+        "content": "Content",
+        "tools": "Tools",
+        "reasoning": "Reasoning",
+        "background": "Background",
+        "sub_agent": "Sub-Agent",
+    }
+
+    def __init__(self, ratios: dict[str, int]) -> None:
+        super().__init__()
+        self._ratios = normalize_layout_ratios(ratios)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="layout-dialog"):
+            yield Label(
+                "🧩 Layout 布局比例\n点击按钮或按 Space 在 0-10 间循环；0 表示隐藏但继续接收渲染。",
+                id="choice-title",
+            )
+            with Horizontal(id="layout-columns"):
+                with Vertical(classes="layout-column"):
+                    yield Label("左侧高度比例")
+                    for key in LAYOUT_LEFT_KEYS:
+                        yield Button(self._button_label(key), id=f"layout-{key}", classes="layout-button")
+                with Vertical(classes="layout-column"):
+                    yield Label("右侧高度比例")
+                    for key in LAYOUT_RIGHT_KEYS:
+                        yield Button(self._button_label(key), id=f"layout-{key}", classes="layout-button")
+            with Horizontal(id="layout-actions"):
+                yield Button("确认应用", id="layout-apply", variant="success", classes="layout-action-button")
+                yield Button("重置默认", id="layout-reset", variant="primary", classes="layout-action-button")
+                yield Button("取消", id="layout-cancel", variant="warning", classes="layout-action-button")
+
+    def on_mount(self) -> None:
+        self.query_one("#layout-content", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id.startswith("layout-"):
+            action = button_id.removeprefix("layout-")
+            if action in self._ratios:
+                self._increment(action)
+                return
+            if action == "apply":
+                self.dismiss(dict(self._ratios))
+                return
+            if action == "reset":
+                self._ratios = dict(LAYOUT_DEFAULT_RATIOS)
+                self._refresh_buttons()
+                return
+            if action == "cancel":
+                self.action_cancel()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "escape" or (event.key == "q" and not isinstance(self.focused, Input)):
+            self.action_cancel()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "space":
+            self.action_increment_focused()
+            event.stop()
+            event.prevent_default()
+
+    def action_increment_focused(self) -> None:
+        focused = self.focused
+        if not isinstance(focused, Button) or focused.id is None:
+            return
+        key = focused.id.removeprefix("layout-")
+        if key in self._ratios:
+            self._increment(key)
+
+    def action_cancel(self) -> None:
+        self.dismiss("<cancelled>")
+
+    def _button_label(self, key: str) -> str:
+        return f"{self._LABELS[key]} {self._ratios[key]}"
+
+    def _increment(self, key: str) -> None:
+        self._ratios[key] = (self._ratios[key] + 1) % 11
+        self._refresh_button(key)
+
+    def _refresh_buttons(self) -> None:
+        for key in self._ratios:
+            self._refresh_button(key)
+
+    def _refresh_button(self, key: str) -> None:
+        button = self.query_one(f"#layout-{key}", Button)
+        button.label = self._button_label(key)
+        button.focus()
+
+
 class MakeCodeInput(TextArea):
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         app = self.app
@@ -888,6 +1097,7 @@ class MakeCodeTuiApp(App[None]):
         self._modal_active = False
         self._right_column_visible = True
         self._last_responsive_width = 0
+        self._layout_ratios = load_layout_ratios()
         self.title = "MakeCode"
         self.sub_title = "🎬 Act · Ready"
 
@@ -922,6 +1132,7 @@ class MakeCodeTuiApp(App[None]):
         self.query_one("#tools-pane", RichLog).border_title = "Tools"
         self.query_one("#background-pane", RichLog).border_title = "Background"
         self.query_one("#sub-agent-pane", RichLog).border_title = "Sub-Agent"
+        self._apply_layout_ratios()
         self._update_header_status()
         self._update_input_title()
         self._update_hitl_button()
@@ -934,9 +1145,7 @@ class MakeCodeTuiApp(App[None]):
     def update_input_height(self) -> None:
         input_box = self.query_one("#input-box", MakeCodeInput)
         content_width = max(input_box.size.width - 4, 1)
-        content_rows = 0
-        for line in input_box.text.split("\n") or [""]:
-            content_rows += max((len(line) + content_width - 1) // content_width, 1)
+        content_rows = input_visual_line_count(input_box.text, content_width)
         target_height = min(max(content_rows, 1), 3) + 2
         if input_box.styles.height != target_height:
             input_box.styles.height = target_height
@@ -958,6 +1167,26 @@ class MakeCodeTuiApp(App[None]):
             return
         self._right_column_visible = should_show_right_column
         right_column.set_class(not should_show_right_column, "hidden")
+
+    def _apply_layout_ratios(self) -> None:
+        pane_ids = {
+            "content": "#content-pane",
+            "tools": "#tools-pane",
+            "reasoning": "#reasoning-pane",
+            "background": "#background-pane",
+            "sub_agent": "#sub-agent-pane",
+        }
+        for key, selector in pane_ids.items():
+            pane = self.query_one(selector, RichLog)
+            ratio = self._layout_ratios[key]
+            pane.set_class(ratio == 0, "hidden")
+            if ratio > 0:
+                pane.styles.height = f"{ratio}fr"
+
+    def update_layout_ratios(self, ratios: dict[str, int]) -> None:
+        self._layout_ratios = normalize_layout_ratios(ratios)
+        save_layout_ratios(self._layout_ratios)
+        self._apply_layout_ratios()
 
     def on_unmount(self) -> None:
         TUI_BRIDGE.unbind(self)
@@ -1037,6 +1266,20 @@ class MakeCodeTuiApp(App[None]):
         self._modal_active = True
         self.push_screen(AddModelModal(), _done)
 
+    def open_layout_modal(self, future: Future[str | dict[str, int]]) -> None:
+        def _done(value: str | dict[str, int] | None) -> None:
+            self._modal_active = False
+            if isinstance(value, dict):
+                self.update_layout_ratios(value)
+                if not future.done():
+                    future.set_result(dict(self._layout_ratios))
+                return
+            if not future.done():
+                future.set_result(value or "<cancelled>")
+
+        self._modal_active = True
+        self.push_screen(LayoutModal(self._layout_ratios), _done)
+
     def action_toggle_plan_mode(self) -> None:
         from utils.plan_mode import toggle_plan_mode
 
@@ -1059,11 +1302,19 @@ class MakeCodeTuiApp(App[None]):
 
     def should_navigate_input_history(self, direction: int) -> bool:
         input_box = self.query_one("#input-box", MakeCodeInput)
-        if "\n" not in input_box.text:
+        content_width = max(input_box.size.width - 4, 1)
+        cursor_line, cursor_column = input_box.cursor_location
+        visual_index, visual_count = input_cursor_visual_line_index(
+            input_box.text,
+            cursor_line,
+            cursor_column,
+            content_width,
+        )
+        if visual_count <= 1:
             return True
         if direction < 0:
-            return input_box.cursor_at_first_line
-        return input_box.cursor_at_last_line
+            return visual_index == 0
+        return visual_index == visual_count - 1
 
     def navigate_input_history(self, direction: int) -> None:
         if not self._input_history:
@@ -1346,6 +1597,10 @@ def choose_model_panel_tui(title: str, options: list[str]) -> str:
 
 def manage_models_tui(model_manager: Any) -> str:
     return TUI_BRIDGE.manage_models(model_manager)
+
+
+def manage_layout_tui() -> str | dict[str, int]:
+    return TUI_BRIDGE.manage_layout()
 
 
 def choose_mcp_switch_tui(server_switches: list[dict[str, Any]]) -> str | dict:

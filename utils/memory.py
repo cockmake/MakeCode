@@ -267,8 +267,8 @@ def memory_agent_loop(
         mode: str = "compact",
         max_iterations: int = 5,
 ) -> list[dict]:
-    _compact_console.print("\n[bold yellow]🧠 Managing long-term memory...[/bold yellow]")
-    _compact_console.rule("[bold yellow]📓 Memory[/bold yellow]", style="yellow")
+    _compact_console.print("\n[bold yellow]🧠 正在管理长期记忆...[/bold yellow]")
+    _compact_console.rule("[bold yellow]📓 记忆[/bold yellow]", style="yellow")
     saved_outputs = []
     messages = llm_client.get_memory_decision_messages(
         conversation_text,
@@ -282,8 +282,8 @@ def memory_agent_loop(
         try:
             _, memory_tool_calls, raw_message = llm_client.get_memory_decision_stream_messages(messages, tools)
         except Exception as e:
-            _compact_console.print(f"[bold red]Memory manager error: {e}[/bold red]")
-            _compact_console.rule(style="yellow")
+            _compact_console.print(f"[bold red]记忆管理器错误：{e}[/bold red]")
+            _compact_console.print("[#aaaaaa]记忆管理流程已结束。[/#aaaaaa]")
             return saved_outputs
 
         if raw_message is not None:
@@ -297,22 +297,22 @@ def memory_agent_loop(
             tool_id = tool_call.get("id")
             handler = LONG_TERM_MEMORY_TOOL_HANDLERS.get(tool_name)
             if not handler:
-                output = f"Unknown memory tool: {tool_name}"
+                output = f"未知记忆工具：{tool_name}"
             else:
-                _render_tool_call(tool_name, tool_call.get("arguments"), identity="🧠 Memory Agent")
+                _render_tool_call(tool_name, tool_call.get("arguments"), identity="🧠 记忆代理")
                 try:
                     arguments = _parse_tool_arguments(tool_call.get("arguments"))
                     output = handler(**arguments)
                 except Exception as e:
-                    output = f"Error executing {tool_name}: {e}."
-                _render_tool_output(tool_name, output, identity="🧠 Memory Agent")
+                    output = f"执行 {tool_name} 出错：{e}。"
+                _render_tool_output(tool_name, output, identity="🧠 记忆代理")
             saved_outputs.append({"tool": tool_name, "output": output})
             if tool_id:
                 messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
 
     if not saved_outputs:
-        _compact_console.print("[yellow]No long-term memory changes.[/yellow]")
-    _compact_console.rule(style="yellow")
+        _compact_console.print("[yellow]长期记忆没有变更。[/yellow]")
+    _compact_console.print("[#aaaaaa]记忆管理流程已结束。[/#aaaaaa]")
     return saved_outputs
 
 
@@ -548,7 +548,7 @@ def auto_compact(
         for msg in messages:
             f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
     print_formatted_text(
-        HTML(f"\n<ansiyellow>[Transcript saved to: {transcript_path}]</ansiyellow>")
+        HTML(f"\n<ansiyellow>[对话记录已保存到：{transcript_path}]</ansiyellow>")
     )
 
     # Filter out original system messages to prevent system instructions clash
@@ -556,10 +556,10 @@ def auto_compact(
     conversation_text = json.dumps(filtered_messages, default=str, ensure_ascii=False)
 
     _compact_console.print(
-        f"\n[bold yellow]⚡️ Compacting context...[/bold yellow]  "
+        f"\n[bold yellow]⚡️ 正在压缩上下文...[/bold yellow]  "
         f"[#aaaaaa]{reason}[/#aaaaaa]"
     )
-    _compact_console.rule("[bold cyan]📝 Summary", style="cyan")
+    _compact_console.rule("[bold cyan]📝 摘要", style="cyan")
 
     chunks: list[str] = []
     try:
@@ -572,7 +572,7 @@ def auto_compact(
 
     except Exception as e:
         # 打印红色的错误提示，比原生的 print 更友好
-        _compact_console.print(f"\n[bold red]Stream Error: {e}[/bold red]")
+        _compact_console.print(f"\n[bold red]流式摘要错误：{e}[/bold red]")
 
         # 流式失败时回退到普通调用
         fallback = llm_client.get_summary(conversation_text, reason)
@@ -580,7 +580,7 @@ def auto_compact(
         _compact_console.print(Markdown(fallback))
         chunks = [fallback]
 
-    _compact_console.rule(style="cyan")
+    _compact_console.print("[#aaaaaa]摘要生成流程已结束。[/#aaaaaa]")
     summary = "".join(chunks)
 
     memory_agent_loop(
