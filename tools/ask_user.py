@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from system.console_render import console_lock
 from system.tui_app import choose_tui
+from system.window_attention import request_window_attention
 
 
 class Option(BaseModel):
@@ -76,6 +77,7 @@ def ask_user(question: str, options: list, **kwargs) -> str:
             f"⭐ {opt.content} （推荐）" if opt.is_recommended else opt.content
             for opt in parsed_options
         ]
+        request_window_attention()
         choice = choose_tui(question, labels, allow_custom=True)
 
     if choice == "<cancelled>":
