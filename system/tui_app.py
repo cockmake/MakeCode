@@ -277,7 +277,8 @@ class MakeCodeTuiApp(App[None]):
     }
 
     .pane {
-        border: round #3b82f6;
+        border: round #d1d5db;
+        border-title-color: white;
         padding: 0 1;
     }
 
