@@ -65,7 +65,7 @@ COMMAND_DESCRIPTIONS = {
     "/load": "列出历史checkpoint并选择加载",
     "/skills-switch": "切换 skills 目录摘要注入状态 (开启/关闭)",
     "/skills-list": "列出当前工作区可用的 skills",
-    "/compact": "压缩当前对话上下文",
+    "/compact": "压缩当前对话上下文（自动尝试提取关键记忆信息）",
     "/memory-list": "列出当前保存的长期记忆",
     "/memory-panel": "打开长期记忆交互面板，可查看详情并二次确认删除",
     "/memory-delete": "按 ID 删除一条长期记忆，例如 /memory-delete mem_20260510_abc123",
