@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any
+
+from init import INSTALL_MAKECODE_DIR
+
+
+class TuiRegion(StrEnum):
+    CONTENT = "content"
+    REASONING = "reasoning"
+    TOOLS = "tools"
+    BACKGROUND = "background"
+    SUB_AGENT = "sub_agent"
+    STATUS = "status"
+    RUNTIME_INFO = "runtime_info"
+
+
+@dataclass(frozen=True)
+class TuiEvent:
+    region: TuiRegion
+    payload: Any
+    clear: bool = False
+    tool_result_delta: int = 0
+    reset_tool_result_count: bool = False
+    tail: bool = False
+    active: bool | None = None
+
+
+LAYOUT_CONFIG_FILE = INSTALL_MAKECODE_DIR / "layout_config.json"
+LAYOUT_DEFAULT_RATIOS: dict[str, int] = {
+    "content": 1,
+    "tools": 1,
+    "reasoning": 2,
+    "background": 2,
+    "sub_agent": 1,
+}
+LAYOUT_LEFT_KEYS = ("content", "tools")
+LAYOUT_RIGHT_KEYS = ("reasoning", "background", "sub_agent")
+
+
+def normalize_layout_ratios(data: Any) -> dict[str, int]:
+    source = data if isinstance(data, dict) else {}
+    ratios: dict[str, int] = {}
+    for key, default in LAYOUT_DEFAULT_RATIOS.items():
+        try:
+            value = int(source.get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        ratios[key] = min(max(value, 0), 10)
+    return ratios
+
+
+def load_layout_ratios() -> dict[str, int]:
+    try:
+        data = json.loads(LAYOUT_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(LAYOUT_DEFAULT_RATIOS)
+    return normalize_layout_ratios(data)
+
+
+def save_layout_ratios(ratios: dict[str, int]) -> None:
+    LAYOUT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LAYOUT_CONFIG_FILE.write_text(
+        json.dumps(normalize_layout_ratios(ratios), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
