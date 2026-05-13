@@ -845,10 +845,12 @@ class CommandHandler:
 
         if query == "/mcp-restart":
             self.handle_mcp_restart()
+            refresh_status()
             return CommandResult(action=CommandAction.CONTINUE)
 
         if query == "/mcp-switch":
             self.handle_mcp_switch()
+            refresh_status()
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /cmds, /help - 列出命令
@@ -952,6 +954,7 @@ class CommandHandler:
         # /memory-update <prompt> - 主动管理长期记忆
         if query == "/memory-update" or query.startswith("/memory-update "):
             self.handle_memory_update(query, history)
+            refresh_status()
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /load - 加载历史

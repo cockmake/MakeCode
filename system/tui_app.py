@@ -390,6 +390,7 @@ class MakeCodeTuiApp(App[None]):
         self,
         submit_handler: Callable[[str], str | None] | None = None,
         runtime_info_provider: Callable[[], str] | None = None,
+        header_info_provider: Callable[[], str] | None = None,
     ) -> None:
         super().__init__()
         self._logs: dict[TuiRegion, RichLog] = {}
@@ -399,6 +400,7 @@ class MakeCodeTuiApp(App[None]):
         self._runtime_info = ""
         self._submit_handler = submit_handler
         self._runtime_info_provider = runtime_info_provider
+        self._header_info_provider = header_info_provider
         self._mode_label = "ACT"
         self._agent_loop_active = False
         self._slash_matches: list[tuple[str, str]] = []
@@ -853,7 +855,15 @@ class MakeCodeTuiApp(App[None]):
     def _update_header_status(self) -> None:
         mode_text = "📋 Plan" if self._mode_label == "PLAN" else "🎬 Act"
         agent_text = "⚙️ Agent Running" if self._agent_loop_active else "Ready"
-        self.sub_title = f"{mode_text} · {agent_text}"
+        parts = [mode_text, agent_text]
+        if self._header_info_provider is not None:
+            try:
+                header_info = self._header_info_provider()
+            except Exception:
+                header_info = ""
+            if header_info:
+                parts.append(header_info)
+        self.sub_title = " · ".join(parts)
 
     def _update_input_title(self) -> None:
         self.query_one("#input-box", MakeCodeInput).border_title = f"MakeCode · {self._mode_label} · Enter 发送/选择 · Ctrl+C 取消回复 · Ctrl+N 换行 · Ctrl+P 切换 · ↑↓ 选择命令"

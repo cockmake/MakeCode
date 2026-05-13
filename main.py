@@ -58,6 +58,7 @@ from utils.memory import (
     THRESHOLD,
     auto_compact,
     estimate_tokens,
+    get_active_memory_count,
     list_checkpoints,
     load_checkpoint,
     micro_compact,
@@ -629,6 +630,7 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
         if _title_thread is not None:
             _title_thread.join(timeout=10)
         _apply_pending_title()
+        refresh_status()
         return None
     if command_result.action == CommandAction.RESET_CHECKPOINT:
         CURRENT_CHECKPOINT = None
@@ -658,9 +660,25 @@ def _run_textual_main(history: list, command_handler: CommandHandler) -> None:
         )
         return format_runtime_info(tokens, THRESHOLD)
 
+    def header_info_provider() -> str:
+        session_turns = sum(1 for message in history if message.get("role") == "user")
+        try:
+            memory_count = get_active_memory_count()
+        except Exception:
+            memory_count = 0
+        try:
+            mcp_status = GLOBAL_MCP_MANAGER.get_status_info()
+            server_count = len(mcp_status.get("loaded_servers", []))
+            tool_count = int(mcp_status.get("tool_count", 0))
+        except Exception:
+            server_count = 0
+            tool_count = 0
+        return f"💬 {session_turns} · 🧠 {memory_count} · MCP {server_count}S/{tool_count}T"
+
     app = MakeCodeTuiApp(
         submit_handler=submit_handler,
         runtime_info_provider=runtime_info_provider,
+        header_info_provider=header_info_provider,
     )
     app.run()
 

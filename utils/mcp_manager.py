@@ -9,7 +9,7 @@ from fastmcp import Client
 from prompt_toolkit.formatted_text import HTML
 from rich.text import Text
 
-from system.tui_app import TuiRegion, post_tui
+from system.tui_app import TuiRegion, post_tui, refresh_status
 
 
 _STYLE_MAP = {
@@ -340,6 +340,7 @@ class GlobalMCPManager:
                     self._server_tools[server_name] = server_tools
                     self._server_status_tools[server_name] = server_status_tools
                     self._rebuild_global_registry_locked()
+                refresh_status()
                 return True
             except Exception as e:
                 # 清理失败的 Client 资源
@@ -376,6 +377,7 @@ class GlobalMCPManager:
             self._server_tools.pop(server_name, None)
             self._server_status_tools.pop(server_name, None)
             self._rebuild_global_registry_locked()
+        refresh_status()
 
         if client and hasattr(client, "__aexit__"):
             try:
@@ -410,6 +412,7 @@ class GlobalMCPManager:
 
             with self._db_lock:
                 self._rebuild_global_registry_locked()
+            refresh_status()
 
             await self._stop_event.wait()
         except Exception as e:
@@ -431,6 +434,7 @@ class GlobalMCPManager:
                 self._mcp_tools = []
                 self._mcp_handlers = {}
                 self._status_tools = []
+            refresh_status()
 
     def get_tools(self) -> list:
         with self._db_lock:
