@@ -627,10 +627,16 @@ class TeammateManager:
         for step in range(max_steps):  # 最大 max_steps 步限制
             try:
                 start_time = time.perf_counter()
-                response = await local_async_llm_client.generate(
+                stream_result = None
+                async for event in local_async_llm_client.generate_stream(
                     messages=messages,
                     tools=sub_agent_tools,
-                )
+                ):
+                    if event.get("type") == "done":
+                        stream_result = event.get("content")
+                        break
+                if stream_result is None:
+                    raise RuntimeError("Sub-agent stream ended without a final done event.")
                 response_time = time.perf_counter() - start_time
             except Exception as e:
                 log_error_traceback(f"Sub-agent API generation error (Role: {role})", e)
@@ -642,9 +648,7 @@ class TeammateManager:
                 await append_trace("task_error", final_report)
                 return {"report": final_report}
 
-            text_content, tool_calls, raw_message = (
-                local_async_llm_client.parse_response(response)
-            )
+            text_content, tool_calls, raw_message = stream_result
 
             # append assistant message to history
             local_async_llm_client.append_assistant_message(messages, raw_message)
