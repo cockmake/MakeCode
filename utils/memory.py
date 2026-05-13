@@ -15,7 +15,7 @@ from system.stream_render import StreamRenderer
 from system.tui_app import TuiRegion, post_tui
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
-from settings import KEEP_RECENT_TOOL_CALL
+from settings import KEEP_RECENT_TOOL_CALL, MEMORY_AGENT_MAX_ITERATIONS
 
 
 def print_formatted_text(value):
@@ -265,7 +265,7 @@ def memory_agent_loop(
         current_memory_content: str,
         tools: list,
         mode: str = "compact",
-        max_iterations: int = 5,
+        max_iterations: int = MEMORY_AGENT_MAX_ITERATIONS,
 ) -> list[dict]:
     _compact_console.print("\n[bold yellow]🧠 正在管理长期记忆...[/bold yellow]")
     _compact_console.rule("[bold yellow]📓 记忆[/bold yellow]", style="yellow")
@@ -278,7 +278,7 @@ def memory_agent_loop(
         mode=mode,
     )
 
-    for _ in range(max_iterations):
+    for round_index in range(max_iterations):
         try:
             _, memory_tool_calls, raw_message = llm_client.get_memory_decision_stream_messages(messages, tools)
         except Exception as e:
@@ -309,6 +309,20 @@ def memory_agent_loop(
             saved_outputs.append({"tool": tool_name, "output": output})
             if tool_id:
                 messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
+
+        current_round = round_index + 1
+        remaining_rounds = max_iterations - current_round
+        if remaining_rounds > 0:
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"[auto generated] current_round={current_round} / max_round={max_iterations}. "
+                    f"Remaining rounds: {remaining_rounds}. "
+                    "The memory management loop will exit automatically when the max round is reached, "
+                    "regardless of whether all memory operations are complete. "
+                    "Please finish memory management as soon as possible."
+                ),
+            })
 
     if not saved_outputs:
         _compact_console.print("[yellow]长期记忆没有变更。[/yellow]")
