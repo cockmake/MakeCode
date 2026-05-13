@@ -27,7 +27,7 @@ def _parse_version(v: str) -> tuple:
     return tuple(int(x) for x in v.strip().split("."))
 
 
-def check_update() -> dict | None:
+def check_update(*, raise_errors: bool = False) -> dict | None:
     """
     从 VERSION_CHECK_URL 获取 version.json 并与 CURRENT_VERSION 比较。
 
@@ -36,10 +36,10 @@ def check_update() -> dict | None:
             "version": "1.1.0",
             "download_url": "...",
             "sha256": "abc123...",
-            "release_notes": "..."
+            "release_log": "..."
         }
 
-    有更新返回版本信息字典，无更新或出错返回 None。
+    有更新返回版本信息字典，无更新返回 None。默认静默吞掉检查错误；raise_errors=True 时抛出异常。
     """
     try:
         # 创建不验证 SSL 证书的上下文（解决打包后证书路径问题）
@@ -51,11 +51,15 @@ def check_update() -> dict | None:
             data = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         logger.warning("检查更新失败: %s", exc)
+        if raise_errors:
+            raise RuntimeError(f"检查更新失败: {exc}") from exc
         return None
 
     remote_version = data.get("version", "")
     if not remote_version:
         logger.warning("version.json 缺少 version 字段")
+        if raise_errors:
+            raise ValueError("version.json 缺少 version 字段")
         return None
 
     try:
@@ -63,6 +67,8 @@ def check_update() -> dict | None:
             return data
     except (ValueError, TypeError) as exc:
         logger.warning("版本号解析失败: %s", exc)
+        if raise_errors:
+            raise ValueError(f"版本号解析失败: {exc}") from exc
 
     return None
 
@@ -142,7 +148,7 @@ def launch_updater(new_exe_path: Path) -> None:
 
     logger.info("启动更新程序: %s", cmd)
     subprocess.Popen(cmd, close_fds=True)
-    sys.exit(0)
+    os._exit(0)
 
 
 def _extract_updater_resource() -> Path:
@@ -204,12 +210,12 @@ def check_and_update(silent: bool = True) -> bool:
         return False
 
     remote_ver = version_info.get("version", "未知")
-    release_notes = version_info.get("release_notes", "")
+    release_log = version_info.get("release_log", "")
 
     if not silent:
         print(f"发现新版本: {remote_ver}")
-        if release_notes:
-            print(f"更新说明: {release_notes}")
+        if release_log:
+            print(f"更新说明: {release_log}")
 
     def _progress(downloaded: int, total: int | None) -> None:
         if not silent:

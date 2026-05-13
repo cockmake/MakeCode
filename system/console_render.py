@@ -52,13 +52,14 @@ _custom_theme = Theme({
 class TuiConsole(Console):
     def print(self, *objects: Any, **kwargs: Any) -> None:
         region = kwargs.pop("tui_region", TuiRegion.CONTENT)
+        tool_result_delta = kwargs.pop("tool_result_delta", 0)
         sep = kwargs.get("sep", " ")
         end = kwargs.get("end", "\n")
         if not objects:
-            post_tui(region, "")
+            post_tui(region, "", tool_result_delta=tool_result_delta)
             return
-        for obj in objects:
-            post_tui(region, obj)
+        for index, obj in enumerate(objects):
+            post_tui(region, obj, tool_result_delta=tool_result_delta if index == 0 else 0)
         if end and end != "\n":
             post_tui(region, end.rstrip("\n"))
 
@@ -293,6 +294,7 @@ def _render_tool_output(
             expand=True,
         ),
         tui_region=tui_region,
+        tool_result_delta=1 if tui_region == TuiRegion.TOOLS else 0,
     )
 
 

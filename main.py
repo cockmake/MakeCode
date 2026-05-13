@@ -574,12 +574,17 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
 
             def _title_worker():
                 global _pending_title
+                post_tui(TuiRegion.BACKGROUND, "[#aaaaaa]🏷️ 正在生成对话标题...[/#aaaaaa]")
                 try:
                     title = generate_title(query)
                     if title:
                         _pending_title = title
+                        post_tui(TuiRegion.BACKGROUND, f"[bold green]🏷️ 对话标题生成完成：{title}[/bold green]")
+                    else:
+                        post_tui(TuiRegion.BACKGROUND, "[#aaaaaa]🏷️ 对话标题生成结束：未生成可用标题[/#aaaaaa]")
                 except Exception as exc:
                     log_error_traceback("Failed to generate title", exc)
+                    post_tui(TuiRegion.BACKGROUND, f"[bold red]🏷️ 对话标题生成失败：{exc}[/bold red]")
 
             _title_thread = threading.Thread(target=_title_worker, daemon=True)
             _title_thread.start()

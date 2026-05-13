@@ -35,6 +35,7 @@ class TuiEvent:
     region: TuiRegion
     payload: Any
     clear: bool = False
+    tool_result_delta: int = 0
 
 
 LAYOUT_CONFIG_FILE = INSTALL_MAKECODE_DIR / "layout_config.json"
@@ -122,8 +123,15 @@ class TuiBridge:
                 self._app = None
                 self._app_thread_id = None
 
-    def post(self, region: TuiRegion | str, payload: Any, *, clear: bool = False) -> None:
-        event = TuiEvent(TuiRegion(region), payload, clear)
+    def post(
+        self,
+        region: TuiRegion | str,
+        payload: Any,
+        *,
+        clear: bool = False,
+        tool_result_delta: int = 0,
+    ) -> None:
+        event = TuiEvent(TuiRegion(region), payload, clear, tool_result_delta)
         with self._lock:
             app = self._app
             if app is None:
@@ -191,6 +199,18 @@ class TuiBridge:
             app.call_from_thread(app.open_layout_modal, future)
         return future.result()
 
+    def manage_memories(self, memory_provider: Any) -> list[str]:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return []
+        future: Future[list[str]] = Future()
+        if self._is_app_thread():
+            app.open_memory_panel_modal(memory_provider, future)
+        else:
+            app.call_from_thread(app.open_memory_panel_modal, memory_provider, future)
+        return future.result()
+
     def _dispatch_event(self, app: "MakeCodeTuiApp", event: TuiEvent) -> None:
         if self._is_app_thread():
             app.handle_tui_event(event)
@@ -217,7 +237,7 @@ TUI_BRIDGE = TuiBridge()
 
 class ChoiceModal(ModalScreen[str]):
     CSS = """
-    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal {
+    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal {
         align: center middle;
     }
 
@@ -236,6 +256,22 @@ class ChoiceModal(ModalScreen[str]):
         border: round #f59e0b;
         background: $surface;
         padding: 1 2;
+    }
+
+    #memory-dialog {
+        width: 88%;
+        height: 86%;
+        border: round #f59e0b;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #memory-detail {
+        height: 1fr;
+        min-height: 8;
+        margin-top: 1;
+        border: round #3b82f6;
+        padding: 0 1;
     }
 
     #layout-columns {
@@ -734,6 +770,186 @@ class ModelManagerModal(ModalScreen[str]):
         )
 
 
+class MemoryPanelModal(ModalScreen[list[str]]):
+    CSS = ChoiceModal.CSS
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", priority=True),
+        Binding("q", "close", "Close", priority=True),
+        Binding("enter", "toggle_detail", "Details", priority=True),
+        Binding("space", "toggle_detail", "Details", priority=True),
+        Binding("d", "delete", "Delete", priority=True),
+        Binding("y", "confirm_delete", "Confirm Delete", priority=True),
+        Binding("n", "cancel_delete", "Cancel Delete", priority=True),
+    ]
+
+    def __init__(self, memory_provider: Any) -> None:
+        super().__init__()
+        self._memory_provider = memory_provider
+        self._memories: list[dict[str, Any]] = []
+        self._expanded_id: str | None = None
+        self._pending_delete_id: str | None = None
+        self._pending_delete_index: int | None = None
+        self._deleted_ids: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="memory-dialog"):
+            yield Label("🧠 长期记忆面板\nEnter/Space 查看详情；d 删除；q/Esc 关闭。", id="choice-title")
+            yield ListView(id="choice-list")
+            yield RichLog(id="memory-detail", markup=True, wrap=True, min_width=1)
+
+    def on_mount(self) -> None:
+        self._reload_rows(0)
+
+    def _selected_index(self) -> int:
+        choice_list = self.query_one("#choice-list", ListView)
+        return choice_list.index if choice_list.index is not None else 0
+
+    def _memory_label(self, item: dict[str, Any]) -> str:
+        memory_id = item.get("id", "")
+        marker = "▼" if memory_id == self._expanded_id else " "
+        category = item.get("category", "")
+        updated_at = item.get("updated_at", "")
+        insight = str(item.get("insight", "")).replace("\n", " ")
+        if len(insight) > 72:
+            insight = f"{insight[:69]}..."
+        return f"[{marker}] {memory_id} · {category} · {updated_at}\n    {insight}"
+
+    def _reload_rows(self, selected_index: int | None = None) -> None:
+        self._pending_delete_id = None
+        self._pending_delete_index = None
+        self._reset_title()
+        self._memories = list(self._memory_provider.list_long_term_memories())
+        choice_list = self.query_one("#choice-list", ListView)
+        choice_list.clear()
+
+        labels = [self._memory_label(item) for item in self._memories] or ["暂无长期记忆"]
+
+        def _mount_rows() -> None:
+            choice_list.extend(ListItem(Label(label)) for label in labels)
+            max_index = max(len(labels) - 1, 0)
+            choice_list.index = min(selected_index or 0, max_index)
+            choice_list.focus()
+            self._update_detail()
+
+        self.call_after_refresh(_mount_rows)
+
+    def _reset_title(self) -> None:
+        self.query_one("#choice-title", Label).update(
+            "🧠 长期记忆面板\nEnter/Space 查看详情；d 删除；q/Esc 关闭。"
+        )
+
+    def _current_memory(self) -> dict[str, Any] | None:
+        if not self._memories:
+            return None
+        index = self._selected_index()
+        if index >= len(self._memories):
+            return None
+        return self._memories[index]
+
+    def _update_detail(self) -> None:
+        detail = self.query_one("#memory-detail", RichLog)
+        detail.clear()
+        current = self._current_memory()
+        if current is None:
+            detail.write("暂无详情。", expand=True, shrink=True)
+            return
+        if current.get("id") != self._expanded_id:
+            detail.write("选中记忆后按 Enter/Space 查看详情。", expand=True, shrink=True)
+            return
+        detail.write(
+            "\n".join(
+                [
+                    f"ID: {current.get('id', '')}",
+                    f"Category: {current.get('category', '')}",
+                    f"Updated: {current.get('updated_at', '')}",
+                    "",
+                    f"Insight:\n{current.get('insight', '')}",
+                    "",
+                    f"Evidence:\n{current.get('evidence', '')}",
+                    "",
+                    f"Reuse condition:\n{current.get('reuse_condition', '')}",
+                ]
+            ),
+            expand=True,
+            shrink=True,
+            scroll_end=False,
+        )
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.action_toggle_detail()
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        self._update_detail()
+
+    def _on_key(self, event: Key) -> None:
+        key_actions = {
+            "enter": self.action_toggle_detail,
+            "space": self.action_toggle_detail,
+            "d": self.action_delete,
+            "y": self.action_confirm_delete,
+            "n": self.action_cancel_delete,
+            "escape": self.action_close,
+            "q": self.action_close,
+        }
+        action = key_actions.get(event.key)
+        if action is None:
+            return
+        action()
+        event.stop()
+        event.prevent_default()
+
+    def action_toggle_detail(self) -> None:
+        if self._pending_delete_id is not None:
+            return
+        current = self._current_memory()
+        if current is None:
+            return
+        memory_id = current.get("id")
+        self._expanded_id = None if self._expanded_id == memory_id else memory_id
+        index = self._selected_index()
+        choice_list = self.query_one("#choice-list", ListView)
+        label = choice_list.children[index].query_one(Label)
+        label.update(self._memory_label(current))
+        self._update_detail()
+        choice_list.index = index
+        choice_list.focus()
+
+    def action_delete(self) -> None:
+        current = self._current_memory()
+        if current is None:
+            return
+        self._pending_delete_id = current.get("id")
+        self._pending_delete_index = self._selected_index()
+        self.query_one("#choice-title", Label).update(
+            "⚠️ 确认删除长期记忆？\n"
+            f"{self._pending_delete_id}\n"
+            "按 y 确认删除，按 n 取消。"
+        )
+
+    def action_confirm_delete(self) -> None:
+        if self._pending_delete_id is None:
+            return
+        selected_index = self._pending_delete_index or self._selected_index()
+        if self._memory_provider.delete_long_term_memory(self._pending_delete_id):
+            self._deleted_ids.append(self._pending_delete_id)
+        if self._expanded_id == self._pending_delete_id:
+            self._expanded_id = None
+        self._reload_rows(selected_index)
+
+    def action_cancel_delete(self) -> None:
+        selected_index = self._pending_delete_index or self._selected_index()
+        self._pending_delete_id = None
+        self._pending_delete_index = None
+        self._reset_title()
+        choice_list = self.query_one("#choice-list", ListView)
+        choice_list.index = selected_index
+        choice_list.focus()
+
+    def action_close(self) -> None:
+        self.dismiss(list(self._deleted_ids))
+
+
 class AddModelModal(ModalScreen[dict[str, str] | None]):
     CSS = ChoiceModal.CSS
 
@@ -1098,6 +1314,9 @@ class MakeCodeTuiApp(App[None]):
         self._right_column_visible = True
         self._last_responsive_width = 0
         self._layout_ratios = load_layout_ratios()
+        self._tool_result_count = 0
+        self._tool_result_keep_limit = 144
+        self._pane_flash_tokens: dict[TuiRegion, int] = {}
         self.title = "MakeCode"
         self.sub_title = "🎬 Act · Ready"
 
@@ -1129,7 +1348,7 @@ class MakeCodeTuiApp(App[None]):
         }
         self.query_one("#content-pane", RichLog).border_title = "Content"
         self.query_one("#reasoning-pane", RichLog).border_title = "Reasoning"
-        self.query_one("#tools-pane", RichLog).border_title = "Tools"
+        self._update_tools_title()
         self.query_one("#background-pane", RichLog).border_title = "Background"
         self.query_one("#sub-agent-pane", RichLog).border_title = "Sub-Agent"
         self._apply_layout_ratios()
@@ -1191,6 +1410,25 @@ class MakeCodeTuiApp(App[None]):
     def on_unmount(self) -> None:
         TUI_BRIDGE.unbind(self)
 
+    def _update_tools_title(self) -> None:
+        self.query_one("#tools-pane", RichLog).border_title = (
+            f"Tools · Results: {self._tool_result_count}/{self._tool_result_keep_limit}"
+        )
+
+    def _flash_pane_border(self, region: TuiRegion, log: RichLog) -> None:
+        token = self._pane_flash_tokens.get(region, 0) + 1
+        self._pane_flash_tokens[region] = token
+        log.styles.border = ("round", "#60a5fa")
+        self.set_timer(0.35, lambda: self._restore_pane_border(region, log, token))
+
+    def _restore_pane_border(self, region: TuiRegion, log: RichLog, token: int) -> None:
+        if self._pane_flash_tokens.get(region) != token:
+            return
+        log.styles.border = ("round", "#3b82f6")
+
+    def _is_log_at_bottom(self, log: RichLog) -> bool:
+        return bool(log.is_vertical_scroll_end or log.scroll_y >= log.max_scroll_y - 1)
+
     def handle_tui_event(self, event: TuiEvent) -> None:
         if event.region == TuiRegion.STATUS:
             self._runtime_info = str(event.payload)
@@ -1204,8 +1442,16 @@ class MakeCodeTuiApp(App[None]):
         log = self._logs[event.region]
         if event.clear:
             log.clear()
+            if event.region == TuiRegion.TOOLS:
+                self._tool_result_count = 0
+                self._update_tools_title()
+        if event.tool_result_delta:
+            self._tool_result_count += event.tool_result_delta
+            self._update_tools_title()
         if event.region in {TuiRegion.CONTENT, TuiRegion.REASONING, TuiRegion.TOOLS, TuiRegion.BACKGROUND, TuiRegion.SUB_AGENT}:
-            log.write(event.payload, expand=True, shrink=True)
+            should_scroll_end = self._is_log_at_bottom(log)
+            self._flash_pane_border(event.region, log)
+            log.write(event.payload, expand=True, shrink=True, scroll_end=should_scroll_end)
         else:
             log.write(event.payload)
         self._update_runtime_info()
@@ -1279,6 +1525,15 @@ class MakeCodeTuiApp(App[None]):
 
         self._modal_active = True
         self.push_screen(LayoutModal(self._layout_ratios), _done)
+
+    def open_memory_panel_modal(self, memory_provider: Any, future: Future[list[str]]) -> None:
+        def _done(value: list[str] | None) -> None:
+            self._modal_active = False
+            if not future.done():
+                future.set_result(value or [])
+
+        self._modal_active = True
+        self.push_screen(MemoryPanelModal(memory_provider), _done)
 
     def action_toggle_plan_mode(self) -> None:
         from utils.plan_mode import toggle_plan_mode
@@ -1574,8 +1829,14 @@ class MakeCodeTuiApp(App[None]):
         self._show_slash_hints(matches)
 
 
-def post_tui(region: TuiRegion | str, payload: RenderableType | str, *, clear: bool = False) -> None:
-    TUI_BRIDGE.post(region, payload, clear=clear)
+def post_tui(
+    region: TuiRegion | str,
+    payload: RenderableType | str,
+    *,
+    clear: bool = False,
+    tool_result_delta: int = 0,
+) -> None:
+    TUI_BRIDGE.post(region, payload, clear=clear, tool_result_delta=tool_result_delta)
 
 
 def set_agent_loop_active(active: bool) -> None:
@@ -1601,6 +1862,10 @@ def manage_models_tui(model_manager: Any) -> str:
 
 def manage_layout_tui() -> str | dict[str, int]:
     return TUI_BRIDGE.manage_layout()
+
+
+def manage_memories_tui(memory_provider: Any) -> list[str]:
+    return TUI_BRIDGE.manage_memories(memory_provider)
 
 
 def choose_mcp_switch_tui(server_switches: list[dict[str, Any]]) -> str | dict:

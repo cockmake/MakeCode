@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import sys
 import threading
 from pathlib import Path
 
@@ -248,6 +249,31 @@ class GlobalMCPManager:
 
         return handler
 
+    def _should_use_safe_stdio_log(self, cfg: dict) -> bool:
+        if sys.platform != "win32":
+            return False
+        if not isinstance(cfg, dict) or not cfg.get("command"):
+            return False
+        transport = cfg.get("transport") or cfg.get("type") or "stdio"
+        return transport == "stdio"
+
+    def _build_client(self, server_name: str, cfg: dict) -> Client:
+        transport = {"mcpServers": {server_name: cfg}}
+        if not self._should_use_safe_stdio_log(cfg):
+            return Client(transport)
+
+        from fastmcp.client.transports.stdio import StdioTransport
+
+        stdio_transport = StdioTransport(
+            command=cfg["command"],
+            args=cfg.get("args", []),
+            env=cfg.get("env"),
+            cwd=cfg.get("cwd"),
+            keep_alive=cfg.get("keep_alive"),
+            log_file=INSTALL_MAKECODE_DIR / "mcp_stderr.log",
+        )
+        return Client(stdio_transport)
+
     async def _connect_server(self, server_name: str, cfg: dict) -> bool:
         if cfg.get("disabled", False):
             if self.console:
@@ -263,7 +289,7 @@ class GlobalMCPManager:
 
         client = None
         for attempt in range(2):
-            client = Client({"mcpServers": {server_name: cfg}})
+            client = self._build_client(server_name, cfg)
             try:
                 # 独立管理连接生命周期
                 await client.__aenter__()

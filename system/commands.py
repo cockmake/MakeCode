@@ -17,7 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
-from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, set_agent_loop_active
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, set_agent_loop_active
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -66,6 +66,7 @@ COMMAND_DESCRIPTIONS = {
     "/skills-list": "列出当前工作区可用的 skills",
     "/compact": "压缩当前对话上下文",
     "/memory-list": "列出当前保存的长期记忆",
+    "/memory-panel": "打开长期记忆交互面板，可查看详情并二次确认删除",
     "/memory-delete": "按 ID 删除一条长期记忆，例如 /memory-delete mem_20260510_abc123",
     "/memory-size": "查看或设置长期记忆容量，例如 /memory-size 或 /memory-size 30",
     "/memory-update": "根据用户请求主动管理长期记忆，例如 /memory-update 记住：以后...",
@@ -414,67 +415,80 @@ class CommandHandler:
             self.console.print("[bold yellow]⚠️ 开发环境下不支持自动更新，请使用 pyinstaller 打包后再试。[/bold yellow]")
             return True
 
-        self.console.print("[bold cyan]🔍 正在检查更新...[/bold cyan]")
-
+        set_agent_loop_active(True)
         try:
-            version_info = check_update()
-        except Exception as exc:
-            self.console.print(f"[bold red]❌ 检查更新失败: {exc}[/bold red]")
-            return True
+            self.console.print("[bold cyan]🔍 正在检查更新...[/bold cyan]")
 
-        if version_info is None:
-            self.console.print("[bold green]✅ 当前已是最新版本！[/bold green]")
-            return True
+            try:
+                version_info = check_update(raise_errors=True)
+            except Exception as exc:
+                self.console.print(f"[bold red]❌ 检查更新失败: {exc}[/bold red]")
+                return True
 
-        new_version = version_info.get('version', '未知')
-        release_notes = version_info.get('release_notes', '')
+            if version_info is None:
+                self.console.print("[bold green]✅ 当前已是最新版本！[/bold green]")
+                return True
 
-        self.console.print(f"\n[bold yellow]📢 发现新版本: v{new_version}[/bold yellow]")
-        if release_notes:
-            self.console.print(f"[#aaaaaa]更新内容: {release_notes}[/#aaaaaa]")
+            new_version = version_info.get('version', '未知')
+            release_log = version_info.get('release_log', '')
 
-        answer = choose_tui("是否下载并安装更新？", ["是", "否"])
+            self.console.print(f"\n[bold yellow]📢 发现新版本: v{new_version}[/bold yellow]")
+            if release_log:
+                self.console.print("[#aaaaaa]更新内容:[/#aaaaaa]")
+                self.console.print(Markdown(release_log))
 
-        if answer != '是':
-            self.console.print("[#aaaaaa]已取消更新[/#aaaaaa]")
-            return True
+            answer = choose_tui("是否下载并安装更新？", ["是", "否"])
 
-        self.console.print("[bold cyan]📥 正在下载更新...[/bold cyan]")
+            if answer != '是':
+                self.console.print("[#aaaaaa]已取消更新[/#aaaaaa]")
+                return True
 
-        # 进度显示
-        progress_text = [""]
+            self.console.print("[bold cyan]📥 正在下载更新...[/bold cyan]")
 
-        def _progress(downloaded: int, total: int | None) -> None:
-            if total:
-                pct = downloaded / total * 100
-                bar_len = 30
-                filled = int(bar_len * downloaded / total)
-                bar = "█" * filled + "░" * (bar_len - filled)
-                progress_text[0] = f"  {bar} {pct:.1f}%  ({downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB)"
-            else:
-                progress_text[0] = f"  已下载: {downloaded // 1024 // 1024} MB"
-            self.console.print(progress_text[0])
+            # 进度显示
+            progress_state = {"pct": -1, "mb": -1}
 
-        try:
-            new_exe_path = download_update(version_info, progress_callback=_progress)
-        except Exception as exc:
-            self.console.print(f"\n[bold red]❌ 下载失败: {exc}[/bold red]")
-            return True
+            def _progress(downloaded: int, total: int | None) -> None:
+                downloaded_mb = downloaded // 1024 // 1024
+                if total:
+                    pct_int = int(downloaded / total * 100)
+                    if pct_int == progress_state["pct"] and downloaded < total:
+                        return
+                    progress_state["pct"] = pct_int
+                    pct = downloaded / total * 100
+                    bar_len = 30
+                    filled = int(bar_len * downloaded / total)
+                    bar = "█" * filled + "░" * (bar_len - filled)
+                    progress_text = f"  {bar} {pct:.1f}%  ({downloaded_mb}MB / {total // 1024 // 1024}MB)"
+                else:
+                    if downloaded_mb == progress_state["mb"]:
+                        return
+                    progress_state["mb"] = downloaded_mb
+                    progress_text = f"  已下载: {downloaded_mb} MB"
+                self.console.print(progress_text)
 
-        if new_exe_path is None:
-            self.console.print("\n[bold red]❌ 下载失败，请稍后重试[/bold red]")
-            return True
+            try:
+                new_exe_path = download_update(version_info, progress_callback=_progress)
+            except Exception as exc:
+                self.console.print(f"\n[bold red]❌ 下载失败: {exc}[/bold red]")
+                return True
 
-        self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
-        self.console.print("[#aaaaaa]程序将自动退出并完成更新，更新后请手动重启程序[/#aaaaaa]")
+            if new_exe_path is None:
+                self.console.print("\n[bold red]❌ 下载失败，请稍后重试[/bold red]")
+                return True
 
-        try:
-            launch_updater(new_exe_path)
-        except Exception as exc:
-            self.console.print(f"[bold red]❌ 启动更新器失败: {exc}[/bold red]")
-            return True
+            self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
+            self.console.print("[#aaaaaa]程序将自动退出并完成更新，更新后请手动重启程序[/#aaaaaa]")
 
-        # launch_updater 内部会调用 sys.exit，不会执行到这里
+            try:
+                launch_updater(new_exe_path)
+            except Exception as exc:
+                self.console.print(f"[bold red]❌ 启动更新器失败: {exc}[/bold red]")
+                return True
+        finally:
+            set_agent_loop_active(False)
+
+        # launch_updater 内部会退出进程，正常流程不会执行到这里
         return True
 
     def handle_skills_switch(self) -> str:
@@ -635,6 +649,20 @@ class CommandHandler:
             self.console.print(f"\n[bold yellow]未找到 active 长期记忆：{', '.join(missing_ids)}[/bold yellow]")
         return new_checkpoint
 
+    def handle_memory_panel(self, history: list, current_checkpoint: Optional[Path]) -> Optional[Path]:
+        """处理 /memory-panel 命令"""
+        import utils.memory as memory_provider
+
+        deleted_ids = manage_memories_tui(memory_provider)
+        if not deleted_ids:
+            return current_checkpoint
+
+        if history and history[0].get("role") == "system":
+            history[0]["content"] = self.get_system_prompt_fn()
+        new_checkpoint = self.save_checkpoint(history, current_checkpoint)
+        self.console.print(f"\n[bold green]已删除长期记忆：{', '.join(deleted_ids)}[/bold green]")
+        return new_checkpoint
+
     def handle_memory_size(self, query: str) -> bool:
         """处理 /memory-size [size] 命令"""
         parts = query.split(maxsplit=1)
@@ -707,7 +735,14 @@ class CommandHandler:
                 loaded[0]["content"] = self.get_system_prompt_fn()
             new_checkpoint = Path(selected_path)
 
-            self.console.clear()
+            for region in (
+                TuiRegion.CONTENT,
+                TuiRegion.TOOLS,
+                TuiRegion.REASONING,
+                TuiRegion.BACKGROUND,
+                TuiRegion.SUB_AGENT,
+            ):
+                post_tui(region, "", clear=True)
             render_banner_fn()
             render_hint_fn()
             render_history_fn(loaded)
@@ -900,6 +935,11 @@ class CommandHandler:
         if query == "/memory-list":
             self.handle_memory_list()
             return CommandResult(action=CommandAction.CONTINUE)
+
+        # /memory-panel - 交互式查看和删除长期记忆
+        if query == "/memory-panel":
+            new_checkpoint = self.handle_memory_panel(history, current_checkpoint)
+            return CommandResult(action=CommandAction.UPDATE_CHECKPOINT, payload=new_checkpoint)
 
         # /memory-delete <id> - 删除长期记忆
         if query == "/memory-delete" or query.startswith("/memory-delete "):
