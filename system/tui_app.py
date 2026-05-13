@@ -12,12 +12,13 @@ from typing import Any
 from rich.console import RenderableType
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Key, Resize
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static, TextArea
 
 from init import INSTALL_MAKECODE_DIR
+from settings import KEEP_RECENT_TOOL_CALL
 
 
 class TuiRegion(StrEnum):
@@ -36,6 +37,9 @@ class TuiEvent:
     payload: Any
     clear: bool = False
     tool_result_delta: int = 0
+    reset_tool_result_count: bool = False
+    tail: bool = False
+    active: bool | None = None
 
 
 LAYOUT_CONFIG_FILE = INSTALL_MAKECODE_DIR / "layout_config.json"
@@ -78,28 +82,6 @@ def save_layout_ratios(ratios: dict[str, int]) -> None:
     )
 
 
-def input_visual_line_count(text: str, content_width: int) -> int:
-    width = max(content_width, 1)
-    rows = 0
-    for line in text.split("\n") or [""]:
-        rows += max((len(line) + width - 1) // width, 1)
-    return rows
-
-
-def input_cursor_visual_line_index(text: str, cursor_line: int, cursor_column: int, content_width: int) -> tuple[int, int]:
-    width = max(content_width, 1)
-    lines = text.split("\n") or [""]
-    line_index = min(max(cursor_line, 0), len(lines) - 1)
-    visual_index = 0
-    for line in lines[:line_index]:
-        visual_index += max((len(line) + width - 1) // width, 1)
-    current_line = lines[line_index]
-    current_rows = max((len(current_line) + width - 1) // width, 1)
-    column = min(max(cursor_column, 0), len(current_line))
-    visual_index += min(column // width, current_rows - 1)
-    return visual_index, input_visual_line_count(text, width)
-
-
 class TuiBridge:
     def __init__(self) -> None:
         self._app: MakeCodeTuiApp | None = None
@@ -126,12 +108,15 @@ class TuiBridge:
     def post(
         self,
         region: TuiRegion | str,
-        payload: Any,
+        payload: Any = None,
         *,
         clear: bool = False,
         tool_result_delta: int = 0,
+        reset_tool_result_count: bool = False,
+        tail: bool = False,
+        active: bool | None = None,
     ) -> None:
-        event = TuiEvent(TuiRegion(region), payload, clear, tool_result_delta)
+        event = TuiEvent(TuiRegion(region), payload, clear, tool_result_delta, reset_tool_result_count, tail, active)
         with self._lock:
             app = self._app
             if app is None:
@@ -231,6 +216,16 @@ class TuiBridge:
         else:
             app.call_from_thread(app.set_agent_loop_active, active)
 
+    def refresh_status(self) -> None:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return
+        if self._is_app_thread():
+            app.refresh_status()
+        else:
+            app.call_from_thread(app.refresh_status)
+
 
 TUI_BRIDGE = TuiBridge()
 
@@ -260,15 +255,21 @@ class ChoiceModal(ModalScreen[str]):
 
     #memory-dialog {
         width: 88%;
-        height: 86%;
+        height: auto;
+        max-height: 86%;
         border: round #f59e0b;
         background: $surface;
         padding: 1 2;
     }
 
+    #memory-list {
+        height: 12;
+        max-height: 12;
+    }
+
     #memory-detail {
-        height: 1fr;
-        min-height: 8;
+        height: 12;
+        min-height: 1;
         margin-top: 1;
         border: round #3b82f6;
         padding: 0 1;
@@ -568,6 +569,7 @@ class ModelManagerModal(ModalScreen[str]):
 
     BINDINGS = [
         Binding("enter", "select", "Select", priority=True),
+        Binding("q", "close", "Close", priority=True),
         Binding("f", "favorite", "Favorite", priority=True),
         Binding("d", "delete", "Delete", priority=True),
         Binding("y", "confirm_delete", "Confirm Delete", priority=True),
@@ -583,7 +585,7 @@ class ModelManagerModal(ModalScreen[str]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="choice-dialog"):
-            yield Label("⚙️ 模型管理面板\nEnter 选择当前模型并关闭；f 切换常用；d 删除；选择添加模型可新增配置。", id="choice-title")
+            yield Label("⚙️ 模型管理面板\nEnter 选择当前模型并关闭；f 切换常用；d 删除；选择添加模型可新增配置；q 关闭。", id="choice-title")
             yield ListView(id="choice-list")
 
     def on_mount(self) -> None:
@@ -650,6 +652,11 @@ class ModelManagerModal(ModalScreen[str]):
     def _on_key(self, event: Key) -> None:
         if event.key == "enter":
             self.action_select()
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "q":
+            self.action_close()
             event.stop()
             event.prevent_default()
             return
@@ -745,8 +752,11 @@ class ModelManagerModal(ModalScreen[str]):
 
     def _reset_title(self) -> None:
         self.query_one("#choice-title", Label).update(
-            "⚙️ 模型管理面板\nEnter 选择当前模型并关闭；f 切换常用；d 删除；选择添加模型可新增配置。"
+            "⚙️ 模型管理面板\nEnter 选择当前模型并关闭；f 切换常用；d 删除；选择添加模型可新增配置；q 关闭。"
         )
+
+    def action_close(self) -> None:
+        self.dismiss("exit")
 
     def _add_model(self, selected_index: int) -> None:
         self.app.push_screen(AddModelModal(), lambda model_config: self._finish_add_model(model_config, selected_index))
@@ -774,7 +784,6 @@ class MemoryPanelModal(ModalScreen[list[str]]):
     CSS = ChoiceModal.CSS
 
     BINDINGS = [
-        Binding("escape", "close", "Close", priority=True),
         Binding("q", "close", "Close", priority=True),
         Binding("enter", "toggle_detail", "Details", priority=True),
         Binding("space", "toggle_detail", "Details", priority=True),
@@ -793,16 +802,16 @@ class MemoryPanelModal(ModalScreen[list[str]]):
         self._deleted_ids: list[str] = []
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="memory-dialog"):
-            yield Label("🧠 长期记忆面板\nEnter/Space 查看详情；d 删除；q/Esc 关闭。", id="choice-title")
-            yield ListView(id="choice-list")
+        with VerticalScroll(id="memory-dialog"):
+            yield Label("🧠 长期记忆面板 (active: 0)\nEnter/Space 查看详情；d 删除；q 关闭。", id="choice-title")
+            yield ListView(id="memory-list")
             yield RichLog(id="memory-detail", markup=True, wrap=True, min_width=1)
 
     def on_mount(self) -> None:
         self._reload_rows(0)
 
     def _selected_index(self) -> int:
-        choice_list = self.query_one("#choice-list", ListView)
+        choice_list = self.query_one("#memory-list", ListView)
         return choice_list.index if choice_list.index is not None else 0
 
     def _memory_label(self, item: dict[str, Any]) -> str:
@@ -818,9 +827,9 @@ class MemoryPanelModal(ModalScreen[list[str]]):
     def _reload_rows(self, selected_index: int | None = None) -> None:
         self._pending_delete_id = None
         self._pending_delete_index = None
-        self._reset_title()
         self._memories = list(self._memory_provider.list_long_term_memories())
-        choice_list = self.query_one("#choice-list", ListView)
+        self._reset_title()
+        choice_list = self.query_one("#memory-list", ListView)
         choice_list.clear()
 
         labels = [self._memory_label(item) for item in self._memories] or ["暂无长期记忆"]
@@ -834,10 +843,11 @@ class MemoryPanelModal(ModalScreen[list[str]]):
 
         self.call_after_refresh(_mount_rows)
 
+    def _title_text(self) -> str:
+        return f"🧠 长期记忆面板 (active: {len(self._memories)})\nEnter/Space 查看详情；d 删除；q 关闭。"
+
     def _reset_title(self) -> None:
-        self.query_one("#choice-title", Label).update(
-            "🧠 长期记忆面板\nEnter/Space 查看详情；d 删除；q/Esc 关闭。"
-        )
+        self.query_one("#choice-title", Label).update(self._title_text())
 
     def _current_memory(self) -> dict[str, Any] | None:
         if not self._memories:
@@ -889,7 +899,6 @@ class MemoryPanelModal(ModalScreen[list[str]]):
             "d": self.action_delete,
             "y": self.action_confirm_delete,
             "n": self.action_cancel_delete,
-            "escape": self.action_close,
             "q": self.action_close,
         }
         action = key_actions.get(event.key)
@@ -908,7 +917,7 @@ class MemoryPanelModal(ModalScreen[list[str]]):
         memory_id = current.get("id")
         self._expanded_id = None if self._expanded_id == memory_id else memory_id
         index = self._selected_index()
-        choice_list = self.query_one("#choice-list", ListView)
+        choice_list = self.query_one("#memory-list", ListView)
         label = choice_list.children[index].query_one(Label)
         label.update(self._memory_label(current))
         self._update_detail()
@@ -942,7 +951,7 @@ class MemoryPanelModal(ModalScreen[list[str]]):
         self._pending_delete_id = None
         self._pending_delete_index = None
         self._reset_title()
-        choice_list = self.query_one("#choice-list", ListView)
+        choice_list = self.query_one("#memory-list", ListView)
         choice_list.index = selected_index
         choice_list.focus()
 
@@ -1205,6 +1214,24 @@ class MakeCodeTuiApp(App[None]):
         padding: 0 1;
     }
 
+    .pane-active {
+        border: heavy #f59e0b;
+    }
+
+    .pane-log {
+        height: 1fr;
+    }
+
+    .pane-tail {
+        display: none;
+        height: auto;
+        max-height: 8;
+    }
+
+    .pane-tail-visible {
+        display: block;
+    }
+
     #content-pane {
         height: 1fr;
     }
@@ -1298,6 +1325,8 @@ class MakeCodeTuiApp(App[None]):
     ) -> None:
         super().__init__()
         self._logs: dict[TuiRegion, RichLog] = {}
+        self._panes: dict[TuiRegion, Vertical] = {}
+        self._tails: dict[TuiRegion, Static] = {}
         self._status = "MakeCode ready"
         self._runtime_info = ""
         self._submit_handler = submit_handler
@@ -1315,8 +1344,8 @@ class MakeCodeTuiApp(App[None]):
         self._last_responsive_width = 0
         self._layout_ratios = load_layout_ratios()
         self._tool_result_count = 0
-        self._tool_result_keep_limit = 144
-        self._pane_flash_tokens: dict[TuiRegion, int] = {}
+        self._tool_result_keep_limit = KEEP_RECENT_TOOL_CALL
+        self._pane_active_counts: dict[TuiRegion, int] = {}
         self.title = "MakeCode"
         self.sub_title = "🎬 Act · Ready"
 
@@ -1324,12 +1353,22 @@ class MakeCodeTuiApp(App[None]):
         yield Header(show_clock=True)
         with Horizontal(id="main-grid"):
             with Vertical(id="left-column"):
-                yield RichLog(id="content-pane", classes="pane", markup=True, wrap=True, min_width=1)
-                yield RichLog(id="tools-pane", classes="pane", markup=True, wrap=True, min_width=1)
+                with Vertical(id="content-pane", classes="pane"):
+                    yield RichLog(id="content-log", classes="pane-log", markup=True, wrap=True, min_width=1)
+                    yield Static("", id="content-tail", classes="pane-tail")
+                with Vertical(id="tools-pane", classes="pane"):
+                    yield RichLog(id="tools-log", classes="pane-log", markup=True, wrap=True, min_width=1)
+                    yield Static("", id="tools-tail", classes="pane-tail")
             with Vertical(id="right-column"):
-                yield RichLog(id="reasoning-pane", classes="pane", markup=True, wrap=True, min_width=1)
-                yield RichLog(id="background-pane", classes="pane", markup=True, wrap=True, min_width=1)
-                yield RichLog(id="sub-agent-pane", classes="pane", markup=True, wrap=True, min_width=1)
+                with Vertical(id="reasoning-pane", classes="pane"):
+                    yield RichLog(id="reasoning-log", classes="pane-log", markup=True, wrap=True, min_width=1)
+                    yield Static("", id="reasoning-tail", classes="pane-tail")
+                with Vertical(id="background-pane", classes="pane"):
+                    yield RichLog(id="background-log", classes="pane-log", markup=True, wrap=True, min_width=1)
+                    yield Static("", id="background-tail", classes="pane-tail")
+                with Vertical(id="sub-agent-pane", classes="pane"):
+                    yield RichLog(id="sub-agent-log", classes="pane-log", markup=True, wrap=True, min_width=1)
+                    yield Static("", id="sub-agent-tail", classes="pane-tail")
         with Vertical(id="bottom-grid"):
             yield Static("", id="slash-hints")
             yield MakeCodeInput(id="input-box", placeholder='Prompt here e.g. "整理当前项目的架构"')
@@ -1339,18 +1378,32 @@ class MakeCodeTuiApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._logs = {
-            TuiRegion.CONTENT: self.query_one("#content-pane", RichLog),
-            TuiRegion.REASONING: self.query_one("#reasoning-pane", RichLog),
-            TuiRegion.TOOLS: self.query_one("#tools-pane", RichLog),
-            TuiRegion.BACKGROUND: self.query_one("#background-pane", RichLog),
-            TuiRegion.SUB_AGENT: self.query_one("#sub-agent-pane", RichLog),
+        self._panes = {
+            TuiRegion.CONTENT: self.query_one("#content-pane", Vertical),
+            TuiRegion.REASONING: self.query_one("#reasoning-pane", Vertical),
+            TuiRegion.TOOLS: self.query_one("#tools-pane", Vertical),
+            TuiRegion.BACKGROUND: self.query_one("#background-pane", Vertical),
+            TuiRegion.SUB_AGENT: self.query_one("#sub-agent-pane", Vertical),
         }
-        self.query_one("#content-pane", RichLog).border_title = "Content"
-        self.query_one("#reasoning-pane", RichLog).border_title = "Reasoning"
+        self._logs = {
+            TuiRegion.CONTENT: self.query_one("#content-log", RichLog),
+            TuiRegion.REASONING: self.query_one("#reasoning-log", RichLog),
+            TuiRegion.TOOLS: self.query_one("#tools-log", RichLog),
+            TuiRegion.BACKGROUND: self.query_one("#background-log", RichLog),
+            TuiRegion.SUB_AGENT: self.query_one("#sub-agent-log", RichLog),
+        }
+        self._tails = {
+            TuiRegion.CONTENT: self.query_one("#content-tail", Static),
+            TuiRegion.REASONING: self.query_one("#reasoning-tail", Static),
+            TuiRegion.TOOLS: self.query_one("#tools-tail", Static),
+            TuiRegion.BACKGROUND: self.query_one("#background-tail", Static),
+            TuiRegion.SUB_AGENT: self.query_one("#sub-agent-tail", Static),
+        }
+        self.query_one("#content-pane", Vertical).border_title = "Content"
+        self.query_one("#reasoning-pane", Vertical).border_title = "Reasoning"
         self._update_tools_title()
-        self.query_one("#background-pane", RichLog).border_title = "Background"
-        self.query_one("#sub-agent-pane", RichLog).border_title = "Sub-Agent"
+        self.query_one("#background-pane", Vertical).border_title = "Background"
+        self.query_one("#sub-agent-pane", Vertical).border_title = "Sub-Agent"
         self._apply_layout_ratios()
         self._update_header_status()
         self._update_input_title()
@@ -1363,9 +1416,8 @@ class MakeCodeTuiApp(App[None]):
 
     def update_input_height(self) -> None:
         input_box = self.query_one("#input-box", MakeCodeInput)
-        content_width = max(input_box.size.width - 4, 1)
-        content_rows = input_visual_line_count(input_box.text, content_width)
-        target_height = min(max(content_rows, 1), 3) + 2
+        content_rows = max(input_box.wrapped_document.height, 1)
+        target_height = min(content_rows, 3) + 2
         if input_box.styles.height != target_height:
             input_box.styles.height = target_height
 
@@ -1396,7 +1448,7 @@ class MakeCodeTuiApp(App[None]):
             "sub_agent": "#sub-agent-pane",
         }
         for key, selector in pane_ids.items():
-            pane = self.query_one(selector, RichLog)
+            pane = self.query_one(selector, Vertical)
             ratio = self._layout_ratios[key]
             pane.set_class(ratio == 0, "hidden")
             if ratio > 0:
@@ -1411,23 +1463,43 @@ class MakeCodeTuiApp(App[None]):
         TUI_BRIDGE.unbind(self)
 
     def _update_tools_title(self) -> None:
-        self.query_one("#tools-pane", RichLog).border_title = (
+        self.query_one("#tools-pane", Vertical).border_title = (
             f"Tools · Results: {self._tool_result_count}/{self._tool_result_keep_limit}"
         )
 
-    def _flash_pane_border(self, region: TuiRegion, log: RichLog) -> None:
-        token = self._pane_flash_tokens.get(region, 0) + 1
-        self._pane_flash_tokens[region] = token
-        log.styles.border = ("round", "#60a5fa")
-        self.set_timer(0.35, lambda: self._restore_pane_border(region, log, token))
-
-    def _restore_pane_border(self, region: TuiRegion, log: RichLog, token: int) -> None:
-        if self._pane_flash_tokens.get(region) != token:
+    def _set_pane_active(self, region: TuiRegion, active: bool) -> None:
+        pane = self._panes.get(region)
+        if pane is None:
             return
-        log.styles.border = ("round", "#3b82f6")
+        current = self._pane_active_counts.get(region, 0)
+        if active:
+            current += 1
+        else:
+            current = max(current - 1, 0)
+        self._pane_active_counts[region] = current
+        pane.set_class(current > 0, "pane-active")
+
+    def _update_tail(self, region: TuiRegion, payload: Any) -> None:
+        tail = self._tails.get(region)
+        if tail is None:
+            return
+        if payload is None or payload == "":
+            tail.update("")
+            tail.set_class(False, "pane-tail-visible")
+            return
+        tail.update(payload)
+        tail.set_class(True, "pane-tail-visible")
 
     def _is_log_at_bottom(self, log: RichLog) -> bool:
         return bool(log.is_vertical_scroll_end or log.scroll_y >= log.max_scroll_y - 1)
+
+    def _scroll_log_end_after_refresh(self, log: RichLog) -> None:
+        self.call_after_refresh(lambda: log.scroll_end(animate=False))
+
+    def _scroll_bottom_panes_after_refresh(self) -> None:
+        for log in self._logs.values():
+            if self._is_log_at_bottom(log):
+                self._scroll_log_end_after_refresh(log)
 
     def handle_tui_event(self, event: TuiEvent) -> None:
         if event.region == TuiRegion.STATUS:
@@ -1440,19 +1512,34 @@ class MakeCodeTuiApp(App[None]):
             return
 
         log = self._logs[event.region]
+        if event.active is not None:
+            self._set_pane_active(event.region, event.active)
+        if event.tail:
+            should_scroll_end = self._is_log_at_bottom(log)
+            self._update_tail(event.region, event.payload)
+            if should_scroll_end:
+                self._scroll_log_end_after_refresh(log)
+            return
         if event.clear:
             log.clear()
+            self._update_tail(event.region, "")
+            self._pane_active_counts[event.region] = 0
+            self._set_pane_active(event.region, False)
             if event.region == TuiRegion.TOOLS:
                 self._tool_result_count = 0
                 self._update_tools_title()
+        if event.reset_tool_result_count:
+            self._tool_result_count = 0
+            self._update_tools_title()
         if event.tool_result_delta:
             self._tool_result_count += event.tool_result_delta
             self._update_tools_title()
-        if event.region in {TuiRegion.CONTENT, TuiRegion.REASONING, TuiRegion.TOOLS, TuiRegion.BACKGROUND, TuiRegion.SUB_AGENT}:
+        if event.payload is not None and event.region in {TuiRegion.CONTENT, TuiRegion.REASONING, TuiRegion.TOOLS, TuiRegion.BACKGROUND, TuiRegion.SUB_AGENT}:
             should_scroll_end = self._is_log_at_bottom(log)
-            self._flash_pane_border(event.region, log)
             log.write(event.payload, expand=True, shrink=True, scroll_end=should_scroll_end)
-        else:
+            if should_scroll_end:
+                self._scroll_log_end_after_refresh(log)
+        elif event.payload is not None:
             log.write(event.payload)
         self._update_runtime_info()
 
@@ -1557,19 +1644,10 @@ class MakeCodeTuiApp(App[None]):
 
     def should_navigate_input_history(self, direction: int) -> bool:
         input_box = self.query_one("#input-box", MakeCodeInput)
-        content_width = max(input_box.size.width - 4, 1)
-        cursor_line, cursor_column = input_box.cursor_location
-        visual_index, visual_count = input_cursor_visual_line_index(
-            input_box.text,
-            cursor_line,
-            cursor_column,
-            content_width,
-        )
-        if visual_count <= 1:
-            return True
+        location = input_box.cursor_location
         if direction < 0:
-            return visual_index == 0
-        return visual_index == visual_count - 1
+            return input_box.navigator.is_first_wrapped_line(location)
+        return input_box.navigator.is_last_wrapped_line(location)
 
     def navigate_input_history(self, direction: int) -> None:
         if not self._input_history:
@@ -1685,9 +1763,12 @@ class MakeCodeTuiApp(App[None]):
             self.call_from_thread(self.exit)
 
     def set_agent_loop_active(self, active: bool) -> None:
+        was_active = self._agent_loop_active
         self._agent_loop_active = active
         self._update_header_status()
         self._update_input_visibility()
+        if was_active and not active:
+            self._scroll_bottom_panes_after_refresh()
         self._update_runtime_info()
 
     def _update_input_visibility(self) -> None:
@@ -1736,6 +1817,11 @@ class MakeCodeTuiApp(App[None]):
             enabled = False
         button = self.query_one("#hitl-toggle", Button)
         button.label = "HITL ON" if enabled else "HITL OFF"
+
+    def refresh_status(self) -> None:
+        self._update_header_status()
+        self._update_hitl_button()
+        self._update_runtime_info()
 
     def _update_runtime_info(self) -> None:
         if self._runtime_info_provider is None:
@@ -1831,16 +1917,31 @@ class MakeCodeTuiApp(App[None]):
 
 def post_tui(
     region: TuiRegion | str,
-    payload: RenderableType | str,
+    payload: RenderableType | str | None = None,
     *,
     clear: bool = False,
     tool_result_delta: int = 0,
+    reset_tool_result_count: bool = False,
+    tail: bool = False,
+    active: bool | None = None,
 ) -> None:
-    TUI_BRIDGE.post(region, payload, clear=clear, tool_result_delta=tool_result_delta)
+    TUI_BRIDGE.post(
+        region,
+        payload,
+        clear=clear,
+        tool_result_delta=tool_result_delta,
+        reset_tool_result_count=reset_tool_result_count,
+        tail=tail,
+        active=active,
+    )
 
 
 def set_agent_loop_active(active: bool) -> None:
     TUI_BRIDGE.set_agent_loop_active(active)
+
+
+def refresh_status() -> None:
+    TUI_BRIDGE.refresh_status()
 
 
 def choose_model_panel_tui(title: str, options: list[str]) -> str:

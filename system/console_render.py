@@ -81,9 +81,9 @@ console_lock = threading.Lock()
 # Sub-Agent 输出控制全局变量
 # =============================================================================
 # 控制 Sub-Agent 是否输出到主控制台
-# True  = 正常输出
-# False = 静默模式（默认），Sub-Agent 的输出不会显示在控制台（但仍会写入日志文件）
-SHOW_SUB_AGENT_CONSOLE = False
+# True  = 正常输出（默认）
+# False = 静默模式，Sub-Agent 的输出不会显示在控制台（但仍会写入日志文件）
+SHOW_SUB_AGENT_CONSOLE = True
 
 
 def toggle_sub_agent_console() -> bool:

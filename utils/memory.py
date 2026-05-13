@@ -15,6 +15,7 @@ from system.stream_render import StreamRenderer
 from system.tui_app import TuiRegion, post_tui
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
+from settings import KEEP_RECENT_TOOL_CALL
 
 
 def print_formatted_text(value):
@@ -28,7 +29,6 @@ MEMORY_DIR = MAKECODE_DIR / "memory"
 MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
 MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
 DEFAULT_MEMORY_SIZE = 30
-KEEP_RECENT_TOOL_CALL = 144
 
 
 class AppendLongTermMemory(BaseModel):
@@ -610,5 +610,6 @@ def auto_compact(
     new_history = system_msgs + summary_msgs
     messages.clear()
     messages.extend(new_history)
+    post_tui(TuiRegion.TOOLS, reset_tool_result_count=True)
 
     return "History successfully compacted and summarized."

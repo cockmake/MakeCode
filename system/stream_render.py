@@ -11,12 +11,14 @@ from system.tui_app import TuiRegion, post_tui
 class StreamRenderer:
     """
     负责处理 LLM 流式输出的终端渲染器。
-    思考过程与正文按完整 Markdown 段落增量输出，不使用强制刷新。
+    思考过程与正文实时更新尾部，完整 Markdown 段落固定到日志。
     """
 
     def __init__(self, console=None, update_interval: float = 0.05):
         self.console = console
         self.update_interval = update_interval
+        self.tail_update_interval = 0.5
+        self._last_tail_update_at: dict[TuiRegion, float] = {}
 
     def render_text_stream(self, stream_generator: Iterator[dict]) -> Tuple[str, List, Any]:
         text_content = ""
@@ -37,6 +39,7 @@ class StreamRenderer:
                     live_buffer += chunk
                     live_buffer, emitted_chunk = self._process_block_commit(text_content, live_buffer)
                     emitted_text += emitted_chunk
+                    self._update_tail(live_buffer, force=bool(emitted_chunk))
 
                 elif event_type == "done":
                     text_content_done, tool_calls, raw_message = event["content"]
@@ -49,6 +52,7 @@ class StreamRenderer:
         finally:
             if live_buffer and not is_cancelled():
                 self._safe_cleanup(live_buffer)
+            self._clear_tail()
 
         if is_cancelled():
             return "", [], None
@@ -94,12 +98,14 @@ class StreamRenderer:
                         if reasoning_buffer:
                             self._safe_cleanup(reasoning_buffer, region=TuiRegion.REASONING)
                             reasoning_buffer = ""
+                            self._clear_tail(TuiRegion.REASONING)
                         self._start_text_section(agent_name, reasoning_started)
                         text_started = True
 
                     if text_started:
                         live_buffer, emitted_chunk = self._process_block_commit(text_content, live_buffer)
                         emitted_text += emitted_chunk
+                        self._update_tail(live_buffer, force=bool(emitted_chunk))
 
                 elif event_type == "done":
                     text_content_done, tool_calls, raw_message = event["content"]
@@ -111,8 +117,14 @@ class StreamRenderer:
 
         finally:
             self._safe_cleanup(reasoning_buffer, region=TuiRegion.REASONING)
+            self._clear_tail(TuiRegion.REASONING)
             if live_buffer and text_started and not is_cancelled():
                 self._safe_cleanup(live_buffer)
+            self._clear_tail(TuiRegion.CONTENT)
+            if reasoning_started and not text_started:
+                self._set_active(TuiRegion.REASONING, False)
+            if text_started:
+                self._set_active(TuiRegion.CONTENT, False)
 
         if is_cancelled():
             self._print_cancelled(agent_name, start_time)
@@ -139,15 +151,19 @@ class StreamRenderer:
 
     def _handle_reasoning(self, content: str, reasoning_content: str, reasoning_buffer: str, is_started: bool):
         if not is_started:
+            self._set_active(TuiRegion.REASONING, True)
             post_tui(TuiRegion.REASONING, "[bold cyan]💭 Reasoning...[/bold cyan]")
 
-        reasoning_content += content
         reasoning_buffer += content
-        reasoning_buffer, _ = self._process_block_commit(reasoning_content, reasoning_buffer, region=TuiRegion.REASONING)
+        reasoning_buffer, emitted_chunk = self._process_block_commit(reasoning_content, reasoning_buffer, region=TuiRegion.REASONING)
+        self._update_tail(reasoning_buffer, region=TuiRegion.REASONING, force=bool(emitted_chunk))
 
         return reasoning_content, reasoning_buffer, True
 
     def _start_text_section(self, name: str, reasoning_started: bool):
+        if reasoning_started:
+            self._set_active(TuiRegion.REASONING, False)
+        self._set_active(TuiRegion.CONTENT, True)
         if reasoning_started:
             post_tui(TuiRegion.CONTENT, "")
         post_tui(TuiRegion.CONTENT, f"[bold cyan]💬 {name} Content...[/bold cyan]")
@@ -164,10 +180,27 @@ class StreamRenderer:
             parts = current_buffer.rsplit("\n\n", 1)
             if len(parts) == 2:
                 complete_blocks, remaining_buffer = parts
+                self._clear_tail(region)
                 post_tui(region, Markdown(complete_blocks))
                 return remaining_buffer, f"{complete_blocks}\n\n"
 
         return current_buffer, ""
+
+    def _update_tail(self, buffer: str, region: TuiRegion = TuiRegion.CONTENT, force: bool = False):
+        if not force:
+            now = time.perf_counter()
+            last_update = self._last_tail_update_at.get(region)
+            if last_update is not None and now - last_update < self.tail_update_interval:
+                return
+            self._last_tail_update_at[region] = now
+        post_tui(region, Markdown(buffer) if buffer.strip() else "", tail=True)
+
+    def _clear_tail(self, region: TuiRegion = TuiRegion.CONTENT):
+        self._last_tail_update_at.pop(region, None)
+        post_tui(region, "", tail=True)
+
+    def _set_active(self, region: TuiRegion, active: bool):
+        post_tui(region, active=active)
 
     def _safe_cleanup(self, buffer: str, region: TuiRegion = TuiRegion.CONTENT):
         """流结束时输出剩余内容。"""
@@ -178,6 +211,7 @@ class StreamRenderer:
         if not text_started and content.strip():
             self._start_text_section(name, reasoning_started)
             post_tui(TuiRegion.CONTENT, Markdown(content))
+            self._set_active(TuiRegion.CONTENT, False)
         elif not reasoning_started and not text_started:
             post_tui(TuiRegion.CONTENT, "")
 

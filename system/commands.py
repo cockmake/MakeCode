@@ -17,7 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
-from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, set_agent_loop_active
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, set_agent_loop_active, refresh_status
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -73,7 +73,7 @@ COMMAND_DESCRIPTIONS = {
     "/memory-update": "根据用户请求主动管理长期记忆，例如 /memory-update 记住：以后...",
     "/tasks": "查看任务看板和当前执行进度",
     "/plan": "进入/退出 Plan Mode — 规划阶段只允许只读和任务规划工具",
-    "/sub-agent-console": "切换 Sub-Agent 的控制台输出状态，默认关闭",
+    "/sub-agent-console": "切换 Sub-Agent 的控制台输出状态，默认开启",
     "/help": "显示使用帮助和自我介绍",
     "/new": "清空当前对话历史",
     "/hitl": "切换 Human-in-the-Loop 拦截状态 (开启/关闭)",
@@ -568,6 +568,7 @@ class CommandHandler:
         self.console.print(
             "\n[bold green]✨ 对话历史已清空，开启全新会话！[/bold green]"
         )
+        refresh_status()
         return True, None
 
     def handle_compact(self, history: list, current_checkpoint: Optional[Path]) -> tuple:
@@ -583,6 +584,7 @@ class CommandHandler:
                 "\n[bold green]✨ 当前对话上下文已成功压缩并保存！[/bold green]"
             )
             new_checkpoint = self.save_checkpoint(history, current_checkpoint)
+            refresh_status()
             return True, new_checkpoint
         finally:
             set_agent_loop_active(False)
@@ -743,6 +745,7 @@ class CommandHandler:
             self.console.print(
                 f"\n[bold green]🚀 成功加载对话记录！当前上下文包含 {len(loaded)} 条消息。[/bold green]"
             )
+            refresh_status()
             hitl_mod.SESSION_WHITELIST.clear()
             hitl_mod.PATH_WHITELIST.clear()
         except Exception as exc:

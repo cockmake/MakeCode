@@ -342,6 +342,8 @@ class TeammateManager:
         allowed, reason = check_permission("tool", "DelegateTasks", delegation_details)
         if not allowed:
             return f"User Denied Execution. Reason: {reason}"
+        post_tui(TuiRegion.SUB_AGENT, active=True)
+        post_tui(TuiRegion.BACKGROUND, active=True)
         # 1. 创建本次调用的专属文件夹
         run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_id = f"run_{run_timestamp}"
@@ -461,45 +463,49 @@ class TeammateManager:
             finally:
                 await async_client.close()
 
-        raw_results = asyncio.run(_run_all())
-        results = []
-        for idx, res in enumerate(raw_results):
-            if isinstance(res, Exception):
-                task_id = tasks[idx]["task_id"]
-                log_error_traceback(
-                    f"Asyncio gather exception for Task #{task_id}", res
-                )
-                results.append(
-                    {
-                        "task_id": task_id,
-                        "role": tasks[idx]["role_name"],
-                        "report": f"Error: Sub-agent unhandled exception - {res}.",
-                    }
-                )
-            else:
-                results.append(res)
+        try:
+            raw_results = asyncio.run(_run_all())
+            results = []
+            for idx, res in enumerate(raw_results):
+                if isinstance(res, Exception):
+                    task_id = tasks[idx]["task_id"]
+                    log_error_traceback(
+                        f"Asyncio gather exception for Task #{task_id}", res
+                    )
+                    results.append(
+                        {
+                            "task_id": task_id,
+                            "role": tasks[idx]["role_name"],
+                            "report": f"Error: Sub-agent unhandled exception - {res}.",
+                        }
+                    )
+                else:
+                    results.append(res)
 
-        print_formatted_text(
-            HTML(
-                f"\n<ansiyellow>[Orchestrator] 所有任务已完成，汇总报告已生成。</ansiyellow>\n"
-            )
-        )
-
-        final_combined_report = (
-            f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"
-        )
-        for item in sorted(
-                results,
-                key=lambda x: (
-                        int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
-                ),
-        ):
-            final_combined_report += (
-                f"==== Task #{item['task_id']} | Role: {item['role']} ====\n"
-                f"{item['report']}\n\n"
+            print_formatted_text(
+                HTML(
+                    f"\n<ansiyellow>[Orchestrator] 所有任务已完成，汇总报告已生成。</ansiyellow>\n"
+                )
             )
 
-        return final_combined_report
+            final_combined_report = (
+                f"### Run ID: {run_id} | Sub-Agents Execution Reports ###\n\n"
+            )
+            for item in sorted(
+                    results,
+                    key=lambda x: (
+                            int(x["task_id"]) if str(x["task_id"]).isdigit() else str(x["task_id"])
+                    ),
+            ):
+                final_combined_report += (
+                    f"==== Task #{item['task_id']} | Role: {item['role']} ====\n"
+                    f"{item['report']}\n\n"
+                )
+
+            return final_combined_report
+        finally:
+            post_tui(TuiRegion.SUB_AGENT, active=False)
+            post_tui(TuiRegion.BACKGROUND, active=False)
 
     async def _sub_agent_loop(
             self, plan_task_id: str, role: str, prompt: str, log_file: Path, local_async_llm_client
@@ -651,7 +657,7 @@ class TeammateManager:
             # 回显子智能体的文本回复到主控制台（如果启用）
             if get_sub_agent_console():
                 kw_args = {
-                    'identity': role,
+                    'identity': f"#{plan_task_id} - {role}",
                     'text': text_content,
                     'response_time': response_time,
                     'tui_region': TuiRegion.BACKGROUND,
@@ -670,7 +676,7 @@ class TeammateManager:
                 # 回显工具调用参数到主控制台（如果启用）
                 if get_sub_agent_console():
                     kw_args = {
-                        'identity': f"Sub-Agent - #{plan_task_id} - {role}",
+                        'identity': f"#{plan_task_id} - {role}",
                         'name': tool_name,
                         'arguments': tool_args,
                         'tui_region': TuiRegion.BACKGROUND,
@@ -704,7 +710,7 @@ class TeammateManager:
                 # 回显工具输出结果到主控制台（如果启用）
                 if get_sub_agent_console():
                     kw_args = {
-                        'identity': f"Sub-Agent - #{plan_task_id} - {role}",
+                        'identity': f"#{plan_task_id} - {role}",
                         'name': tool_name,
                         'output': output,
                         'tui_region': TuiRegion.BACKGROUND,

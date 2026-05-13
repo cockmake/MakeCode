@@ -43,7 +43,7 @@ from utils.plan_mode import (
 )
 from system.stream_render import StreamRenderer
 from system.ts_validator import init_ts_cache
-from system.tui_app import MakeCodeTuiApp, post_tui, TuiRegion, set_agent_loop_active
+from system.tui_app import MakeCodeTuiApp, post_tui, TuiRegion, set_agent_loop_active, refresh_status
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
@@ -217,10 +217,10 @@ def agent_loop(messages: list):
     }
     current_super_tools = []
 
-    # Update system prompt to reflect current plan mode state
-    messages[0] = {"role": "system", "content": get_dynamic_system_prompt()}
-
     while True:
+        # Update system prompt to reflect current plan mode state
+        messages[0] = {"role": "system", "content": get_dynamic_system_prompt()}
+
         try:
             current_super_tools = get_current_tools_definition()
         except RuntimeError as exc:
@@ -262,39 +262,43 @@ def agent_loop(messages: list):
             tool_id = tc["id"]
             tool_args = tc["arguments"]
 
-            _render_tool_call(tool_name, tool_args)
-
+            post_tui(TuiRegion.TOOLS, active=True)
             try:
-                arguments = _parse_arguments(tool_args)
-                # Plan Mode safety net: block write/execute/delegate tools
-                if is_plan_mode() and tool_name in PLAN_MODE_BLOCKLIST:
-                    output = (
-                        f"⛔ Plan Mode active: '{tool_name}' is blocked. "
-                        f"Complete your plan first, then exit Plan Mode to execute."
-                    )
-                elif is_plan_mode() and tool_name == "RunTerminalCommand":
-                    cmd = arguments.get("command", "")
-                    if is_plan_mode_command_allowed(cmd):
-                        handler = current_handlers.get(tool_name)
-                        output = handler(**arguments)
-                    else:
-                        output = (
-                            f"⛔ Plan Mode: this command is not allowed. "
-                            f"Only {', '.join(PLAN_MODE_ALLOWED_COMMANDS)} commands are permitted in Plan Mode."
-                        )
-                else:
-                    handler = current_handlers.get(tool_name)
-                    if handler:
-                        output = handler(**arguments)
-                    else:
-                        output = f"Unknown tool: {tool_name}"
-            except Exception as e:
-                log_error_traceback(
-                    f"Orchestrator tool execution error: {tool_name}", e
-                )
-                output = f"Error executing {tool_name}: {e}."
+                _render_tool_call(tool_name, tool_args)
 
-            _render_tool_output(tool_name, output)
+                try:
+                    arguments = _parse_arguments(tool_args)
+                    # Plan Mode safety net: block write/execute/delegate tools
+                    if is_plan_mode() and tool_name in PLAN_MODE_BLOCKLIST:
+                        output = (
+                            f"⛔ Plan Mode active: '{tool_name}' is blocked. "
+                            f"Complete your plan first, then exit Plan Mode to execute."
+                        )
+                    elif is_plan_mode() and tool_name == "RunTerminalCommand":
+                        cmd = arguments.get("command", "")
+                        if is_plan_mode_command_allowed(cmd):
+                            handler = current_handlers.get(tool_name)
+                            output = handler(**arguments)
+                        else:
+                            output = (
+                                f"⛔ Plan Mode: this command is not allowed. "
+                                f"Only {', '.join(PLAN_MODE_ALLOWED_COMMANDS)} commands are permitted in Plan Mode."
+                            )
+                    else:
+                        handler = current_handlers.get(tool_name)
+                        if handler:
+                            output = handler(**arguments)
+                        else:
+                            output = f"Unknown tool: {tool_name}"
+                except Exception as e:
+                    log_error_traceback(
+                        f"Orchestrator tool execution error: {tool_name}", e
+                    )
+                    output = f"Error executing {tool_name}: {e}."
+
+                _render_tool_output(tool_name, output)
+            finally:
+                post_tui(TuiRegion.TOOLS, active=False)
 
             messages.append(llm_client.format_tool_result(tool_id, tool_name, output))
 
@@ -318,6 +322,7 @@ def agent_loop(messages: list):
             console.print(
                 "\n[bold green]✨ 当前对话上下文已成功压缩并保存！[/bold green]"
             )
+            refresh_status()
         except Exception as e:
             log_error_traceback("Orchestrator auto-compact error", e)
             error_msg = f"Error executing auto_compact: {e}."
@@ -326,10 +331,20 @@ def agent_loop(messages: list):
 
 def _init_tree_sitter_cache(console: Console):
     """初始化 tree-sitter 语言包缓存"""
+    post_tui(TuiRegion.BACKGROUND, active=True)
+    post_tui(TuiRegion.BACKGROUND, "[#aaaaaa]🌳 正在初始化语法解析器...[/#aaaaaa]")
     try:
         init_ts_cache()
+        post_tui(TuiRegion.BACKGROUND, "[bold green]🌳 语法解析器初始化完成[/bold green]")
     except Exception as e:
-        console.print(f"[red]⚠️ 语法解析器初始化失败: {e}[/red]")
+        log_error_traceback("tree-sitter cache init", e)
+        post_tui(TuiRegion.BACKGROUND, f"[bold red]⚠️ 语法解析器初始化失败: {e}[/bold red]")
+    finally:
+        post_tui(TuiRegion.BACKGROUND, active=False)
+
+
+def _start_tree_sitter_cache_init_background():
+    threading.Thread(target=_init_tree_sitter_cache, args=(console,), daemon=True).start()
 
 
 command_completer = SlashCommandCompleter()
@@ -534,17 +549,23 @@ def _apply_pending_title():
 
 def _background_update_check():
     """后台检查更新，有新版本时提示用户（不阻塞启动）。"""
+    active_started = False
     try:
         version_info = check_update()
         if not version_info:
             return
         new_version = version_info.get('version', '未知')
         release_log = version_info.get('release_log', '')
+        post_tui(TuiRegion.BACKGROUND, active=True)
+        active_started = True
         post_tui(TuiRegion.BACKGROUND, f"[bold yellow]📢 发现新版本 v{new_version}，输入 /update 查看详情并更新[/bold yellow]")
         if release_log:
             post_tui(TuiRegion.BACKGROUND, Markdown(release_log))
     except Exception:
         pass  # 静默失败，不影响正常使用
+    finally:
+        if active_started:
+            post_tui(TuiRegion.BACKGROUND, active=False)
 
 
 def _process_user_query(query: str, history: list, command_handler: CommandHandler) -> str | None:
@@ -578,6 +599,7 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
 
             def _title_worker():
                 global _pending_title
+                post_tui(TuiRegion.BACKGROUND, active=True)
                 post_tui(TuiRegion.BACKGROUND, "[#aaaaaa]🏷️ 正在生成对话标题...[/#aaaaaa]")
                 try:
                     title = generate_title(query)
@@ -589,6 +611,8 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
                 except Exception as exc:
                     log_error_traceback("Failed to generate title", exc)
                     post_tui(TuiRegion.BACKGROUND, f"[bold red]🏷️ 对话标题生成失败：{exc}[/bold red]")
+                finally:
+                    post_tui(TuiRegion.BACKGROUND, active=False)
 
             _title_thread = threading.Thread(target=_title_worker, daemon=True)
             _title_thread.start()
@@ -609,13 +633,17 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
     if command_result.action == CommandAction.RESET_CHECKPOINT:
         CURRENT_CHECKPOINT = None
         _pending_title = None
+        refresh_status()
     elif command_result.action == CommandAction.LOAD_HISTORY:
         history[:], CURRENT_CHECKPOINT = command_result.payload
         _pending_title = None
+        refresh_status()
     elif command_result.action == CommandAction.UPDATE_CHECKPOINT:
         CURRENT_CHECKPOINT = command_result.payload
+        refresh_status()
     elif command_result.action == CommandAction.UPDATE_SYSTEM_PROMPT:
         history[0] = {"role": "system", "content": command_result.payload}
+        refresh_status()
     return None
 
 
@@ -645,8 +673,8 @@ if __name__ == "__main__":
     if getattr(sys, 'frozen', False):
         threading.Thread(target=_background_update_check, daemon=True).start()
 
-    # 初始化 tree-sitter 语言包缓存
-    _init_tree_sitter_cache(console)
+    # 后台初始化 tree-sitter 语言包缓存
+    _start_tree_sitter_cache_init_background()
 
     GLOBAL_MCP_MANAGER.initialize(console=console)
     GLOBAL_MCP_MANAGER.start_background()
