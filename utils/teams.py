@@ -590,13 +590,17 @@ class TeammateManager:
                 {"role": "user", "content": summary_prompt},
             ]
             try:
-                fallback_response = await local_async_llm_client.generate(
+                summary_parts = []
+                async for event in local_async_llm_client.generate_stream(
                     messages=fallback_messages, tools=[]
-                )
-                summary_text, _, _ = local_async_llm_client.parse_response(
-                    fallback_response
-                )
-                summary_text = (summary_text or "").strip()
+                ):
+                    if event.get("type") == "text":
+                        summary_parts.append(event.get("content", ""))
+                    elif event.get("type") == "done":
+                        summary_text, _, _ = event.get("content", ("", [], None))
+                        if summary_text:
+                            summary_parts = [summary_text]
+                summary_text = "".join(summary_parts).strip()
                 if summary_text:
                     return summary_text
             except Exception as exc:

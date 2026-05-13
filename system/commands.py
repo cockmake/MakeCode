@@ -31,7 +31,7 @@ from utils.memory import (
     manual_memory_update,
     set_memory_size,
 )
-from system.updater import check_update, download_update, launch_updater
+from system.updater import check_update, download_update
 
 
 class CommandAction(Enum):
@@ -42,6 +42,7 @@ class CommandAction(Enum):
     UPDATE_CHECKPOINT = auto()
     LOAD_HISTORY = auto()
     UPDATE_SYSTEM_PROMPT = auto()
+    LAUNCH_UPDATER_AND_EXIT = auto()
 
 
 @dataclass
@@ -404,7 +405,7 @@ class CommandHandler:
         self.console.print(tbl)
         return True
 
-    def handle_update(self) -> bool:
+    def handle_update(self) -> Path | None:
         """处理 /update 命令 - 检查并安装更新"""
         import sys
         from version import CURRENT_VERSION
@@ -413,7 +414,7 @@ class CommandHandler:
 
         if not getattr(sys, 'frozen', False):
             self.console.print("[bold yellow]⚠️ 开发环境下不支持自动更新，请使用 pyinstaller 打包后再试。[/bold yellow]")
-            return True
+            return None
 
         set_agent_loop_active(True)
         try:
@@ -423,11 +424,11 @@ class CommandHandler:
                 version_info = check_update(raise_errors=True)
             except Exception as exc:
                 self.console.print(f"[bold red]❌ 检查更新失败: {exc}[/bold red]")
-                return True
+                return None
 
             if version_info is None:
                 self.console.print("[bold green]✅ 当前已是最新版本！[/bold green]")
-                return True
+                return None
 
             new_version = version_info.get('version', '未知')
             release_log = version_info.get('release_log', '')
@@ -441,7 +442,7 @@ class CommandHandler:
 
             if answer != '是':
                 self.console.print("[#aaaaaa]已取消更新[/#aaaaaa]")
-                return True
+                return None
 
             self.console.print("[bold cyan]📥 正在下载更新...[/bold cyan]")
 
@@ -471,25 +472,17 @@ class CommandHandler:
                 new_exe_path = download_update(version_info, progress_callback=_progress)
             except Exception as exc:
                 self.console.print(f"\n[bold red]❌ 下载失败: {exc}[/bold red]")
-                return True
+                return None
 
             if new_exe_path is None:
                 self.console.print("\n[bold red]❌ 下载失败，请稍后重试[/bold red]")
-                return True
+                return None
 
-            self.console.print("[bold green]✅ 下载完成！正在启动更新程序...[/bold green]")
+            self.console.print("[bold green]✅ 下载完成！正在退出主程序并启动更新程序...[/bold green]")
             self.console.print("[#aaaaaa]程序将自动退出并完成更新，更新后请手动重启程序[/#aaaaaa]")
-
-            try:
-                launch_updater(new_exe_path)
-            except Exception as exc:
-                self.console.print(f"[bold red]❌ 启动更新器失败: {exc}[/bold red]")
-                return True
+            return new_exe_path
         finally:
             set_agent_loop_active(False)
-
-        # launch_updater 内部会退出进程，正常流程不会执行到这里
-        return True
 
     def handle_skills_switch(self) -> str:
         """处理 /skills-switch 命令，返回新的 system prompt"""
@@ -909,7 +902,9 @@ class CommandHandler:
 
         # /update - 检查更新
         if query == "/update":
-            self.handle_update()
+            new_exe_path = self.handle_update()
+            if new_exe_path is not None:
+                return CommandResult(action=CommandAction.LAUNCH_UPDATER_AND_EXIT, payload=new_exe_path)
             return CommandResult(action=CommandAction.CONTINUE)
 
         # /skills 相关命令

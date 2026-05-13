@@ -389,6 +389,95 @@ class AsyncChatAPIClient(ChatAPIClient, AsyncBaseLLMClient):
             kwargs["tools"] = tools
         return await self.client.chat.completions.create(**kwargs)
 
+    async def generate_stream(self, messages: list, tools: list = None):
+        kwargs = {"model": self.model, "messages": messages, "stream": True, "reasoning_effort": "medium"}
+        if tools:
+            kwargs["tools"] = tools
+
+        stream = await self.client.chat.completions.create(**kwargs)
+        response_deltas = []
+
+        def _build_done_event():
+            _TEXT_FIELDS = ("content", "reasoning_content", "reasoning")
+
+            raw_message = {}
+            merged_text_parts = {field: [] for field in _TEXT_FIELDS}
+            merged_tool_calls = {}
+            for delta in response_deltas:
+                for key, value in delta:
+                    if value is None:
+                        continue
+                    if key in _TEXT_FIELDS:
+                        merged_text_parts[key].append(value)
+                    elif key == "tool_calls":
+                        for tc in value:
+                            idx = tc.index
+                            if idx not in merged_tool_calls:
+                                merged_tool_calls[idx] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+                            if tc.id:
+                                merged_tool_calls[idx]["id"] = tc.id
+                            if hasattr(tc, "type") and tc.type:
+                                merged_tool_calls[idx]["type"] = tc.type
+                            if tc.function:
+                                if tc.function.name:
+                                    merged_tool_calls[idx]["function"]["name"] = tc.function.name
+                                if tc.function.arguments:
+                                    merged_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                    else:
+                        raw_message[key] = value
+
+            for field in _TEXT_FIELDS:
+                parts = merged_text_parts[field]
+                raw_message[field] = "".join(parts) if parts else None
+            raw_message["role"] = "assistant"
+            for k in list(raw_message.keys()):
+                if k != "content" and raw_message[k] is None:
+                    del raw_message[k]
+            text = raw_message.get("content") or ""
+
+            valid_tool_calls = {
+                idx: tc for idx, tc in merged_tool_calls.items()
+                if tc["id"] and tc["function"]["name"]
+            }
+            if valid_tool_calls:
+                raw_message["tool_calls"] = [
+                    valid_tool_calls[idx]
+                    for idx in sorted(valid_tool_calls.keys())
+                ]
+
+            tool_calls = []
+            for idx in sorted(valid_tool_calls.keys()):
+                tc = valid_tool_calls[idx]
+                tool_calls.append({
+                    "id": tc["id"],
+                    "name": tc["function"]["name"],
+                    "arguments": tc["function"]["arguments"],
+                    "raw": tc,
+                })
+
+            return {"type": "done", "content": (text, tool_calls, raw_message)}
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            response_deltas.append(delta)
+
+            if delta.content:
+                yield {"type": "text", "content": delta.content}
+
+            reasoning_val = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if reasoning_val:
+                yield {"type": "reasoning", "content": reasoning_val}
+
+            if choice.finish_reason in ("tool_calls", "stop"):
+                yield _build_done_event()
+                return
+
+        yield _build_done_event()
+
     async def get_summary(self, conversation_text: str, reason: str) -> str:
         messages = [
             {"role": "system", "content": get_summary_system_prompt()},

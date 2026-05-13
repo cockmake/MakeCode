@@ -32,7 +32,7 @@ from system.console_render import (
     format_runtime_info,
     console,
 )
-from system.updater import check_update
+from system.updater import check_update, launch_updater
 from utils.hitl import get_hitl_status
 from system.models import get_current_model_config
 from utils.plan_mode import (
@@ -73,6 +73,7 @@ from tools.ask_user import ASK_USER_TOOLS, ASK_USER_TOOLS_HANDLERS
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
 USER_SESSION = None
+_PENDING_UPDATE_EXE_PATH = None
 
 
 def get_dynamic_system_prompt() -> str:
@@ -547,7 +548,7 @@ def _background_update_check():
 
 
 def _process_user_query(query: str, history: list, command_handler: CommandHandler) -> str | None:
-    global CURRENT_CHECKPOINT, _pending_title
+    global CURRENT_CHECKPOINT, _pending_title, _PENDING_UPDATE_EXE_PATH
 
     query = query.strip()
     if not query:
@@ -563,6 +564,9 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
     )
 
     if command_result.action == CommandAction.EXIT:
+        return "exit"
+    if command_result.action == CommandAction.LAUNCH_UPDATER_AND_EXIT:
+        _PENDING_UPDATE_EXE_PATH = command_result.payload
         return "exit"
     if command_result.action == CommandAction.CONTINUE:
         return None
@@ -664,3 +668,6 @@ if __name__ == "__main__":
         _run_textual_main(history, command_handler)
     finally:
         GLOBAL_MCP_MANAGER.stop()
+
+    if _PENDING_UPDATE_EXE_PATH is not None:
+        launch_updater(_PENDING_UPDATE_EXE_PATH)
