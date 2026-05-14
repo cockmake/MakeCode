@@ -6,36 +6,13 @@ import threading
 from pathlib import Path
 
 from fastmcp import Client
-from prompt_toolkit.formatted_text import HTML
-from rich.text import Text
+from rich.markup import escape
 
 from system.tui_app import TuiRegion, post_tui, refresh_status
 
 
-_STYLE_MAP = {
-    "ansired": "red",
-    "ansigreen": "green",
-    "ansiyellow": "yellow",
-    "ansiblue": "blue",
-    "ansimagenta": "magenta",
-    "ansicyan": "cyan",
-}
-
-
-def _html_to_text(value) -> Text:
-    text = Text()
-    for style, fragment in value.__pt_formatted_text__():
-        rich_style = " ".join(
-            mapped
-            for token in style.replace("class:", "").split(",")
-            if (mapped := _STYLE_MAP.get(token) or ("bold" if token == "b" else ""))
-        )
-        text.append(fragment, style=rich_style or None)
-    return text
-
-
 def print_formatted_text(value):
-    post_tui(TuiRegion.BACKGROUND, _html_to_text(value) if hasattr(value, "__pt_formatted_text__") else str(value))
+    post_tui(TuiRegion.BACKGROUND, str(value))
 
 # 使用安装目录的配置
 from init import INSTALL_MAKECODE_DIR
@@ -107,15 +84,13 @@ class GlobalMCPManager:
                 self._save_config_dict({"mcpServers": {}})
                 if self.console:
                     print_formatted_text(
-                        HTML(
-                            f"<ansicyan><b>ℹ️ MCP 配置文件不存在，已自动创建空配置。\n   路径: {self.config_path}</b></ansicyan>"
-                        )
+                        f"[bold cyan]ℹ️ MCP 配置文件不存在，已自动创建空配置。\n   路径: {escape(str(self.config_path))}[/bold cyan]"
                     )
             except Exception as e:
                 log_error_traceback("MCP Config Create Error", e)
                 if self.console:
                     print_formatted_text(
-                        HTML(f"<ansired><b>⚠️ 创建 MCP 配置文件失败: {e}</b></ansired>")
+                        f"[bold red]⚠️ 创建 MCP 配置文件失败: {escape(str(e))}[/bold red]"
                     )
             return
 
@@ -126,25 +101,21 @@ class GlobalMCPManager:
             log_error_traceback("MCP Config Load Error", e)
             if self.console:
                 print_formatted_text(
-                    HTML(f"<ansired><b>⚠️ 加载 MCP 配置失败: {e}</b></ansired>")
+                    f"[bold red]⚠️ 加载 MCP 配置失败: {escape(str(e))}[/bold red]"
                 )
             return
 
         if not self.server_configs:
             if self.console:
                 print_formatted_text(
-                    HTML(
-                        f"<ansiyellow><b>⚠️ MCP 服务为空，暂无可用服务。\n   路径: {self.config_path}</b></ansiyellow>"
-                    )
+                    f"[bold yellow]⚠️ MCP 服务为空，暂无可用服务。\n   路径: {escape(str(self.config_path))}[/bold yellow]"
                 )
             return
 
         if self.console:
             names = ", ".join(self.server_configs.keys())
             print_formatted_text(
-                HTML(
-                    f"<ansicyan>🔄 识别到 {len(self.server_configs)} 个 MCP 服务 ({names})</ansicyan>\n"
-                )
+                f"[cyan]🔄 识别到 {len(self.server_configs)} 个 MCP 服务 ({escape(names)})[/cyan]\n"
             )
         self.loop = asyncio.new_event_loop()
         self._stop_event = asyncio.Event()
@@ -162,7 +133,7 @@ class GlobalMCPManager:
             log_error_traceback("MCP Background Loop Error", e)
             if self.console:
                 print_formatted_text(
-                    HTML(f"<ansired><b>⚠️ MCP Background Loop Error: {e}</b></ansired>")
+                    f"[bold red]⚠️ MCP Background Loop Error: {escape(str(e))}[/bold red]"
                 )
         finally:
             self._is_running = False
@@ -278,9 +249,7 @@ class GlobalMCPManager:
         if cfg.get("disabled", False):
             if self.console:
                 print_formatted_text(
-                    HTML(
-                        f"<ansiyellow><b>⚠️ MCP 服务 '{server_name}' 已被标记为禁用，跳过加载。</b></ansiyellow>"
-                    )
+                    f"[bold yellow]⚠️ MCP 服务 '{escape(str(server_name))}' 已被标记为禁用，跳过加载。[/bold yellow]"
                 )
             return False
 
@@ -300,9 +269,7 @@ class GlobalMCPManager:
 
                 if self.console:
                     print_formatted_text(
-                        HTML(
-                            f"<ansigreen>✅ 成功连接 MCP 服务: <b>'{server_name}'</b> (已加载 {len(raw_tools)} 个工具)</ansigreen>\n"
-                        )
+                        f"[green]✅ 成功连接 MCP 服务: [bold]'{escape(str(server_name))}'[/bold] (已加载 {len(raw_tools)} 个工具)[/green]\n"
                     )
 
                 for t in raw_tools:
@@ -362,9 +329,7 @@ class GlobalMCPManager:
                     log_error_traceback(f"MCP Server Load Error [{server_name}]", e)
                     if self.console:
                         print_formatted_text(
-                            HTML(
-                                f"\r<ansired><b>⚠️ 无法加载 MCP 服务 '{server_name}': {e}</b></ansired>"
-                            )
+                            f"\r[bold red]⚠️ 无法加载 MCP 服务 '{escape(str(server_name))}': {escape(str(e))}[/bold red]"
                         )
                     raise
         
@@ -407,7 +372,7 @@ class GlobalMCPManager:
             for server_name, success, error in results:
                 if not success and self.console:
                     print_formatted_text(
-                        HTML(f"<ansiyellow><b>⚠️ MCP 服务 '{server_name}' 连接失败，跳过: {error}</b></ansiyellow>")
+                        f"[bold yellow]⚠️ MCP 服务 '{escape(str(server_name))}' 连接失败，跳过: {escape(str(error))}[/bold yellow]"
                     )
 
             with self._db_lock:
@@ -419,7 +384,7 @@ class GlobalMCPManager:
             log_error_traceback("MCP Async Lifecycle Loop Error", e)
             if self.console:
                 print_formatted_text(
-                    HTML(f"\r<ansired><b>⚠️ MCP 后台连接异常断开: {e}</b></ansired>")
+                    f"\r[bold red]⚠️ MCP 后台连接异常断开: {escape(str(e))}[/bold red]"
                 )
         finally:
             # 清理所有仍存活的客户端
@@ -468,9 +433,7 @@ class GlobalMCPManager:
 
         if self.console:
             print_formatted_text(
-                HTML(
-                    "\n<ansicyan><b>🔄 正在重新加载 MCP 配置并重启后台服务...</b></ansicyan>"
-                )
+                "\n[bold cyan]🔄 正在重新加载 MCP 配置并重启后台服务...[/bold cyan]"
             )
 
         self.start_background()
@@ -484,9 +447,7 @@ class GlobalMCPManager:
                 ok = await self._connect_server(server_name, servers[server_name])
                 if ok and self.console:
                     print_formatted_text(
-                        HTML(
-                            f"<ansigreen><b>✅ 已启用 MCP 服务: '{server_name}'</b></ansigreen>"
-                        )
+                        f"[bold green]✅ 已启用 MCP 服务: '{escape(str(server_name))}'[/bold green]"
                     )
                 if not ok:
                     return {"server": server_name, "action": "enable", "error": "连接失败"}
@@ -578,9 +539,7 @@ class GlobalMCPManager:
                     future.result(timeout=30)
                     if self.console:
                         print_formatted_text(
-                            HTML(
-                                f"<ansiyellow><b>⏹️ 已停用 MCP 服务: '{server_name}'</b></ansiyellow>"
-                            )
+                            f"[bold yellow]⏹️ 已停用 MCP 服务: '{escape(str(server_name))}'[/bold yellow]"
                         )
                 else:
                     failed.append(

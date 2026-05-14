@@ -28,7 +28,6 @@ a = Analysis(
     hiddenimports=[
         'tiktoken_ext.openai_public', 
         'tiktoken_ext', 
-        'prompt_toolkit', 
         'rich',
         'textual',
         'pyzstd',

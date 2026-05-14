@@ -7,12 +7,16 @@ from typing import Any, Literal
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field, field_validator
 
-from init import WORKDIR
+from init import log_error_traceback
 from utils.common import sanitize_title
 from utils.hitl import check_permission
 
-MAKECODE_DIR = WORKDIR / ".makecode"
-TASKS_DIR = MAKECODE_DIR / "tasks"
+
+def _tasks_dir() -> Path:
+    from init import WORKDIR
+
+    return WORKDIR / ".makecode" / "tasks"
+
 
 VALID_STATUS = {
     "pending",
@@ -206,9 +210,10 @@ class GetTaskTable(BaseModel):
 
 
 def list_task_plans() -> list[Path]:
-    if not TASKS_DIR.exists():
+    tasks_dir = _tasks_dir()
+    if not tasks_dir.exists():
         return []
-    files = list(TASKS_DIR.glob("task_plan_*.json"))
+    files = list(tasks_dir.glob("task_plan_*.json"))
     files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     return files
 
@@ -249,8 +254,8 @@ class TaskManager:
       6) get_task_table
     """
 
-    def __init__(self, workspace: Path = TASKS_DIR, title: str = None):
-        self.workspace = workspace
+    def __init__(self, workspace: Path | None = None, title: str = None):
+        self.workspace = workspace or _tasks_dir()
         self.workspace.mkdir(parents=True, exist_ok=True)
         epic_id = uuid.uuid4().hex[:8]
         
@@ -566,6 +571,12 @@ class TaskManager:
 
 
 TASK_MANAGER = TaskManager()
+
+
+def refresh_workspace_paths() -> None:
+    global TASK_MANAGER
+    TASK_MANAGER = TaskManager(_tasks_dir())
+
 
 TOOLS = [
     pydantic_function_tool(CreateTask),

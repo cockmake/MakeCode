@@ -31,6 +31,7 @@ from system.tui_modals import (
     MemoryPanelModal,
     ModelManagerModal,
     ModelPanelModal,
+    StartupWorkdirModal,
 )
 
 
@@ -512,6 +513,8 @@ class MakeCodeTuiApp(App[None]):
         submit_handler: Callable[[str], str | None] | None = None,
         runtime_info_provider: Callable[[], str] | None = None,
         header_info_provider: Callable[[], str] | None = None,
+        startup_workdir_provider: Callable[[], Any] | None = None,
+        startup_workdir_handler: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self._logs: dict[TuiRegion, RichLog] = {}
@@ -522,6 +525,8 @@ class MakeCodeTuiApp(App[None]):
         self._submit_handler = submit_handler
         self._runtime_info_provider = runtime_info_provider
         self._header_info_provider = header_info_provider
+        self._startup_workdir_provider = startup_workdir_provider
+        self._startup_workdir_handler = startup_workdir_handler
         self._mode_label = "ACT"
         self._agent_loop_active = False
         self._slash_matches: list[tuple[str, str]] = []
@@ -624,7 +629,22 @@ class MakeCodeTuiApp(App[None]):
         self.set_interval(0.5, self._check_responsive_layout)
         self.set_interval(1.0, self._update_clock)
         TUI_BRIDGE.bind(self)
-        self.query_one("#input-box", MakeCodeInput).focus()
+        if self._startup_workdir_provider is not None and self._startup_workdir_handler is not None:
+            self.call_after_refresh(self._open_startup_workdir_modal)
+        else:
+            self.query_one("#input-box", MakeCodeInput).focus()
+
+    def _open_startup_workdir_modal(self) -> None:
+        if self._startup_workdir_provider is None or self._startup_workdir_handler is None:
+            return
+
+        def _done(value: str | None) -> None:
+            self._modal_active = False
+            self._startup_workdir_handler(value or "abort")
+            self.query_one("#input-box", MakeCodeInput).focus()
+
+        self._modal_active = True
+        self.push_screen(StartupWorkdirModal(self._startup_workdir_provider()), _done)
 
     def update_input_height(self) -> None:
         input_box = self.query_one("#input-box", MakeCodeInput)

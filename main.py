@@ -3,21 +3,21 @@ import sys
 import threading
 from typing import Any
 
-from prompt_toolkit import PromptSession, print_formatted_text
-from prompt_toolkit.formatted_text import HTML, ANSI
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.keys import Keys
-from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 
-from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_SOURCE, STARTUP_TERMINAL_TYPE
+from init import (
+    log_error_traceback,
+    resolve_chosen_workdir,
+    resolve_startup_workdir,
+    set_workdir,
+    should_prompt_for_workdir,
+    STARTUP_TERMINAL_SOURCE,
+    STARTUP_TERMINAL_TYPE,
+)
 from prompts import get_orchestrator_system_prompt, get_title_generation_system_prompt
 # 导入命令模块
 from system.commands import (
-    COMMAND_DESCRIPTIONS,
-    SlashCommandCompleter,
     CommandHandler,
     CommandAction,
 )
@@ -33,8 +33,6 @@ from system.console_render import (
     console,
 )
 from system.updater import check_update, launch_updater
-from utils.hitl import get_hitl_status
-from system.models import get_current_model_config
 from utils.plan_mode import (
     is_plan_mode,
     is_plan_mode_command_allowed,
@@ -67,19 +65,25 @@ from utils.memory import (
 )
 from utils.skills import SKILL_LOADER, SKILL_TOOLS, SKILL_TOOLS_HANDLERS
 import utils.tasks as _tasks_module
+import utils.teams as _teams_module
 from utils.tasks import TASK_MANAGER_TOOLS, TASK_MANAGER_TOOLS_HANDLERS
-from utils.teams import TEAM, TEAM_TOOLS, TEAM_TOOLS_HANDLERS
+from utils.teams import TEAM_TOOLS, TEAM_TOOLS_HANDLERS
 from tools.ask_user import ASK_USER_TOOLS, ASK_USER_TOOLS_HANDLERS
 
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
-USER_SESSION = None
 _PENDING_UPDATE_EXE_PATH = None
+
+
+def _current_workdir():
+    from init import WORKDIR
+
+    return WORKDIR
 
 
 def get_dynamic_system_prompt() -> str:
     return get_orchestrator_system_prompt(
-        WORKDIR,
+        _current_workdir(),
         STARTUP_TERMINAL_LABEL,
         STARTUP_TERMINAL_SOURCE,
         plan_mode=is_plan_mode(),
@@ -348,180 +352,25 @@ def _start_tree_sitter_cache_init_background():
     threading.Thread(target=_init_tree_sitter_cache, args=(console,), daemon=True).start()
 
 
-command_completer = SlashCommandCompleter()
-
-
-def _init_user_session():
-    global USER_SESSION
-    if USER_SESSION is not None:
-        return
-    try:
-        user_kb = KeyBindings()
-
-        @user_kb.add(Keys.Enter)
-        def _submit_query(event):
-            buffer = event.current_buffer
-            text = buffer.text.strip()
-
-            if text.startswith("/"):
-                if text in COMMAND_DESCRIPTIONS:
-                    buffer.validate_and_handle()
-                    return
-
-                if buffer.complete_state and buffer.complete_state.completions:
-                    if buffer.complete_state.current_completion:
-                        buffer.apply_completion(
-                            buffer.complete_state.current_completion
-                        )
-                    else:
-                        buffer.apply_completion(buffer.complete_state.completions[0])
-                    return
-
-            buffer.validate_and_handle()
-
-        @user_kb.add("c-n")
-        def _insert_newline(event):
-            event.current_buffer.insert_text("\n")
-
-        @user_kb.add("c-p")
-        def _toggle_plan_mode(event):
-            from utils.plan_mode import toggle_plan_mode
-            current_text = event.current_buffer.text
-            new_state = toggle_plan_mode()
-            if new_state:
-                event.app.exit(result={"type": "plan_mode_toggle", "state": "on", "text": current_text})
-            else:
-                event.app.exit(result={"type": "plan_mode_toggle", "state": "off", "text": current_text})
-
-        def prompt_continuation(width, line_number, is_soft_wrap):
-            return " " * (width - 4) + " │  "
-
-        custom_style = Style.from_dict(
-            {
-                "prompt": "bold #7dd3fc",
-                "mode-plan": "bold #f59e0b",
-                "mode-act": "bold #22c55e",
-                "arrow": "#a78bfa bold",
-                "bottom_toolbar": "bg:#1a1a2e fg:#e0e0e0",
-            }
-        )
-
-        USER_SESSION = PromptSession(
-            multiline=True,
-            key_bindings=user_kb,
-            prompt_continuation=prompt_continuation,
-            style=custom_style,
-            completer=command_completer,
-            reserve_space_for_menu=5,
-            complete_while_typing=True,
-        )
-
-        normalizing_buffer = False
-
-        def _normalize_prompt_buffer(buffer):
-            nonlocal normalizing_buffer
-            if normalizing_buffer:
-                return
-
-            text = buffer.text
-            sanitized = _sanitize_user_query(text)
-            if sanitized == text:
-                return
-
-            cursor_position = len(_sanitize_user_query(text[:buffer.cursor_position]))
-            normalizing_buffer = True
-            try:
-                buffer.text = sanitized
-                buffer.cursor_position = cursor_position
-            finally:
-                normalizing_buffer = False
-
-        USER_SESSION.default_buffer.on_text_changed += _normalize_prompt_buffer
-    except Exception as exc:
-        log_error_traceback("main init user session", exc)
-        print_formatted_text(
-            HTML(f"\n<ansired>初始化提示会话失败: {exc}</ansired>")
-        )
-        sys.exit(1)
-
-
-def _sanitize_user_query(query: str) -> str:
-    query = query.encode("utf-16-le", errors="surrogatepass").decode(
-        "utf-16-le", errors="surrogatepass"
-    )
-    return query.encode("utf-8", errors="replace").decode("utf-8")
-
-
-def _read_user_query(messages: list = None, default_text: str = "") -> str:
-    _init_user_session()
-
-    console.print(
-        "\n[#aaaaaa]Enter 发送 · Ctrl+N 换行 · Ctrl+P 切换 Plan/Act 模式 · 输入 / 使用命令补全[/#aaaaaa]"
-    )
-
-    from utils.plan_mode import is_plan_mode as _is_plan_mode
-    border_prefix = "╭─ MakeCode "
-    border = border_prefix + "─" * max(1, console.size.width - len(border_prefix))
-    console.print(f"[cyan]{border}[/cyan]")
-
-    bottom_toolbar_content = None
-    if messages is not None:
-        tokens = estimate_tokens(
-            messages,
-            tools_definition=get_current_tools_definition(),
-        )
-        pct = (tokens / THRESHOLD) * 100
-        color = "ansigreen" if pct < 70 else "ansiyellow" if pct < 90 else "ansired"
-        toolbar_bg = "bg:#1a1a2e"
-        bottom_toolbar_content = []
-
-        if _is_plan_mode():
-            bottom_toolbar_content.append((f"{toolbar_bg} fg:#ff8800 bold", "📋 Plan "))
-        else:
-            bottom_toolbar_content.append((f"{toolbar_bg} fg:#aaaaaa bold", "🎬 Act "))
-
-        current_model = get_current_model_config()
-        if current_model:
-            model_text = current_model.get_display_text()
-            bottom_toolbar_content.append((f"{toolbar_bg} fg:#e0e0e0 bold", f"🤖 Model: {model_text} "))
-
-        bottom_toolbar_content.append((f"{toolbar_bg} fg:{color} bold", f"📈 Tokens: {tokens}/{THRESHOLD} ({pct:.1f}%) "))
-
-        hitl_on = get_hitl_status()
-        hitl_color = "ansigreen" if hitl_on else "ansired"
-        hitl_text = "ON" if hitl_on else "OFF"
-        bottom_toolbar_content.append((f"{toolbar_bg} fg:{hitl_color} bold", f"🛡️ HITL: {hitl_text}"))
-
-    try:
-        with patch_stdout():
-            if _is_plan_mode():
-                prompt_message = [
-                    ("class:prompt", "│ "),
-                    ("class:mode-plan", "PLAN "),
-                    ("class:arrow", "❯ "),
-                ]
-            else:
-                prompt_message = [
-                    ("class:prompt", "│ "),
-                    ("class:mode-act", "ACT "),
-                    ("class:arrow", "❯ "),
-                ]
-
-            query = USER_SESSION.prompt(
-                prompt_message,
-                bottom_toolbar=bottom_toolbar_content,
-                default=default_text,
-            )
-            if not isinstance(query, str):
-                return query
-            return _sanitize_user_query(query)
-    except Exception as exc:
-        log_error_traceback("main user input prompt failure", exc)
-        raise
-
-
 CURRENT_CHECKPOINT = None
 _pending_title = None
+
+
+def _refresh_workspace_state() -> None:
+    from utils import memory as memory_module
+    from utils import tasks as tasks_module
+    from utils import teams as teams_module
+
+    memory_module.refresh_workspace_paths()
+    tasks_module.refresh_workspace_paths()
+    teams_module.refresh_workspace_paths()
+    SKILL_LOADER.refresh_workspace()
+
+
+def _apply_workdir(path) -> None:
+    set_workdir(path)
+    _refresh_workspace_state()
+
 
 
 def _apply_pending_title():
@@ -542,7 +391,7 @@ def _apply_pending_title():
         if new_ckpt != CURRENT_CHECKPOINT:
             CURRENT_CHECKPOINT = new_ckpt
         _tasks_module.TASK_MANAGER.rename_with_title(title)
-        TEAM.rename_history_with_title(title)
+        _teams_module.TEAM.rename_history_with_title(title)
     except Exception as exc:
         log_error_traceback("Failed to apply pending title", exc)
 
@@ -649,9 +498,22 @@ def _process_user_query(query: str, history: list, command_handler: CommandHandl
     return None
 
 
-def _run_textual_main(history: list, command_handler: CommandHandler) -> None:
+def _run_textual_main(history: list, command_handler: CommandHandler, prompt_for_workdir: bool) -> None:
     def submit_handler(query: str) -> str | None:
         return _process_user_query(query, history, command_handler)
+
+    def startup_workdir_provider():
+        return _current_workdir()
+
+    def startup_workdir_handler(choice: str) -> None:
+        current_workdir = _current_workdir()
+        selected_workdir = resolve_chosen_workdir(choice, current_workdir)
+        if selected_workdir == current_workdir:
+            return
+        _apply_workdir(selected_workdir)
+        history[0] = {"role": "system", "content": get_dynamic_system_prompt()}
+        refresh_status()
+        post_tui(TuiRegion.BACKGROUND, f"[bold green]📂 Workspace switched to: {selected_workdir}[/bold green]")
 
     def runtime_info_provider() -> str:
         tokens = estimate_tokens(
@@ -683,11 +545,17 @@ def _run_textual_main(history: list, command_handler: CommandHandler) -> None:
         submit_handler=submit_handler,
         runtime_info_provider=runtime_info_provider,
         header_info_provider=header_info_provider,
+        startup_workdir_provider=startup_workdir_provider if prompt_for_workdir else None,
+        startup_workdir_handler=startup_workdir_handler if prompt_for_workdir else None,
     )
     app.run()
 
 
 if __name__ == "__main__":
+    startup_workdir = resolve_startup_workdir()
+    _apply_workdir(startup_workdir)
+    prompt_for_workdir = should_prompt_for_workdir()
+
     _render_startup_banner()
     _render_env_customization_hint()
 
@@ -715,7 +583,7 @@ if __name__ == "__main__":
     )
 
     try:
-        _run_textual_main(history, command_handler)
+        _run_textual_main(history, command_handler, prompt_for_workdir)
     finally:
         GLOBAL_MCP_MANAGER.stop()
 

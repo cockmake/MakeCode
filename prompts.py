@@ -7,7 +7,7 @@ import datetime
 import platform
 from pathlib import Path
 
-from init import WORKDIR, log_error_traceback
+from init import log_error_traceback
 from utils.plan_mode import PLAN_MODE_ALLOWED_COMMANDS
 from utils.skills import SKILL_LOADER
 
@@ -16,9 +16,15 @@ from utils.skills import SKILL_LOADER
 # Environment Helpers
 # ============================================================================
 
+def _workdir() -> Path:
+    from init import WORKDIR
+
+    return WORKDIR
+
+
 def _is_git_repo() -> bool:
     """Check if WORKDIR is a git repository."""
-    return (WORKDIR / ".git").exists()
+    return (_workdir() / ".git").exists()
 
 
 def _get_os_version() -> str:

@@ -7,7 +7,6 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Any
 
-from prompt_toolkit.completion import Completer, Completion
 from rich import box
 from rich.console import Console, Group
 from rich.markdown import Markdown
@@ -83,21 +82,6 @@ COMMAND_DESCRIPTIONS = {
     "/exit": "退出程序",
     "/update": "检查并安装最新版本更新",
 }
-
-
-# ============================================================================
-# 命令补全器
-# ============================================================================
-
-class SlashCommandCompleter(Completer):
-    """斜杠命令自动补全器"""
-
-    def get_completions(self, document, complete_event):
-        text = document.text_before_cursor
-        if text.startswith("/"):
-            for cmd, desc in COMMAND_DESCRIPTIONS.items():
-                if cmd.startswith(text):
-                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
 
 # ============================================================================

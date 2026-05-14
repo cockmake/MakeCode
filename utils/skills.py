@@ -3,17 +3,22 @@ from pathlib import Path
 
 import frontmatter
 from openai import pydantic_function_tool
-from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field
+from rich.markup import escape
 
-from init import WORKDIR
+from init import log_error_traceback
 from system.tui_app import TuiRegion, post_tui
+
+
+def _skills_dir() -> Path:
+    from init import WORKDIR
+
+    return WORKDIR / "skills"
 
 
 def print_formatted_text(value):
     post_tui(TuiRegion.STATUS, str(value))
 
-SKILLS_DIR = WORKDIR / "skills"
 DEFAULT_SKILLS_PROMPT_ENABLED = True
 
 
@@ -51,10 +56,14 @@ class LoadSkill(BaseModel):
 
 
 class SkillLoader:
-    def __init__(self, skills_dir: Path):
-        self.skills_dir = skills_dir
+    def __init__(self, skills_dir: Path | None = None):
+        self.skills_dir = skills_dir or _skills_dir()
         self.skills = {}
         self.is_enabled = DEFAULT_SKILLS_PROMPT_ENABLED
+        self._load_all()
+
+    def refresh_workspace(self) -> None:
+        self.skills_dir = _skills_dir()
         self._load_all()
 
     def toggle(self) -> str:
@@ -79,9 +88,7 @@ class SkillLoader:
             return post.metadata, post.content
         except Exception as e:
             print_formatted_text(
-                HTML(
-                    f"<ansiyellow>Warning: Failed to parse frontmatter: {e}</ansiyellow>"
-                )
+                f"[yellow]Warning: Failed to parse frontmatter: {escape(str(e))}[/yellow]"
             )
             return {}, text
 
@@ -154,7 +161,7 @@ class SkillLoader:
         return f'<skill name="{name}">\n{system_note}{skill["body"]}\n</skill>'
 
 
-SKILL_LOADER = SkillLoader(SKILLS_DIR)
+SKILL_LOADER = SkillLoader()
 
 TOOLS = [
     pydantic_function_tool(LoadSkill),

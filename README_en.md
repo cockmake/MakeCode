@@ -118,7 +118,7 @@ interception mechanism:
 
 - **Sensitive Operation Blocks**: By default, file modification actions (`FileEdit`, `FileCreate`) and critical terminal
   commands (e.g. `npm`, `git`, `rm`, gated by an exclusion whitelist) are intercepted.
-- **TUI Interactive Panel**: A terminal visual intercept panel built with `prompt_toolkit`, allowing the user to use
+- **TUI Interactive Panel**: A terminal visual intercept panel built with `Textual`, allowing the user to use
   arrow keys to choose either "Allow" or "Reject with feedback".
 - **Concurrency-Safe Queuing**: During multi-sub-agent concurrent execution, the underlying system uses `ContextVar` to
   trace the identity of the agent triggering the block (e.g. `0:Orchestrator` or `1:Frontend Developer`) across
@@ -429,7 +429,7 @@ MakeCode allows agents to proactively ask users questions when uncertain, rather
 - **Proactive Questioning**: When requirements are ambiguous, multiple approaches exist, or user preferences/domain knowledge is needed, the agent can call the `AskUser` tool to pose questions to the user
 - **Option Lists**: Supports predefined option lists, with each option optionally marked as "recommended"
 - **Custom Input**: In addition to predefined options, a "Custom Input" option is always available, allowing users to freely type their response
-- **TUI Interactive Panel**: Terminal-based visual selection panel built on `prompt_toolkit`, supporting `↑/↓` arrow key navigation, `Enter` to confirm, and `Ctrl+C` to cancel
+- **TUI Interactive Panel**: Terminal-based visual selection panel built on `Textual`, supporting `↑/↓` arrow key navigation, `Enter` to confirm, and `Ctrl+C` to cancel
 - **Concurrency Safety**: Uses `console_lock` to ensure the interactive panel does not conflict with other output in multi-sub-agent concurrent environments
 
 #### Use Cases
@@ -637,12 +637,18 @@ A typical flow looks like this:
 
 Dependencies currently declared in `requirements.txt`:
 
+- `fastmcp`
 - `openai`
 - `pydantic`
-- `prompt_toolkit`
-- `python-dotenv`
+- `python_frontmatter`
+- `PyYAML`
+- `Requests`
 - `rich`
-- `tqdm`
+- `textual`
+- `tiktoken`
+- `aiofiles`
+- `tree_sitter_language_pack`
+- `pyzstd`
 
 ---
 

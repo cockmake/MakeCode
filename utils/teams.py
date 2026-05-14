@@ -8,14 +8,10 @@ from typing import Any
 
 import aiofiles
 from openai import AsyncOpenAI, pydantic_function_tool
-from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field, ValidationError, model_validator, field_validator
-from rich.text import Text
+from rich.markup import escape
 
-from init import (
-    WORKDIR,
-    log_error_traceback,
-)
+from init import log_error_traceback
 from system.models import get_current_model_config
 from prompts import (
     get_sub_agent_system_prompt,
@@ -32,30 +28,8 @@ from system.console_render import (
 from system.tui_app import TuiRegion, post_tui
 
 
-_STYLE_MAP = {
-    "ansired": "red",
-    "ansigreen": "green",
-    "ansiyellow": "yellow",
-    "ansiblue": "blue",
-    "ansimagenta": "magenta",
-    "ansicyan": "cyan",
-}
-
-
-def _html_to_text(value) -> Text:
-    text = Text()
-    for style, fragment in value.__pt_formatted_text__():
-        rich_style = " ".join(
-            mapped
-            for token in style.replace("class:", "").split(",")
-            if (mapped := _STYLE_MAP.get(token) or ("bold" if token == "b" else ""))
-        )
-        text.append(fragment, style=rich_style or None)
-    return text
-
-
 def print_formatted_text(value):
-    post_tui(TuiRegion.SUB_AGENT, _html_to_text(value) if hasattr(value, "__pt_formatted_text__") else str(value))
+    post_tui(TuiRegion.SUB_AGENT, str(value))
 
 from tools.todo import TodoManager, TODO_TOOLS
 from utils.common import (
@@ -76,11 +50,23 @@ from utils.skills import (
     SKILL_TOOLS,
     SKILL_TOOLS_HANDLERS,
 )
-from utils.tasks import TASK_MANAGER
+from utils import tasks as tasks_module
 
-MAKECODE_DIR = WORKDIR / ".makecode"
-TEAM_DIR = MAKECODE_DIR / "team"
-RUNS_DIR = TEAM_DIR / "runs"  # 新增：存放每次并发调用的文件夹
+
+def _workdir() -> Path:
+    from init import WORKDIR
+
+    return WORKDIR
+
+
+def _team_dir() -> Path:
+    return _workdir() / ".makecode" / "team"
+
+
+def _runs_dir() -> Path:
+    return _team_dir() / "runs"
+
+
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
 
 
@@ -161,10 +147,10 @@ class DelegateTasks(BaseModel):
 
 
 class TeammateManager:
-    def __init__(self, team_dir: Path):
-        self.dir = team_dir
+    def __init__(self, team_dir: Path | None = None):
+        self.dir = team_dir or _team_dir()
         self.dir.mkdir(parents=True, exist_ok=True)
-        RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        _runs_dir().mkdir(parents=True, exist_ok=True)
 
         self.session_id = uuid.uuid4().hex[:8]
         self.history_path = self.dir / f"task_history_{self.session_id}.json"
@@ -218,7 +204,7 @@ class TeammateManager:
             seen_ids.add(tid)
 
             try:
-                TASK_MANAGER.get_task(task_id=tid)
+                tasks_module.TASK_MANAGER.get_task(task_id=tid)
             except Exception as exc:
                 log_error_traceback(f"DelegateTasks unknown task_id check #{tid}", exc)
                 unknown_ids.append(tid)
@@ -237,7 +223,7 @@ class TeammateManager:
                 "Create tasks in TaskManager first, then call GetRunnableTasks."
             )
 
-        runnable_ids = {t["id"] for t in TASK_MANAGER.get_runnable_tasks()}
+        runnable_ids = {t["id"] for t in tasks_module.TASK_MANAGER.get_runnable_tasks()}
         non_runnable = [
             item["task_id"]
             for item in normalized
@@ -267,7 +253,7 @@ class TeammateManager:
         if not last_record or last_record.get("status") == "completed":
             return ""
 
-        trace_log_path = WORKDIR / last_record.get("trace_log", "")
+        trace_log_path = _workdir() / last_record.get("trace_log", "")
         if not trace_log_path.exists():
             return ""
 
@@ -347,13 +333,11 @@ class TeammateManager:
         # 1. 创建本次调用的专属文件夹
         run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_id = f"run_{run_timestamp}"
-        current_run_dir = RUNS_DIR / run_id
+        current_run_dir = _runs_dir() / run_id
         current_run_dir.mkdir(exist_ok=True)
 
         print_formatted_text(
-            HTML(
-                f"\n<ansiyellow>[Orchestrator] 正在并发唤醒 {len(tasks)} 个子节点... 日志目录: {run_id}</ansiyellow>\n"
-            )
+            f"\n[yellow][Orchestrator] 正在并发唤醒 {len(tasks)} 个子节点... 日志目录: {escape(run_id)}[/yellow]\n"
         )
 
         async def _run_all():
@@ -379,9 +363,7 @@ class TeammateManager:
                 if previous_context:
                     prompt = f"{prompt}\n\n{previous_context}"
                     print_formatted_text(
-                        HTML(
-                            f"<ansimagenta>  [Recovery] 发现子节点 '{role}' (Task #{plan_task_id}) 之前的失败记录，已加载并注入到新任务的上下文中。</ansimagenta>"
-                        )
+                        f"[magenta]  [Recovery] 发现子节点 '{escape(str(role))}' (Task #{plan_task_id}) 之前的失败记录，已加载并注入到新任务的上下文中。[/magenta]"
                     )
 
                 runtime_task_id = f"task_{plan_task_id}_{uuid.uuid4().hex[:6]}"
@@ -400,7 +382,7 @@ class TeammateManager:
                     "start_time": start_time,
                     "prompt": prompt,
                     "trace_log": str(
-                        log_file_path.relative_to(WORKDIR)
+                        log_file_path.relative_to(_workdir())
                     ),  # 保存相对路径方便查看
                 }
 
@@ -409,9 +391,7 @@ class TeammateManager:
                 await self._save_history(lock)
 
                 print_formatted_text(
-                    HTML(
-                        f"<ansiblue>  [Spawn] 子节点 '{role}' 开始工作... (TaskManager #{plan_task_id}) </ansiblue>"
-                    )
+                    f"[blue]  [Spawn] 子节点 '{escape(str(role))}' 开始工作... (TaskManager #{plan_task_id}) [/blue]"
                 )
 
                 try:
@@ -449,7 +429,7 @@ class TeammateManager:
                 await self._save_history(lock)
 
                 print_formatted_text(
-                    HTML(f"<ansigreen>  [Done] 子节点 '{role}' 任务结束 (TaskManager #{plan_task_id}) </ansigreen>")
+                    f"[green]  [Done] 子节点 '{escape(str(role))}' 任务结束 (TaskManager #{plan_task_id}) [/green]"
                 )
                 return {
                     "task_id": plan_task_id,
@@ -483,9 +463,7 @@ class TeammateManager:
                     results.append(res)
 
             print_formatted_text(
-                HTML(
-                    f"\n<ansiyellow>[Orchestrator] 所有任务已完成，汇总报告已生成。</ansiyellow>\n"
-                )
+                "\n[yellow][Orchestrator] 所有任务已完成，汇总报告已生成。[/yellow]\n"
             )
 
             final_combined_report = (
@@ -531,7 +509,7 @@ class TeammateManager:
 
         sys_prompt = get_sub_agent_system_prompt(
             role,
-            WORKDIR,
+            _workdir(),
             STARTUP_TERMINAL_LABEL,
             STARTUP_TERMINAL_SOURCE,
         )
@@ -757,7 +735,12 @@ class TeammateManager:
         return {"report": final_report}
 
 
-TEAM = TeammateManager(TEAM_DIR)
+TEAM = TeammateManager()
+
+
+def refresh_workspace_paths() -> None:
+    global TEAM
+    TEAM = TeammateManager(_team_dir())
 
 
 def get_history_title(filepath: Path) -> str:
@@ -776,9 +759,10 @@ def get_history_title(filepath: Path) -> str:
 
 
 def list_team_histories() -> list[Path]:
-    if not TEAM_DIR.exists():
+    team_dir = _team_dir()
+    if not team_dir.exists():
         return []
-    files = list(TEAM_DIR.glob("task_history_*.json"))
+    files = list(team_dir.glob("task_history_*.json"))
     files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     return files
 

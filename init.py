@@ -22,6 +22,53 @@ INSTALL_MAKECODE_DIR = INSTALL_DIR / ".makecode"
 # 确保安装目录的配置目录存在
 INSTALL_MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
 
+WORKDIR = Path.cwd()
+MAKECODE_DIR = WORKDIR / ".makecode"
+MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def set_workdir(path: Path) -> Path:
+    global WORKDIR, MAKECODE_DIR
+    WORKDIR = path.expanduser().resolve()
+    MAKECODE_DIR = WORKDIR / ".makecode"
+    MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
+    return WORKDIR
+
+
+def get_initial_workdir_from_env() -> Path | None:
+    env_workdir = os.getenv("MAKECODE_WORKDIR")
+    if not env_workdir:
+        return None
+    target_path = Path(env_workdir).expanduser().resolve()
+    if target_path.exists() and target_path.is_dir():
+        return target_path
+    log_error_traceback(
+        "init MAKECODE_WORKDIR invalid",
+        ValueError(f"MAKECODE_WORKDIR is not a directory: {target_path}"),
+    )
+    return Path.cwd()
+
+
+def should_prompt_for_workdir() -> bool:
+    return os.getenv("MAKECODE_NON_INTERACTIVE") != "1" and get_initial_workdir_from_env() is None
+
+
+def resolve_startup_workdir() -> Path:
+    return get_initial_workdir_from_env() or Path.cwd()
+
+
+def resolve_chosen_workdir(choice: str, cwd: Path | None = None) -> Path:
+    cwd = (cwd or Path.cwd()).resolve()
+    if choice == "abort" or choice == "default":
+        return cwd
+    user_input = choice.removeprefix("custom:") if choice.startswith("custom:") else ""
+    if not user_input.strip():
+        return cwd
+    target_path = Path(user_input.strip()).expanduser().resolve()
+    if target_path.exists() and target_path.is_dir():
+        return target_path
+    return cwd
+
 
 def _get_error_log_path() -> Path:
     """错误日志路径 - 放在安装目录下"""
@@ -35,9 +82,6 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-from prompt_toolkit import print_formatted_text
-from prompt_toolkit.formatted_text import HTML
 
 
 def log_error_traceback(context: str, exc: Exception):
@@ -59,164 +103,8 @@ def log_error_traceback(context: str, exc: Exception):
             pass
 
 
-try:
-    from prompt_toolkit.application import Application
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.layout.containers import Window
-    from prompt_toolkit.layout.controls import FormattedTextControl
-    from prompt_toolkit.layout.layout import Layout
-    from prompt_toolkit.styles import Style
-    from prompt_toolkit import prompt
-except ImportError as exc:
-    log_error_traceback("init prompt_toolkit import", exc)
-    print_formatted_text(
-        HTML(
-            "\n<ansired>错误：需要安装 prompt_toolkit 库。请运行 pip install prompt_toolkit 安装。</ansired>"
-        )
-    )
-    sys.exit(1)
-
-
-def _interactive_choose_mode(cwd: Path) -> str:
-    """使用 prompt_toolkit 构建内联的 ↑/↓ 选择菜单"""
-    options = [
-        ("default", f"当前目录 ({cwd})"),
-        ("custom", "输入自定义路径..."),
-    ]
-    selected_index = [0]  # 使用列表以在闭包中修改状态
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _(event):
-        selected_index[0] = max(0, selected_index[0] - 1)
-
-    @kb.add("down")
-    def _(event):
-        selected_index[0] = min(len(options) - 1, selected_index[0] + 1)
-
-    @kb.add("enter")
-    def _(event):
-        event.app.exit(result=options[selected_index[0]][0])
-
-    @kb.add("c-c")
-    def _(event):
-        event.app.exit(result="abort")
-
-    def get_formatted_text():
-        result = [
-            (
-                "class:title",
-                "\n📂 选择工作区目录（使用 ↑/↓ 方向键，Enter 确认）：\n",
-            )
-        ]
-        for i, (key, text) in enumerate(options):
-            if i == selected_index[0]:
-                result.append(("class:selected", f"  ❯ {text}\n"))
-            else:
-                result.append(("class:unselected", f"    {text}\n"))
-        return result
-
-    control = FormattedTextControl(get_formatted_text)
-    # 动态计算高度，防止菜单把终端历史记录顶没
-    window = Window(content=control, height=len(options) + 2)
-    layout = Layout(window)
-
-    style = Style(
-        [
-            ("title", "fg:ansicyan bold"),
-            ("selected", "fg:ansigreen bold"),
-            ("unselected", "fg:ansigray"),
-        ]
-    )
-
-    # erase_when_done=True 会在选择完毕后擦除菜单，保持终端日志干净
-    app = Application(layout=layout, key_bindings=kb, style=style, erase_when_done=True)
-    return app.run()
-
-
-def _init_workdir() -> Path:
-    cwd = Path.cwd()
-    env_workdir = os.getenv("MAKECODE_WORKDIR")
-    if env_workdir:
-        target_path = Path(env_workdir).expanduser().resolve()
-        if target_path.exists() and target_path.is_dir():
-            return target_path
-        log_error_traceback(
-            "init MAKECODE_WORKDIR invalid",
-            ValueError(f"MAKECODE_WORKDIR is not a directory: {target_path}"),
-        )
-        return cwd
-
-    if os.getenv("MAKECODE_NON_INTERACTIVE") == "1":
-        return cwd
-
-    try:
-        choice = _interactive_choose_mode(cwd)
-    except Exception as exc:
-        log_error_traceback("init interactive choose mode", exc)
-        choice = "abort"
-
-    if choice == "abort":
-        print_formatted_text(
-            HTML(
-                f"\n<ansiyellow>⚠️ 设置已取消。使用默认目录: {cwd}</ansiyellow>\n"
-            )
-        )
-        return cwd
-
-    if choice == "default":
-        print_formatted_text(
-            HTML(f"\n<ansigreen>✅ Workspace set to: {cwd}</ansigreen>\n")
-        )
-        return cwd
-
-    # 3. 用户选择了自定义输入路径
-    try:
-        print_formatted_text("\n✏️ 输入自定义工作区路径：")
-        user_input = prompt(
-            [("class:prompt", "📂 目标目录 ❯❯ ")],
-            style=Style.from_dict({"prompt": "bold #00ffff"}),
-        )
-    except (EOFError, KeyboardInterrupt) as exc:
-        log_error_traceback("init custom workdir input interrupted", exc)
-        print_formatted_text(
-            HTML(
-                f"\n<ansiyellow>⚠️ 输入已取消。使用默认目录: {cwd}</ansiyellow>\n"
-            )
-        )
-        return cwd
-
-    if not user_input.strip():
-        print_formatted_text(
-            HTML(f"<ansigreen>✅ 使用默认目录: {cwd}</ansigreen>\n")
-        )
-        return cwd
-
-    target_path = Path(user_input.strip()).expanduser().resolve()
-
-    if target_path.exists() and target_path.is_dir():
-        print_formatted_text(
-            HTML(f"\n<ansigreen>✅ Workspace set to: {target_path}</ansigreen>\n")
-        )
-        return target_path
-    else:
-        print_formatted_text(
-            HTML(
-                f"<ansiyellow>⚠️ 警告：路径 '{target_path}' 不存在或不是目录。\n"
-                f"   将使用默认目录: {cwd}</ansiyellow>\n"
-            )
-        )
-        return cwd
-
-
-WORKDIR = _init_workdir()
-MAKECODE_DIR = WORKDIR / ".makecode"
-MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
-
 API_STANDARD = "chat"
 
-import sys
 from shutil import which
 
 SUPPORTED_TERMINAL_TYPES = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")

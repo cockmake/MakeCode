@@ -5,11 +5,11 @@ from datetime import datetime
 from pathlib import Path
 
 from openai import pydantic_function_tool
-from prompt_toolkit.formatted_text import HTML
 from pydantic import BaseModel, Field
+from rich.markup import escape
 from rich.markdown import Markdown
 from rich.table import Table
-from init import WORKDIR
+from init import log_error_traceback
 from system.console_render import (
     _render_agent_response_message,
     _render_tool_call,
@@ -30,14 +30,24 @@ def print_formatted_text(value):
     post_tui(TuiRegion.STATUS, str(value))
 
 THRESHOLD = 1024 * 180
-MAKECODE_DIR = WORKDIR / ".makecode"
-TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
-CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-MEMORY_DIR = MAKECODE_DIR / "memory"
-MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
-MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
 DEFAULT_MEMORY_SIZE = 30
 _MEMORY_CONFIG_CACHE: dict | None = None
+
+
+def refresh_workspace_paths() -> None:
+    global MAKECODE_DIR, TRANSCRIPT_DIR, CHECKPOINT_DIR, MEMORY_DIR, MEMORY_JSONL_FILE, MEMORY_CONFIG_FILE, _MEMORY_CONFIG_CACHE
+    from init import WORKDIR
+
+    MAKECODE_DIR = WORKDIR / ".makecode"
+    TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
+    CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
+    MEMORY_DIR = MAKECODE_DIR / "memory"
+    MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
+    MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
+    _MEMORY_CONFIG_CACHE = None
+
+
+refresh_workspace_paths()
 
 
 class AppendLongTermMemory(BaseModel):
@@ -541,7 +551,7 @@ try:
     _ENCODER = tiktoken.get_encoding("o200k_base")
 except ImportError:
     print_formatted_text(
-        HTML(f"\n<ansiyellow>⚠️ tiktoken加载失败, token将使用估算模式 </ansiyellow>\n")
+        "\n[yellow]⚠️ tiktoken加载失败, token将使用估算模式 [/yellow]\n"
     )
     _ENCODER = None
 
@@ -639,7 +649,7 @@ def auto_compact(
         for msg in messages:
             f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
     print_formatted_text(
-        HTML(f"\n<ansiyellow>[对话记录已保存到：{transcript_path}]</ansiyellow>")
+        f"\n[yellow][对话记录已保存到：{escape(str(transcript_path))}][/yellow]"
     )
 
     # Filter out original system messages to prevent system instructions clash

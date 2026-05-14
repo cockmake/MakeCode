@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 from rich.console import RenderableType
 from textual.app import ComposeResult
@@ -20,8 +21,25 @@ from system.tui_types import (
 
 class ChoiceModal(ModalScreen[str]):
     CSS = """
-    ChoiceModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal, MemoryConfigModal, InfoPanelModal {
+    ChoiceModal, StartupWorkdirModal, ModelPanelModal, McpSwitchModal, ModelManagerModal, AddModelModal, LayoutModal, MemoryPanelModal, MemoryConfigModal, InfoPanelModal {
         align: center middle;
+    }
+
+    #startup-dialog {
+        width: 80;
+        height: auto;
+        border: round #38bdf8;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #startup-title {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #startup-input {
+        margin-top: 1;
     }
 
     #info-dialog {
@@ -255,6 +273,83 @@ class ChoiceModal(ModalScreen[str]):
 
     def action_cancel(self) -> None:
         self.dismiss("<cancelled>")
+
+
+class StartupWorkdirModal(ModalScreen[str]):
+    CSS = ChoiceModal.CSS
+
+    def __init__(self, cwd: Path) -> None:
+        super().__init__()
+        self.cwd = cwd
+        self._selected_index = 0
+        self._mode = "select"
+        self._ignore_initial_custom_submit = False
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="startup-dialog"):
+            yield Label(id="startup-title")
+            yield Input(placeholder="输入自定义工作区路径", id="startup-input")
+
+    def on_mount(self) -> None:
+        custom_input = self.query_one("#startup-input", Input)
+        custom_input.display = False
+        self._refresh_text()
+
+    def _on_key(self, event: Key) -> None:
+        if event.key == "ctrl+c":
+            event.stop()
+            event.prevent_default()
+            self.dismiss("abort")
+            return
+        if self._mode != "select":
+            return
+        if event.key == "up":
+            event.stop()
+            event.prevent_default()
+            self._selected_index = max(0, self._selected_index - 1)
+            self._refresh_text()
+            return
+        if event.key == "down":
+            event.stop()
+            event.prevent_default()
+            self._selected_index = min(1, self._selected_index + 1)
+            self._refresh_text()
+            return
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            if self._selected_index == 0:
+                self.dismiss("default")
+                return
+            self._mode = "custom"
+            self._ignore_initial_custom_submit = True
+            custom_input = self.query_one("#startup-input", Input)
+            custom_input.display = True
+            custom_input.focus()
+            self.query_one("#startup-title", Label).update(
+                "📂 输入自定义工作区路径（Enter 确认，Ctrl+C 取消）："
+            )
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "startup-input":
+            return
+        event.stop()
+        if self._ignore_initial_custom_submit and not event.value:
+            self._ignore_initial_custom_submit = False
+            return
+        self._ignore_initial_custom_submit = False
+        self.dismiss(f"custom:{event.value}")
+
+    def _refresh_text(self) -> None:
+        options = [
+            f"当前目录 ({self.cwd})",
+            "输入自定义路径...",
+        ]
+        lines = ["📂 选择工作区目录（使用 ↑/↓ 方向键，Enter 确认，Ctrl+C 取消）：", ""]
+        for index, text in enumerate(options):
+            marker = "❯" if index == self._selected_index else " "
+            lines.append(f"  {marker} {text}")
+        self.query_one("#startup-title", Label).update("\n".join(lines))
 
 
 class InfoPanelModal(ModalScreen[str]):

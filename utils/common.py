@@ -11,15 +11,22 @@ from typing import Any
 from openai import pydantic_function_tool
 from pydantic import BaseModel, Field, model_validator, field_validator
 
-from init import WORKDIR, log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
+from init import log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
 from system.ts_validator import validate_code
 from utils.file_access import GLOBAL_FILE_CONTROLLER
 from utils.hitl import check_permission, check_path_permission
 
 
+def _workdir() -> Path:
+    from init import WORKDIR
+
+    return WORKDIR
+
+
 def safe_path(p: str, tool_name: str = "") -> Path:
-    path = (WORKDIR / p).resolve()
-    if not path.is_relative_to(WORKDIR):
+    workdir = _workdir()
+    path = (workdir / p).resolve()
+    if not path.is_relative_to(workdir):
         allowed, reason = check_path_permission(path, tool_name)
         if not allowed:
             raise ValueError(f"Path escapes workspace: {p}. {reason}")
@@ -142,7 +149,7 @@ def run_terminal_command(command: str) -> str:
         resolved_terminal = _resolve_startup_terminal_type()
         r = subprocess.run(
             _build_terminal_argv(resolved_terminal, command),
-            cwd=WORKDIR,
+            cwd=_workdir(),
             capture_output=True,
             timeout=120,
         )
@@ -759,7 +766,7 @@ def content_search(
         return f"No matches found for '{content_pattern}' in dir '{target_dir}' matching {patterns}."
 
     output_blocks = []
-    if base_dir != WORKDIR:
+    if base_dir != _workdir():
         output_blocks.append(f"(paths relative to {base_dir.as_posix()})")
         output_blocks.append("")
     for file_path, lines in results.items():
@@ -893,7 +900,7 @@ def file_search(
         sorted_dirs = sorted(matched_dirs)
         lines = [f"[DIR] {d}/" for d in sorted_dirs] + list(sorted_files)
 
-        if base_dir == WORKDIR:
+        if base_dir == _workdir():
             output = f"Found {total_count} {type_label} matching '{filename_pattern}' in '{target_dir}':\n\n"
         else:
             output = f"Found {total_count} {type_label} matching '{filename_pattern}' in '{target_dir}' (paths relative to {base_dir.as_posix()}):\n\n"

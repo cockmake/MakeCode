@@ -1,6 +1,5 @@
 fastmcp
 openai
-prompt_toolkit
 pydantic
 python_frontmatter
 PyYAML
