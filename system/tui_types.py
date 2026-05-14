@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from init import INSTALL_MAKECODE_DIR
+from utils import paths
 
 
 class TuiRegion(StrEnum):
@@ -29,7 +29,7 @@ class TuiEvent:
     active: bool | None = None
 
 
-LAYOUT_CONFIG_FILE = INSTALL_MAKECODE_DIR / "layout_config.json"
+LAYOUT_CONFIG_FILE = paths.layout_config_file()
 LAYOUT_DEFAULT_RATIOS: dict[str, int] = {
     "content": 1,
     "tools": 1,

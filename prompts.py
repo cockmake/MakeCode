@@ -8,6 +8,7 @@ import platform
 from pathlib import Path
 
 from init import log_error_traceback
+from utils import paths
 from utils.plan_mode import PLAN_MODE_ALLOWED_COMMANDS
 from utils.skills import SKILL_LOADER
 
@@ -17,13 +18,11 @@ from utils.skills import SKILL_LOADER
 # ============================================================================
 
 def _workdir() -> Path:
-    from init import WORKDIR
-
-    return WORKDIR
+    return paths.workdir()
 
 
 def _is_git_repo() -> bool:
-    """Check if WORKDIR is a git repository."""
+    """Check if the current workspace is a git repository."""
     return (_workdir() / ".git").exists()
 
 
@@ -39,7 +38,7 @@ def _get_os_version() -> str:
 
 
 def _load_memory_entries() -> str:
-    """Load active long-term memories from .makecode/memory/memory.jsonl."""
+    """Load active long-term memories from the current workspace."""
     try:
         from utils.memory import render_long_term_memory_markdown
 
@@ -257,7 +256,7 @@ def _hitl_section(is_orchestrator: bool = True) -> str:
 
 
 def _memory_section() -> str:
-    """Inject user memory from .makecode/memory/memory.jsonl if available."""
+    """Inject user memory from the current workspace if available."""
     content = _load_memory_entries()
     if not content:
         return ""

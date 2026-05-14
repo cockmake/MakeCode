@@ -21,6 +21,7 @@ from system.tui_app import TuiRegion, post_tui
 from utils.common import sanitize_title
 from utils.llm_client import llm_client
 from settings import KEEP_RECENT_TOOL_CALL, MEMORY_AGENT_MAX_ITERATIONS
+from utils import paths
 
 
 MEMORY_AGENT_IDENTITY = "🧠 记忆代理"
@@ -36,14 +37,13 @@ _MEMORY_CONFIG_CACHE: dict | None = None
 
 def refresh_workspace_paths() -> None:
     global MAKECODE_DIR, TRANSCRIPT_DIR, CHECKPOINT_DIR, MEMORY_DIR, MEMORY_JSONL_FILE, MEMORY_CONFIG_FILE, _MEMORY_CONFIG_CACHE
-    from init import WORKDIR
 
-    MAKECODE_DIR = WORKDIR / ".makecode"
-    TRANSCRIPT_DIR = MAKECODE_DIR / "transcripts"
-    CHECKPOINT_DIR = MAKECODE_DIR / "checkpoint"
-    MEMORY_DIR = MAKECODE_DIR / "memory"
-    MEMORY_JSONL_FILE = MEMORY_DIR / "memory.jsonl"
-    MEMORY_CONFIG_FILE = MEMORY_DIR / "memory_config.json"
+    MAKECODE_DIR = paths.workspace_makecode_dir()
+    TRANSCRIPT_DIR = paths.workspace_transcript_dir()
+    CHECKPOINT_DIR = paths.workspace_checkpoint_dir()
+    MEMORY_DIR = paths.workspace_memory_dir()
+    MEMORY_JSONL_FILE = paths.workspace_memory_jsonl_file()
+    MEMORY_CONFIG_FILE = paths.workspace_memory_config_file()
     _MEMORY_CONFIG_CACHE = None
 
 
@@ -51,7 +51,7 @@ refresh_workspace_paths()
 
 
 class AppendLongTermMemory(BaseModel):
-    """Append a durable memory entry to WORKDIR/.makecode/memory/memory.jsonl."""
+    """Append a durable memory entry to the current workspace."""
 
     category: str = Field(
         ...,

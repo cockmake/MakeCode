@@ -4,57 +4,27 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-# ============================================================================
-# 安装目录 (INSTALL_DIR) - 软件源码/打包所在目录
-# ============================================================================
-# 兼容 PyInstaller 打包环境
-is_frozen = getattr(sys, 'frozen', False)
-if is_frozen:
-    # 打包后运行：使用 PyInstaller 的临时解压目录
-    INSTALL_DIR = Path(sys.executable).parent
-else:
-    # 开发环境：使用源码目录
-    INSTALL_DIR = Path(__file__).resolve().parent
+from utils import paths
 
-# 安装目录下的配置目录
-INSTALL_MAKECODE_DIR = INSTALL_DIR / ".makecode"
-
-# 确保安装目录的配置目录存在
-INSTALL_MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
-
-WORKDIR = Path.cwd()
-MAKECODE_DIR = WORKDIR / ".makecode"
-MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
+INSTALL_DIR = paths.install_dir()
+INSTALL_MAKECODE_DIR = paths.install_makecode_dir()
+WORKDIR = paths.workdir()
+MAKECODE_DIR = paths.workspace_makecode_dir()
 
 
 def set_workdir(path: Path) -> Path:
     global WORKDIR, MAKECODE_DIR
-    WORKDIR = path.expanduser().resolve()
-    MAKECODE_DIR = WORKDIR / ".makecode"
-    MAKECODE_DIR.mkdir(parents=True, exist_ok=True)
+    WORKDIR = paths.set_workdir(path)
+    MAKECODE_DIR = paths.workspace_makecode_dir()
     return WORKDIR
 
 
-def get_initial_workdir_from_env() -> Path | None:
-    env_workdir = os.getenv("MAKECODE_WORKDIR")
-    if not env_workdir:
-        return None
-    target_path = Path(env_workdir).expanduser().resolve()
-    if target_path.exists() and target_path.is_dir():
-        return target_path
-    log_error_traceback(
-        "init MAKECODE_WORKDIR invalid",
-        ValueError(f"MAKECODE_WORKDIR is not a directory: {target_path}"),
-    )
-    return Path.cwd()
-
-
 def should_prompt_for_workdir() -> bool:
-    return os.getenv("MAKECODE_NON_INTERACTIVE") != "1" and get_initial_workdir_from_env() is None
+    return os.getenv("MAKECODE_NON_INTERACTIVE") != "1"
 
 
 def resolve_startup_workdir() -> Path:
-    return get_initial_workdir_from_env() or Path.cwd()
+    return Path.cwd().resolve()
 
 
 def resolve_chosen_workdir(choice: str, cwd: Path | None = None) -> Path:
@@ -72,7 +42,7 @@ def resolve_chosen_workdir(choice: str, cwd: Path | None = None) -> Path:
 
 def _get_error_log_path() -> Path:
     """错误日志路径 - 放在安装目录下"""
-    log_path = INSTALL_MAKECODE_DIR / "error.log"
+    log_path = paths.error_log_file()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     return log_path
 
@@ -143,4 +113,4 @@ STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE = _detect_startup_terminal_type()
 
 # 初始化模型管理器 - 使用安装目录的配置
 from system.models import init_model_manager
-MODEL_MANAGER = init_model_manager(INSTALL_MAKECODE_DIR)
+MODEL_MANAGER = init_model_manager(paths.install_makecode_dir())

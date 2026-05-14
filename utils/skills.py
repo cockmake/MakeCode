@@ -8,12 +8,11 @@ from rich.markup import escape
 
 from init import log_error_traceback
 from system.tui_app import TuiRegion, post_tui
+from utils import paths
 
 
 def _skills_dir() -> Path:
-    from init import WORKDIR
-
-    return WORKDIR / "skills"
+    return paths.workspace_skills_dir()
 
 
 def print_formatted_text(value):

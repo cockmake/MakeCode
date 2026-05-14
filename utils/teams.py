@@ -46,6 +46,7 @@ from utils.file_access import AgentFileAccess
 from utils.hitl import check_permission, current_agent_role
 from utils.llm_client import AsyncChatAPIClient
 from utils.mcp_manager import GLOBAL_MCP_MANAGER
+from utils import paths
 from utils.skills import (
     SKILL_TOOLS,
     SKILL_TOOLS_HANDLERS,
@@ -54,17 +55,15 @@ from utils import tasks as tasks_module
 
 
 def _workdir() -> Path:
-    from init import WORKDIR
-
-    return WORKDIR
+    return paths.workdir()
 
 
 def _team_dir() -> Path:
-    return _workdir() / ".makecode" / "team"
+    return paths.workspace_team_dir()
 
 
 def _runs_dir() -> Path:
-    return _team_dir() / "runs"
+    return paths.workspace_team_runs_dir()
 
 
 STARTUP_TERMINAL_LABEL = STARTUP_TERMINAL_TYPE or "unavailable"
@@ -509,7 +508,7 @@ class TeammateManager:
 
         sys_prompt = get_sub_agent_system_prompt(
             role,
-            _workdir(),
+            str(_workdir()),
             STARTUP_TERMINAL_LABEL,
             STARTUP_TERMINAL_SOURCE,
         )

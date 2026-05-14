@@ -41,7 +41,7 @@ from utils.plan_mode import (
 )
 from system.stream_render import StreamRenderer
 from system.ts_validator import init_ts_cache
-from system.tui_app import MakeCodeTuiApp, post_tui, TuiRegion, set_agent_loop_active, refresh_status
+from system.tui_app import MakeCodeTuiApp, post_tui, TuiRegion, set_agent_loop_active, refresh_status, refresh_tools_title
 from utils.common import (
     COMMON_TOOLS,
     COMMON_TOOLS_HANDLERS,
@@ -52,6 +52,7 @@ from utils.common import (
 from utils.file_access import AgentFileAccess
 from utils.llm_client import llm_client
 from utils.mcp_manager import GLOBAL_MCP_MANAGER
+from utils import paths
 from utils.memory import (
     THRESHOLD,
     auto_compact,
@@ -76,14 +77,12 @@ _PENDING_UPDATE_EXE_PATH = None
 
 
 def _current_workdir():
-    from init import WORKDIR
-
-    return WORKDIR
+    return paths.workdir()
 
 
 def get_dynamic_system_prompt() -> str:
     return get_orchestrator_system_prompt(
-        _current_workdir(),
+        str(_current_workdir()),
         STARTUP_TERMINAL_LABEL,
         STARTUP_TERMINAL_SOURCE,
         plan_mode=is_plan_mode(),
@@ -513,6 +512,7 @@ def _run_textual_main(history: list, command_handler: CommandHandler, prompt_for
         _apply_workdir(selected_workdir)
         history[0] = {"role": "system", "content": get_dynamic_system_prompt()}
         refresh_status()
+        refresh_tools_title()
         post_tui(TuiRegion.BACKGROUND, f"[bold green]📂 Workspace switched to: {selected_workdir}[/bold green]")
 
     def runtime_info_provider() -> str:

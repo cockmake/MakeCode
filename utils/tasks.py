@@ -8,14 +8,13 @@ from openai import pydantic_function_tool
 from pydantic import BaseModel, Field, field_validator
 
 from init import log_error_traceback
+from utils import paths
 from utils.common import sanitize_title
 from utils.hitl import check_permission
 
 
 def _tasks_dir() -> Path:
-    from init import WORKDIR
-
-    return WORKDIR / ".makecode" / "tasks"
+    return paths.workspace_tasks_dir()
 
 
 VALID_STATUS = {

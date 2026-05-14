@@ -9,16 +9,15 @@ from fastmcp import Client
 from rich.markup import escape
 
 from system.tui_app import TuiRegion, post_tui, refresh_status
+from utils import paths
 
 
 def print_formatted_text(value):
     post_tui(TuiRegion.BACKGROUND, str(value))
 
-# 使用安装目录的配置
-from init import INSTALL_MAKECODE_DIR
 from init import log_error_traceback
 
-mcp_config_path = INSTALL_MAKECODE_DIR / "mcp_config.json"
+mcp_config_path = paths.mcp_config_file()
 
 
 class GlobalMCPManager:
@@ -241,7 +240,7 @@ class GlobalMCPManager:
             env=cfg.get("env"),
             cwd=cfg.get("cwd"),
             keep_alive=cfg.get("keep_alive"),
-            log_file=INSTALL_MAKECODE_DIR / "mcp_stderr.log",
+            log_file=paths.mcp_stderr_log_file(),
         )
         return Client(stdio_transport)
 

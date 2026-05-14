@@ -13,14 +13,13 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 
 from init import log_error_traceback, STARTUP_TERMINAL_TYPE, STARTUP_TERMINAL_SOURCE
 from system.ts_validator import validate_code
+from utils import paths
 from utils.file_access import GLOBAL_FILE_CONTROLLER
 from utils.hitl import check_permission, check_path_permission
 
 
 def _workdir() -> Path:
-    from init import WORKDIR
-
-    return WORKDIR
+    return paths.workdir()
 
 
 def safe_path(p: str, tool_name: str = "") -> Path:
