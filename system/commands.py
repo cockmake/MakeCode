@@ -17,7 +17,7 @@ from rich.text import Text
 from init import log_error_traceback
 from system.console_render import render_current_task_plan, toggle_sub_agent_console
 from system.models import get_model_manager
-from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, manage_memory_config_tui, show_info_panel_tui, set_agent_loop_active, refresh_status, refresh_tools_title
+from system.tui_app import choose_model_panel_tui, choose_tui, post_tui, TuiRegion, choose_add_model_tui, choose_mcp_switch_tui, manage_models_tui, manage_layout_tui, manage_memories_tui, manage_memory_config_tui, show_info_panel_tui, set_agent_loop_active, refresh_status, refresh_tools_title, begin_tui_batch_render, end_tui_batch_render
 from utils import hitl as hitl_mod
 from utils.plan_mode import toggle_plan_mode
 from utils.tasks import list_task_plans, load_task_plan, get_task_plan_title
@@ -748,9 +748,13 @@ class CommandHandler:
                 TuiRegion.SUB_AGENT,
             ):
                 post_tui(region, "", clear=True)
-            render_banner_fn()
-            render_hint_fn()
-            render_history_fn(loaded)
+            begin_tui_batch_render()
+            try:
+                render_banner_fn()
+                render_hint_fn()
+                render_history_fn(loaded)
+            finally:
+                end_tui_batch_render()
 
             self.console.print(
                 f"\n[bold green]🚀 成功加载对话记录！当前上下文包含 {len(loaded)} 条消息。[/bold green]"

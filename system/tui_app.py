@@ -212,6 +212,26 @@ class TuiBridge:
         else:
             app.call_from_thread(app.refresh_tools_title)
 
+    def begin_batch_render(self) -> None:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return
+        if self._is_app_thread():
+            app.begin_batch_render()
+        else:
+            app.call_from_thread(app.begin_batch_render)
+
+    def end_batch_render(self) -> None:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return
+        if self._is_app_thread():
+            app.end_batch_render()
+        else:
+            app.call_from_thread(app.end_batch_render)
+
 
 TUI_BRIDGE = TuiBridge()
 
@@ -517,6 +537,9 @@ class MakeCodeTuiApp(App[None]):
         self._tool_result_count = 0
         self._tool_result_keep_limit = self._load_tool_result_keep_limit()
         self._pane_active_counts: dict[TuiRegion, int] = {}
+        self._batch_render_depth = 0
+        self._batch_scroll_regions: set[TuiRegion] = set()
+        self._batch_runtime_dirty = False
         self._quick_panel_expanded = False
         self.title = "MakeCode"
         self.sub_title = "🎬 Act · Ready"
@@ -700,6 +723,30 @@ class MakeCodeTuiApp(App[None]):
             if self._is_log_at_bottom(log):
                 self._scroll_log_end_after_refresh(log)
 
+    def begin_batch_render(self) -> None:
+        self._batch_render_depth += 1
+
+    def end_batch_render(self) -> None:
+        if self._batch_render_depth == 0:
+            return
+        self._batch_render_depth -= 1
+        if self._batch_render_depth > 0:
+            return
+        for region in self._batch_scroll_regions:
+            log = self._logs.get(region)
+            if log is not None:
+                self._scroll_log_end_after_refresh(log)
+        self._batch_scroll_regions.clear()
+        if self._batch_runtime_dirty:
+            self._update_runtime_info()
+            self._batch_runtime_dirty = False
+
+    def _mark_runtime_dirty(self) -> None:
+        if self._batch_render_depth > 0:
+            self._batch_runtime_dirty = True
+        else:
+            self._update_runtime_info()
+
     def handle_tui_event(self, event: TuiEvent) -> None:
         if event.region == TuiRegion.STATUS:
             self._runtime_info = str(event.payload)
@@ -717,7 +764,10 @@ class MakeCodeTuiApp(App[None]):
             should_scroll_end = self._is_log_at_bottom(log)
             self._update_tail(event.region, event.payload)
             if should_scroll_end:
-                self._scroll_log_end_after_refresh(log)
+                if self._batch_render_depth > 0:
+                    self._batch_scroll_regions.add(event.region)
+                else:
+                    self._scroll_log_end_after_refresh(log)
             return
         if event.clear:
             log.clear()
@@ -734,16 +784,19 @@ class MakeCodeTuiApp(App[None]):
             self._tool_result_count += event.tool_result_delta
             self._update_tools_title()
         if event.region == TuiRegion.CONTENT and event.payload == "":
-            self._update_runtime_info()
+            self._mark_runtime_dirty()
             return
         if event.payload is not None and event.region in {TuiRegion.CONTENT, TuiRegion.REASONING, TuiRegion.TOOLS, TuiRegion.BACKGROUND, TuiRegion.SUB_AGENT}:
             should_scroll_end = self._is_log_at_bottom(log)
             log.write(event.payload, expand=True, shrink=True, scroll_end=should_scroll_end)
             if should_scroll_end:
-                self._scroll_log_end_after_refresh(log)
+                if self._batch_render_depth > 0:
+                    self._batch_scroll_regions.add(event.region)
+                else:
+                    self._scroll_log_end_after_refresh(log)
         elif event.payload is not None:
             log.write(event.payload)
-        self._update_runtime_info()
+        self._mark_runtime_dirty()
 
     def open_choice_modal(
         self,
@@ -1219,6 +1272,14 @@ def refresh_status() -> None:
 
 def refresh_tools_title() -> None:
     TUI_BRIDGE.refresh_tools_title()
+
+
+def begin_tui_batch_render() -> None:
+    TUI_BRIDGE.begin_batch_render()
+
+
+def end_tui_batch_render() -> None:
+    TUI_BRIDGE.end_batch_render()
 
 
 def choose_model_panel_tui(title: str, options: list[str]) -> str:
