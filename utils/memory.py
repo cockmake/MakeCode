@@ -376,6 +376,7 @@ def memory_agent_loop(
             if not memory_tool_calls:
                 break
 
+            memory_changed = False
             for tool_call in memory_tool_calls:
                 tool_name = tool_call.get("name")
                 tool_id = tool_call.get("id")
@@ -387,6 +388,12 @@ def memory_agent_loop(
                     try:
                         arguments = _parse_tool_arguments(tool_call.get("arguments"))
                         output = handler(**arguments)
+                        if tool_name == "AppendLongTermMemory" and isinstance(output, dict) and "error" not in output:
+                            memory_changed = True
+                        elif tool_name == "DeleteLongTermMemory" and isinstance(output, dict) and output.get("deleted"):
+                            memory_changed = True
+                        elif tool_name == "UpdateLongTermMemory" and isinstance(output, dict) and "error" not in output:
+                            memory_changed = True
                     except Exception as e:
                         output = f"执行 {tool_name} 出错：{e}。"
                     _render_tool_output(tool_name, output, identity=MEMORY_AGENT_IDENTITY)
@@ -397,11 +404,13 @@ def memory_agent_loop(
             current_round = round_index + 1
             remaining_rounds = max_iterations - current_round
             if remaining_rounds > 0:
+                latest_memory_content = render_long_term_memory_markdown() if memory_changed else ""
                 messages.append({
                     "role": "user",
                     "content": (
                         f"[auto generated] current_round={current_round} / max_round={max_iterations}. "
-                        f"Remaining rounds: {remaining_rounds}. "
+                        f"Remaining rounds: {remaining_rounds}.\n\n"
+                        f"{('Latest long-term memory state after successful tool calls:\n\n' + (latest_memory_content or '(empty)') + '\n\n') if memory_changed else ''}"
                         "The memory management loop will exit automatically when the max round is reached, "
                         "regardless of whether all memory operations are complete. "
                         "Please finish memory management as soon as possible."
