@@ -260,7 +260,7 @@ class CommandHandler:
             panel_items.append(Text.from_markup("\n\n".join(notices)))
         content = Group(*panel_items)
         if show_info_panel_tui("🔌 MCP 状态与工具", content) == "<cancelled>":
-            self.console.print(content)
+            self.console.print(content, tui_region=TuiRegion.TOOLS)
         return True
 
     def handle_mcp_restart(self) -> bool:
@@ -272,21 +272,23 @@ class CommandHandler:
         """处理 /mcp-switch 命令"""
         self.console.print(
             "\n[bold cyan]🔧 正在打开 MCP 开关面板...[/bold cyan]\n"
-            "[#aaaaaa]操作说明：用 ↑/↓ 选择服务，按 Space 切换状态，移动到底部后按 Enter 选择确认或取消。[/#aaaaaa]"
+            "[#aaaaaa]操作说明：用 ↑/↓ 选择服务，按 Space 切换状态，移动到底部后按 Enter 选择确认或取消。[/#aaaaaa]",
+            tui_region=TuiRegion.TOOLS,
         )
         try:
             server_switches = self.mcp_manager.list_server_switches()
         except FileNotFoundError as exc:
-            self.console.print(f"\n[bold yellow]⚠️ {exc}[/bold yellow]")
+            self.console.print(f"\n[bold yellow]⚠️ {exc}[/bold yellow]", tui_region=TuiRegion.TOOLS)
             return True
         except Exception as exc:
             log_error_traceback("commands handle_mcp_switch list", exc)
-            self.console.print(f"\n[bold red]❌ 读取 MCP 配置失败: {exc}[/bold red]")
+            self.console.print(f"\n[bold red]❌ 读取 MCP 配置失败: {exc}[/bold red]", tui_region=TuiRegion.TOOLS)
             return True
 
         if not server_switches:
             self.console.print(
-                f"\n[bold yellow]⚠️ MCP 服务为空，暂无可切换的服务。\n   配置路径: {self.mcp_manager.config_path}[/bold yellow]"
+                f"\n[bold yellow]⚠️ MCP 服务为空，暂无可切换的服务。\n   配置路径: {self.mcp_manager.config_path}[/bold yellow]",
+                tui_region=TuiRegion.TOOLS,
             )
             return True
 
@@ -295,13 +297,15 @@ class CommandHandler:
         except Exception as exc:
             log_error_traceback("commands handle_mcp_switch interactive", exc)
             self.console.print(
-                f"\n[bold red]❌ 打开 MCP 开关面板失败: {exc}[/bold red]"
+                f"\n[bold red]❌ 打开 MCP 开关面板失败: {exc}[/bold red]",
+                tui_region=TuiRegion.TOOLS,
             )
             return True
 
         if switch_result == "empty" or switch_result.get("action") == "cancel":
             self.console.print(
-                "\n[bold yellow]↩️ 已取消本次 MCP 开关修改，配置文件未保存，运行中的服务状态保持不变。[/bold yellow]"
+                "\n[bold yellow]↩️ 已取消本次 MCP 开关修改，配置文件未保存，运行中的服务状态保持不变。[/bold yellow]",
+                tui_region=TuiRegion.TOOLS,
             )
             return True
 
@@ -312,13 +316,15 @@ class CommandHandler:
         except Exception as exc:
             log_error_traceback("commands handle_mcp_switch apply", exc)
             self.console.print(
-                f"\n[bold red]❌ 应用 MCP 开关变更失败: {exc}[/bold red]"
+                f"\n[bold red]❌ 应用 MCP 开关变更失败: {exc}[/bold red]",
+                tui_region=TuiRegion.TOOLS,
             )
             return True
 
         if not apply_result.get("saved"):
             self.console.print(
-                f"\n[bold yellow]ℹ️ {apply_result.get('message', '没有检测到变更。')}[/bold yellow]"
+                f"\n[bold yellow]ℹ️ {apply_result.get('message', '没有检测到变更。')}[/bold yellow]",
+                tui_region=TuiRegion.TOOLS,
             )
             return True
 
@@ -351,7 +357,7 @@ class CommandHandler:
             summary_lines.append(
                 f"[bold red]部分服务切换失败:[/bold red] {failure_text}"
             )
-        self.console.print("\n".join(summary_lines))
+        self.console.print("\n".join(summary_lines), tui_region=TuiRegion.TOOLS)
         return True
 
     def handle_cmds(self) -> bool:
@@ -509,17 +515,17 @@ class CommandHandler:
         """处理 /models 命令"""
         model_manager = get_model_manager()
         if model_manager is None:
-            self.console.print("\n[bold red]❌ 模型管理器未初始化。[/bold red]")
+            self.console.print("\n[bold red]❌ 模型管理器未初始化。[/bold red]", tui_region=TuiRegion.TOOLS)
             return True
 
         result = manage_models_tui(model_manager)
         if result.startswith("selected:"):
             selected_text = result.removeprefix("selected:")
-            self.console.print(f"\n[bold green]✅ 当前模型已切换为: {selected_text}[/bold green]")
+            self.console.print(f"\n[bold green]✅ 当前模型已切换为: {selected_text}[/bold green]", tui_region=TuiRegion.TOOLS)
 
         current_model = model_manager.get_current_model()
         current_text = current_model.get_display_text() if current_model else "未选择"
-        self.console.print(f"\n[bold cyan]已退出模型面板，当前模型：[/bold cyan][bold green]{current_text}[/bold green]")
+        self.console.print(f"\n[bold cyan]已退出模型面板，当前模型：[/bold cyan][bold green]{current_text}[/bold green]", tui_region=TuiRegion.TOOLS)
         return True
 
     def handle_layout(self) -> bool:
@@ -529,7 +535,8 @@ class CommandHandler:
             self.console.print(
                 "\n[bold green]✅ Layout 已应用：[/bold green]"
                 f"左侧 Content/Tools = {result['content']}/{result['tools']}；"
-                f"右侧 Reasoning/Background/Sub-Agent = {result['reasoning']}/{result['background']}/{result['sub_agent']}"
+                f"右侧 Reasoning/Background/Sub-Agent = {result['reasoning']}/{result['background']}/{result['sub_agent']}",
+                tui_region=TuiRegion.TOOLS,
             )
         return True
 
@@ -648,7 +655,7 @@ class CommandHandler:
     def handle_memory_config(self, query: str) -> bool:
         """处理 /memory-config 命令"""
         if query.strip() != "/memory-config":
-            self.console.print("\n[bold yellow]用法：/memory-config[/bold yellow]")
+            self.console.print("\n[bold yellow]用法：/memory-config[/bold yellow]", tui_region=TuiRegion.TOOLS)
             return True
 
         current_values = {
@@ -657,7 +664,7 @@ class CommandHandler:
         }
         result = manage_memory_config_tui(current_values)
         if result == "<cancelled>":
-            self.console.print("\n[#aaaaaa]已取消记忆配置修改。[/#aaaaaa]")
+            self.console.print("\n[#aaaaaa]已取消记忆配置修改。[/#aaaaaa]", tui_region=TuiRegion.TOOLS)
             return True
         if not isinstance(result, dict):
             return True
@@ -669,7 +676,8 @@ class CommandHandler:
             "\n[bold green]记忆配置已更新[/bold green]\n"
             f"  memory_size: {result['memory_size']} "
             f"[#aaaaaa](当前 active：{get_active_memory_count()})[/#aaaaaa]\n"
-            f"  keep_recent_tool_call: {result['keep_recent_tool_call']}"
+            f"  keep_recent_tool_call: {result['keep_recent_tool_call']}",
+            tui_region=TuiRegion.TOOLS,
         )
         return True
 
@@ -701,7 +709,8 @@ class CommandHandler:
         checkpoints = self.list_checkpoints()
         if not checkpoints:
             self.console.print(
-                "\n[bold yellow]📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]"
+                "\n[bold yellow]📂 没有找到任何历史对话记录 (No checkpoints found).[/bold yellow]",
+                tui_region=TuiRegion.TOOLS,
             )
             return history, current_checkpoint
 
@@ -715,7 +724,7 @@ class CommandHandler:
             selected_path = "abort"
 
         if selected_path == "abort":
-            self.console.print("[#aaaaaa]已取消加载。[/#aaaaaa]")
+            self.console.print("[#aaaaaa]已取消加载。[/#aaaaaa]", tui_region=TuiRegion.TOOLS)
             return history, current_checkpoint
 
         try:
@@ -741,21 +750,23 @@ class CommandHandler:
                 end_tui_batch_render()
 
             self.console.print(
-                f"\n[bold green]🚀 成功加载对话记录！当前上下文包含 {len(loaded)} 条消息。[/bold green]"
+                f"\n[bold green]🚀 成功加载对话记录！当前上下文包含 {len(loaded)} 条消息。[/bold green]",
+                tui_region=TuiRegion.TOOLS,
             )
             refresh_status()
             hitl_mod.SESSION_WHITELIST.clear()
             hitl_mod.PATH_WHITELIST.clear()
         except Exception as exc:
             log_error_traceback("commands handle_load error", exc)
-            self.console.print(f"\n[bold red]❌ 加载失败: {exc}[/bold red]")
+            self.console.print(f"\n[bold red]❌ 加载失败: {exc}[/bold red]", tui_region=TuiRegion.TOOLS)
             return history, current_checkpoint
 
         # 检查任务看板
         task_plans = list_task_plans()
         if task_plans:
             self.console.print(
-                "\n[bold cyan]📋 发现保存的任务看板 (Task Plans)，是否要加载？[/bold cyan]"
+                "\n[bold cyan]📋 发现保存的任务看板 (Task Plans)，是否要加载？[/bold cyan]",
+                tui_region=TuiRegion.TOOLS,
             )
 
             try:
@@ -771,7 +782,8 @@ class CommandHandler:
                 try:
                     plan_data = load_task_plan(Path(selected_task_path))
                     self.console.print(
-                        "[bold green]🚀 成功加载任务看板！[/bold green]"
+                        "[bold green]🚀 成功加载任务看板！[/bold green]",
+                        tui_region=TuiRegion.TOOLS,
                     )
 
                     has_incomplete = any(
@@ -783,7 +795,8 @@ class CommandHandler:
                         team_histories = list_team_histories()
                         if team_histories:
                             self.console.print(
-                                "\n[bold cyan]💡 发现子代理执行历史 (Team Histories)，是否要加载？[/bold cyan]"
+                                "\n[bold cyan]💡 发现子代理执行历史 (Team Histories)，是否要加载？[/bold cyan]",
+                                tui_region=TuiRegion.TOOLS,
                             )
 
                             try:
@@ -801,19 +814,22 @@ class CommandHandler:
                                 try:
                                     load_team_history(Path(selected_team_path))
                                     self.console.print(
-                                        "[bold green]✅ 成功加载子代理执行历史！[/bold green]"
+                                        "[bold green]✅ 成功加载子代理执行历史！[/bold green]",
+                                        tui_region=TuiRegion.TOOLS,
                                     )
                                 except Exception as exc:
                                     log_error_traceback(
                                         "commands handle_load team history error", exc
                                     )
                                     self.console.print(
-                                        f"[bold red]❌ 加载子代理执行历史失败: {exc}[/bold red]"
+                                        f"[bold red]❌ 加载子代理执行历史失败: {exc}[/bold red]",
+                                        tui_region=TuiRegion.TOOLS,
                                     )
                 except Exception as exc:
                     log_error_traceback("commands handle_load task plan error", exc)
                     self.console.print(
-                        f"\n[bold red]❌ 加载任务看板失败: {exc}[/bold red]"
+                        f"\n[bold red]❌ 加载任务看板失败: {exc}[/bold red]",
+                        tui_region=TuiRegion.TOOLS,
                     )
         return loaded, new_checkpoint
 
