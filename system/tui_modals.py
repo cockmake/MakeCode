@@ -800,7 +800,10 @@ class MemoryPanelModal(ModalScreen[list[str]]):
     def _reload_rows(self, selected_index: int | None = None) -> None:
         self._pending_delete_id = None
         self._pending_delete_index = None
-        self._memories = list(self._memory_provider.list_long_term_memories())
+        self._memories = sorted(
+            self._memory_provider.list_long_term_memories(),
+            key=lambda item: item.get("updated_at") or item.get("created_at") or "",
+        )
         self._reset_title()
         choice_list = self.query_one("#memory-list", ListView)
         choice_list.clear()
