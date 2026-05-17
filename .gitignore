@@ -19,7 +19,6 @@ nul
 htmlcov/
 cc.py
 RELEASE_LOG.md
-tests/test_ask_user.py
 # Build artifacts
 build/
 dist/
@@ -34,7 +33,7 @@ dist/
 # Playwright MCP
 .playwright-mcp/
 t.py
-tests
+tests/
 .github_token
 .ftp_config
 ts_cache/libs
