@@ -302,7 +302,10 @@ def list_long_term_memories() -> list[dict]:
 
 
 def render_long_term_memory_markdown(include_evidence: bool = True) -> str:
-    records = list_long_term_memories()
+    records = sorted(
+        list_long_term_memories(),
+        key=lambda record: record.get("updated_at") or record.get("created_at") or "",
+    )
     if not records:
         return ""
 

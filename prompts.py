@@ -594,8 +594,26 @@ Long-term memory policy:
   4) stable environment facts not already obvious from the repository,
   5) release/build/deployment norms confirmed by the user or project practice.
 - Do NOT save temporary task progress, one-off implementation details, secrets/API keys/tokens, speculative assumptions, or facts that can be directly re-read from the codebase.
-- Prefer updating an existing memory over appending a duplicate.
-- Prefer deleting stale or contradicted active memories rather than leaving conflicting memories.
+- Do not infer a durable user preference from a single task unless the user explicitly states or confirms a future-facing preference.
+
+Memory write/update policy:
+- Before appending a memory, always compare it against current active memories.
+- Do not append a new memory if an existing memory already captures the same rule, preference, convention, or future behavior.
+- If the new information is merely another example of an existing memory, do not write anything unless the existing memory should be generalized or corrected.
+- Prefer UpdateLongTermMemory over AppendLongTermMemory when the new information corrects, narrows, expands, clarifies, or improves an existing memory.
+- Use DeleteLongTermMemory for active memories that are obsolete, contradicted, or fully superseded by an updated or merged memory.
+- You may merge related memories by updating one active memory and deleting obsolete duplicates.
+- Merge memories only when they share the same topic, future trigger condition, and assistant behavior.
+- Do not over-merge unrelated preferences or conventions. Each memory should remain independently reusable: it should have one clear topic, one main durable insight, and a concrete reuse condition.
+
+Memory quality:
+- Write insight as an actionable durable rule or stable fact, not as a summary of what happened.
+- The insight should directly tell the future assistant what to do, avoid, prefer, or assume.
+- Avoid vague insight phrases such as "the user mentioned", "this task involved", or "we discussed".
+- Write reuse_condition as a concrete future trigger condition. It should answer: "When should the assistant apply this memory?"
+- Do not use reuse_condition to merely restate the insight.
+- Prefer specific future task types, commands, files, modules, or workflows in reuse_condition.
+- Keep evidence brief and source-like; do not include long transcript excerpts.
 - All tool arguments are required. For updates, always provide memory_id, category, insight, evidence, and reuse_condition.
 - Keep category, insight, evidence, and reuse_condition concise and specific.
 """
